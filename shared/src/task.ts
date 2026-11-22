@@ -16,6 +16,20 @@ export interface ActionDraft {
   body: string;
 }
 
+/** Where the fit check for a to-do stands. */
+export type ActionFitStatus = 'ready' | 'none' | 'error';
+
+/**
+ * The model's judgement of whether a connected tool really fits a to-do, cached on the task so
+ * rendering never calls the model. `kind` is set only when a connected tool fits.
+ */
+export interface ActionFit {
+  status: ActionFitStatus;
+  kind?: ActionKind;
+  /** One short plain-words reason, shown on the card. */
+  reason: string;
+}
+
 /** Lifecycle state of a task on the Shared Action Panel. */
 export type TaskStatus =
   | 'SUGGESTED'
@@ -83,6 +97,8 @@ export interface Task {
   draft?: ActionDraft;
   artifactUrl?: string;
   error?: string;
+  /** The cached result of checking which connected tool fits this to-do, if it has been checked. */
+  fit?: ActionFit;
   /**
    * True when the server restarted while this task was being worked on. It is set by the restore and cleared by the
    * next transition, so nothing retries it automatically: only the assignee tapping Retry does.
@@ -132,6 +148,15 @@ export const ACTION_KINDS: readonly ActionKind[] = [
   'calendar_event',
 ];
 
+/** The short tool name a person sees for each action kind. */
+export const ACTION_KIND_LABELS: Record<ActionKind, string> = {
+  gitea_issue: 'Gitea',
+  mattermost_post: 'Mattermost',
+  email: 'Email',
+  wiki_page: 'Wiki',
+  calendar_event: 'Calendar',
+};
+
 const TRANSITIONS: Record<TaskStatus, readonly TaskStatus[]> = {
   SUGGESTED: ['DISPATCHED', 'DISMISSED', 'SUPERSEDED'],
   DISMISSED: [],
@@ -170,6 +195,14 @@ export function isActionDraft(value: unknown): value is ActionDraft {
   return (
     isObject(value) && isString(value.target) && isString(value.subject) && isString(value.body)
   );
+}
+
+/** True when a value is a cached fit judgement with a valid status and, for ready, a known kind. */
+export function isActionFit(value: unknown): value is ActionFit {
+  if (!isObject(value) || typeof value.reason !== 'string') return false;
+  if (value.status === 'ready') return isActionKind(value.kind);
+  if (value.status === 'none' || value.status === 'error') return value.kind === undefined;
+  return false;
 }
 
 /** True when a value is a complete snapshot of the task a speaker volunteered for. */
@@ -212,6 +245,7 @@ export function isTask(value: unknown, scenario: Scenario): value is Task {
     (value.assignmentEvidence === undefined || isAssignmentEvidence(value.assignmentEvidence)) &&
     (value.mode === undefined || value.mode === 'ACTION_AGENT' || value.mode === 'MANUAL') &&
     (value.draft === undefined || isActionDraft(value.draft)) &&
+    (value.fit === undefined || isActionFit(value.fit)) &&
     (value.artifactUrl === undefined || isString(value.artifactUrl)) &&
     (value.error === undefined || isString(value.error)) &&
     (value.interrupted === undefined || typeof value.interrupted === 'boolean') &&

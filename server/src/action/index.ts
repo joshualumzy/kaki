@@ -3,6 +3,7 @@ import { llmFromEnv } from '../services/llm';
 import type { KakiModule } from '../core/modules';
 import { createCalendarModule } from './calendar';
 import { createEmailModule } from './email';
+import { createFitModule } from './fit';
 import { createGiteaModule } from './gitea';
 import { createMattermostModule } from './mattermost';
 import { missingActionEnv } from './tools';
@@ -29,6 +30,7 @@ export function logMissingActionConfig(env: NodeJS.ProcessEnv = process.env): vo
 export function createActionModules(): KakiModule[] {
   const llm = llmFromEnv();
   return [
+    createFitModule({ llm }),
     createGiteaModule({ llm }),
     createMattermostModule({ llm }),
     createEmailModule({ llm }),

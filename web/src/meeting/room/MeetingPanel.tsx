@@ -422,6 +422,20 @@ export function MeetingPanel({
                 <span>
                   Owner: {assigneeLabel(scenario, task.assignee ?? task.suggestedAssignee, viewer)}
                 </span>
+                {(() => {
+                  const owner = task.assignee ?? task.suggestedAssignee;
+                  const seat = viewer.seatName?.trim().toLowerCase();
+                  const offersAction =
+                    task.fit?.status === 'ready' || (task.fit === undefined && task.actionKind !== undefined);
+                  if (!offersAction || seat === undefined || owner === undefined || seat === owner.trim().toLowerCase()) {
+                    return null;
+                  }
+                  return (
+                    <small className="kd-task-owner-note">
+                      Only {assigneeLabel(scenario, owner, viewer)} can send this.
+                    </small>
+                  );
+                })()}
                 {task.context.trim() !== '' && <small>{task.context}</small>}
                 {task.decisionSource !== undefined && (
                   <small className="kd-task-decision">Accepted decision: {task.decisionSource}</small>

@@ -8,6 +8,7 @@ import {
   isTask,
   isTaskPurpose,
   type ActionDraft,
+  type ActionFit,
   type AssignmentEvidence,
   type KakiCommand,
   type KakiEvent,
@@ -45,6 +46,11 @@ export interface TaskStore {
   suggestWithPurpose(input: SuggestInput, purpose: TaskPurpose): Task;
   /** Replace an early suggestion with the visitor's final wording before dispatch; its purpose never changes. */
   reviseSuggested(id: string, input: SuggestInput, sourceSeconds?: number): Task;
+  /**
+   * Cache the model's fit judgement on a task that has not been accepted for an action yet. Returns
+   * false when the task moved on (so a slow check never overwrites a later decision).
+   */
+  setActionFit(id: string, fit: ActionFit, expectedUpdatedAt?: string): boolean;
   supersede(id: string): Task;
   get(id: string): Task | undefined;
   list(): Task[];
@@ -242,17 +248,41 @@ export function createTaskStore({
     const { cardId: _cardId, ...revision } = input;
     // Where the card came from is fixed once known: a retried settlement must not move it later in the meeting.
     const source = current.sourceSeconds ?? sourceSeconds;
-    // A revision may change the work, never the server-owned purpose.
+    // A revision may change the work, never the server-owned purpose. A fit judgement was about
+    // the old work, so it must be checked again.
     const revised: Task = {
       ...base,
       ...revision,
       ...(source === undefined ? {} : { sourceSeconds: source }),
       updatedAt: new Date().toISOString(),
     };
+    delete revised.fit;
     tasks.set(id, revised);
     publishTask(revised);
     notifyChange(revised, current.status);
     return revised;
+  }
+
+  function setActionFit(id: string, fit: ActionFit, expectedUpdatedAt?: string): boolean {
+    const current = tasks.get(id);
+    if (current === undefined) return false;
+    if (expectedUpdatedAt !== undefined && current.updatedAt !== expectedUpdatedAt) return false;
+    // Only a to-do that has not been accepted for an action may gain or lose its action.
+    if (current.status !== 'SUGGESTED' && current.status !== 'DISPATCHED') return false;
+    const next: Task = {
+      ...current,
+      fit,
+      updatedAt: new Date().toISOString(),
+    };
+    if (fit.kind === undefined) {
+      delete next.actionKind;
+    } else {
+      next.actionKind = fit.kind;
+    }
+    tasks.set(id, next);
+    publishTask(next);
+    notifyChange(next, current.status);
+    return true;
   }
 
   function requireScreen(sender: ClientAudience): void {
@@ -345,6 +375,7 @@ export function createTaskStore({
     suggest,
     suggestWithPurpose,
     reviseSuggested,
+    setActionFit,
     supersede: (id) => transition(id, 'SUPERSEDED'),
     get: (id) => tasks.get(id),
     list: () => [...tasks.values()],
@@ -358,6 +389,7 @@ export function createTaskStore({
         ...task,
         ...(task.declinedBy === undefined ? {} : { declinedBy: [...task.declinedBy] }),
         ...(task.draft === undefined ? {} : { draft: { ...task.draft } }),
+        ...(task.fit === undefined ? {} : { fit: { ...task.fit } }),
         ...(task.assignmentEvidence === undefined
           ? {}
           : { assignmentEvidence: copyAssignmentEvidence(task.assignmentEvidence) }),

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { assigneeLabel, type KakiCommand, type Scenario, type Task } from '@kaki/shared';
+import { ACTION_KIND_LABELS, assigneeLabel, type KakiCommand, type Scenario, type Task } from '@kaki/shared';
 import { useKaki, useScenario, type KakiRejection } from '../../kaki';
 import { Avatar, artifactLinkText, Button, Card, RejectionBanner, StatusPill, resolveArtifactUrl, taskStatusText } from '../../ui';
 import './activeRoleCards.css';
@@ -348,6 +348,14 @@ function TaskCardBody({
     send(command);
   }
 
+  const owner = task.assignee ?? task.suggestedAssignee;
+  const viewerSeat = viewer?.seatName?.trim().toLowerCase();
+  const viewerIsNotOwner =
+    viewerSeat !== undefined && owner !== undefined && viewerSeat !== owner.trim().toLowerCase();
+  const fit = task.fit;
+  const fitTool = fit?.status === 'ready' && task.actionKind !== undefined ? ACTION_KIND_LABELS[task.actionKind] : undefined;
+  const fitUnavailable = fit?.status === 'error';
+
   const stepIndex =
     task.status === 'COMPLETED' || task.status === 'SYNCED'
       ? 3
@@ -400,7 +408,9 @@ function TaskCardBody({
       )}
       {task.error === undefined ? null : (
         <p className="task-error" role="alert">
-          {task.error}
+          {task.status === 'FAILED' && !/^not sent:/i.test(task.error) && /timed out/i.test(task.error)
+            ? `Not sent: ${task.error}`
+            : task.error}
         </p>
       )}
 
@@ -417,30 +427,53 @@ function TaskCardBody({
 
       {task.status === 'DISPATCHED' ? (
         <div className="task-actions" aria-busy={pending}>
-          {task.actionKind === undefined ? null : (
-            <Button
-              disabled={pending}
-              onClick={() =>
-                submit({ type: 'CLAIM_TASK', taskId: task.id, mode: 'ACTION_AGENT' })
-              }
-            >
-              Accept · Let Kaki do it
-            </Button>
+          {viewerIsNotOwner ? (
+            <p className="task-meta task-only-owner" role="note">
+              Only {assigneeLabel(scenario, owner, viewer)} can send this.
+            </p>
+          ) : (
+            <>
+              {fitUnavailable ? (
+                <p className="task-error" role="alert">
+                  {fit?.reason}
+                </p>
+              ) : null}
+              {fitTool === undefined ? null : (
+                <Button
+                  disabled={pending}
+                  onClick={() =>
+                    submit({ type: 'CLAIM_TASK', taskId: task.id, mode: 'ACTION_AGENT' })
+                  }
+                >
+                  Do it for me ({fitTool})
+                </Button>
+              )}
+              {fit === undefined && task.actionKind !== undefined ? (
+                <Button
+                  disabled={pending}
+                  onClick={() =>
+                    submit({ type: 'CLAIM_TASK', taskId: task.id, mode: 'ACTION_AGENT' })
+                  }
+                >
+                  Accept · Let Kaki do it
+                </Button>
+              ) : null}
+              <Button
+                variant="ghost"
+                disabled={pending}
+                onClick={() => submit({ type: 'CLAIM_TASK', taskId: task.id, mode: 'MANUAL' })}
+              >
+                Accept · I&apos;ll do it
+              </Button>
+              <Button
+                variant="ghost"
+                disabled={pending}
+                onClick={() => submit({ type: 'DECLINE_TASK', taskId: task.id })}
+              >
+                Decline
+              </Button>
+            </>
           )}
-          <Button
-            variant="ghost"
-            disabled={pending}
-            onClick={() => submit({ type: 'CLAIM_TASK', taskId: task.id, mode: 'MANUAL' })}
-          >
-            Accept · I&apos;ll do it
-          </Button>
-          <Button
-            variant="ghost"
-            disabled={pending}
-            onClick={() => submit({ type: 'DECLINE_TASK', taskId: task.id })}
-          >
-            Decline
-          </Button>
         </div>
       ) : null}
 

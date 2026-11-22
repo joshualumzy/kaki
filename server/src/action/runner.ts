@@ -45,6 +45,12 @@ export function plainReason(error: unknown, service: string): string {
   return raw;
 }
 
+/** A failed send keeps a plain state on the card; a timeout says plainly that nothing was sent. */
+export function sentFailureMessage(error: unknown): string {
+  const message = errorMessage(error);
+  return /\btimed out\b/i.test(message) ? `Not sent: ${message}` : message;
+}
+
 /** Facts for the task's recorded agenda item, without guessing from task words. */
 export function factsForTask(
   task: Pick<Task, 'agendaItemTitle'>,
@@ -221,7 +227,7 @@ export function createActionModule({ name, kind, unconfiguredReason, draft, run 
           try {
             artifactUrl = await run(runnable, shutdown.signal, activeScenario(), visitorFor(task), tools);
           } catch (error) {
-            fail(task, errorMessage(error));
+            fail(task, sentFailureMessage(error));
             return;
           }
           if (!isCurrent(task)) return;
