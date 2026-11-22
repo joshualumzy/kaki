@@ -153,7 +153,11 @@ describe('Google sign-in', () => {
   it('creates a user, their personal workspace and a session, then redirects to next', async () => {
     const { base, store } = await buildApp();
     const signIn = await startSignIn(base, '/m/abc');
-    const tokenClaims = claims({ sub: 'google-happy', email: 'happy@example.com' });
+    const tokenClaims = claims({
+      sub: 'google-happy',
+      email: 'happy@example.com',
+      picture: 'https://photos.example/ada.jpg',
+    });
     issuedToken = token(tokenClaims);
 
     const response = await callback(base, signIn.state, signIn.cookie);
@@ -172,6 +176,7 @@ describe('Google sign-in', () => {
 
     const user = await store.findUserByGoogleSub('google-happy');
     expect(user).toBeDefined();
+    expect(user?.picture).toBe('https://photos.example/ada.jpg');
     const workspaces = await store.listWorkspacesForUser(user!.id);
     expect(workspaces).toHaveLength(1);
     expect(workspaces[0]).toMatchObject({

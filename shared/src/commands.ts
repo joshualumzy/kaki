@@ -33,6 +33,11 @@ export type KakiCommand =
    */
   | { type: 'SET_PAUSED'; paused: boolean }
   /**
+   * A person in a real meeting takes the room off the record, or brings it back on. While off the
+   * record nothing is transcribed, analysed or stored; anyone in the meeting may resume.
+   */
+  | { type: 'SET_OFF_THE_RECORD'; on: boolean }
+  /**
    * A person's finalized speech or typed line, sent straight to the server so the transcript is
    * written even when no AI runner is present. The speaker comes from the sending socket's seat;
    * `clientLineId` lets a retry be recognised as the same line. `meetingId` (and, for a seat, the
@@ -63,6 +68,7 @@ const COMMAND_TYPES: readonly KakiCommand['type'][] = [
   'NEXT_AGENDA_ITEM',
   'SET_HOST_MODE',
   'SET_PAUSED',
+  'SET_OFF_THE_RECORD',
   'HUMAN_LINE',
 ];
 
@@ -76,6 +82,7 @@ export function isKakiCommand(value: unknown, scenario: Scenario): value is Kaki
   if (value.type === 'NEXT_AGENDA_ITEM' || value.type === 'NEW_MEETING') return true;
   if (value.type === 'SET_HOST_MODE') return typeof value.human === 'boolean';
   if (value.type === 'SET_PAUSED') return typeof value.paused === 'boolean';
+  if (value.type === 'SET_OFF_THE_RECORD') return typeof value.on === 'boolean';
   if (value.type === 'HUMAN_LINE') {
     return (
       isString(value.text) &&

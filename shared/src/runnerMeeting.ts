@@ -1,5 +1,6 @@
 import { isNonEmptyString, isObject } from './guards';
 import type { AgendaItem, NpcProfile, Scenario, ScenarioRole } from './scenarioTypes';
+import type { OffTheRecordState } from './meetingState';
 import type { Role } from './roles';
 
 /**
@@ -63,6 +64,8 @@ export interface RunnerMeetingSnapshot {
   paused: boolean;
   /** Why the meeting is paused, so a returning person only resumes an empty-room pause. */
   pauseKind?: 'empty-room' | 'person';
+  /** Set while the room is off the record: the listener must stop sending audio to speech recognition. */
+  offTheRecord?: OffTheRecordState | null;
   /** Fences stale reads: a snapshot is only newer within the same epoch when its seq is higher. */
   version: RunnerSnapshotVersion;
 }
@@ -144,6 +147,11 @@ export function isRunnerMeetingSnapshot(value: unknown): value is RunnerMeetingS
     typeof value.hostIsHuman === 'boolean' &&
     typeof value.paused === 'boolean' &&
     (value.pauseKind === undefined || value.pauseKind === 'empty-room' || value.pauseKind === 'person') &&
+    (value.offTheRecord === undefined ||
+      value.offTheRecord === null ||
+      (isObject(value.offTheRecord) &&
+        isNonEmptyString((value.offTheRecord as { since?: unknown }).since) &&
+        Number.isFinite(Date.parse((value.offTheRecord as { since: string }).since)))) &&
     isObject(value.version) &&
     isRunnerEpoch(value.version.epoch) &&
     isAgendaIndex(value.version.seq)

@@ -17,6 +17,8 @@ interface RunnerStateInput {
   paused?: boolean | undefined;
   /** Why the meeting is paused, when it is (the agenda clock's). */
   pauseKind?: RunnerMeetingSnapshot['pauseKind'];
+  /** Set while the room is off the record, so the listener stops sending audio to speech recognition. */
+  offTheRecordSince?: string | undefined;
 }
 
 /** True when a real person holds the host's seat right now. The roster, not the runner, decides. */
@@ -75,5 +77,6 @@ export function buildRunnerMeetingSnapshot(input: RunnerStateInput): Omit<Runner
     hostIsHuman: host.seat !== undefined && input.session.holders().some((holder) => holder.seat === host.seat),
     paused: input.paused === true,
     ...(input.pauseKind === undefined ? {} : { pauseKind: input.pauseKind }),
+    offTheRecord: input.offTheRecordSince === undefined ? null : { since: input.offTheRecordSince },
   };
 }

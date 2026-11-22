@@ -20,6 +20,7 @@ import {
   shuffleAgendaForRole,
   type MeetingMemoryEntry,
   type MeetingSetup,
+  type MeetingStateSnapshot,
   type RunnerMeetingSnapshot,
   type Scenario,
 } from '@kaki/shared';
@@ -53,6 +54,12 @@ import {
   type RoomRoster,
 } from '../services/livekit';
 import { PRACTICE_COOKIE, type RequestContext, type RoutedRoute, type StartOutcome } from '../http/routeCall';
+
+/** Whether the AI runner's control socket is connected; shared by every meeting instance. */
+export interface RunnerPresence {
+  connected(): boolean;
+  subscribe(handler: (connected: boolean) => void): () => void;
+}
 
 /** One meeting's live state: its own session, hub, task list, room and agenda clock. */
 export interface MeetingInstance {
@@ -119,6 +126,12 @@ export interface MeetingInstanceDeps {
   meetingPause?: MeetingPauseControl;
   speechRecognition: 'server' | 'browser';
   idle: IdleTracker;
+  /** The owner's display name, for "Waiting for <owner> to start". */
+  ownerName?: string;
+  /** The runner's control channel, so a real meeting can say loudly when Kaki cannot hear. */
+  runnerPresence?: RunnerPresence;
+  /** Record that this meeting's row is over; the legacy practice instance has no row. */
+  onEnded?: (endedAt: string) => Promise<void>;
 }
 
 /** Create one meeting: its session, hub, rooms, tasks, routes and modules. */
@@ -153,6 +166,9 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
     meetingPause,
     speechRecognition,
     idle,
+    ownerName,
+    runnerPresence,
+    onEnded,
   } = deps;
   const runnerKind: 'real' | 'practice' = legacy ? 'practice' : 'real';
   let lastActivity = Date.now();
@@ -694,6 +710,8 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
     if (meetingId !== undefined && meetingId !== meeting.id) {
       throw new CommandError('That line belongs to a different meeting');
     }
+    // Off the record: the room's words are not transcribed, analysed or stored.
+    if (session.offTheRecordSince() !== undefined) return;
     const phase = session.phase();
     if (phase !== 'running' && phase !== 'starting') {
       throw new CommandError('The meeting is not running');
@@ -787,12 +805,68 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
     });
   });
 
+  hub.onCommand((command, sender) => {
+    if (command.type !== 'SET_OFF_THE_RECORD') return;
+    // Off the record belongs to a real meeting only: the Kopitiam legacy instance keeps its flow.
+    if (runnerKind !== 'real' || session.kind() !== 'real') {
+      throw new CommandError('Off the record is only available in a real meeting');
+    }
+    // Any person in the meeting may take it off the record or bring it back; the runner and the
+    // service channel are not people and may not speak for the room.
+    if (sender.kind === 'service' || sender.kind === 'lifecycle') {
+      throw new CommandError('Only a person in this meeting can change off the record');
+    }
+    if (command.on === (session.offTheRecordSince() !== undefined)) return;
+    session.setOffTheRecord(command.on);
+    publishMeetingState();
+    publishRunnerState();
+    persistence?.scheduleSave();
+  });
+
   // The AI runner reads exactly this snapshot, through the service-only endpoint and RUNNER_STATE.
   // Its version moves only when a field a runner can see changes, so a reconnect can fence old reads.
   // The version is a server-incarnation fence: `epoch` is made once for this process, ordered by the
   // boot time and identified by a random id, and `seq` only increases across every meeting. A
   // restarted server therefore starts a newer epoch instead of having to continue a persisted
   // revision it may never have managed to save.
+  /** The latest quiet agenda note for a real meeting; null until the clock raises one. */
+  let meetingCue: MeetingStateSnapshot['cue'] = null;
+  /** A real meeting cannot be heard while the runner's control socket is away: say so loudly. */
+  const notesPausedMessage = "Kaki can't hear the room right now";
+  function runnerIsDown(): boolean {
+    return runnerKind === 'real' && runnerPresence !== undefined && !runnerPresence.connected();
+  }
+  function buildMeetingState(): MeetingStateSnapshot {
+    return {
+      meetingId: meeting.id,
+      phase: session.phase(),
+      ...(session.kind() === undefined ? {} : { kind: session.kind() }),
+      started: session.phase() === 'running',
+      waitingForOwner: runnerKind === 'real' && session.kind() === 'real' && session.phase() === 'lobby',
+      ownerName: ownerName ?? null,
+      offTheRecord:
+        session.offTheRecordSince() === undefined ? null : { since: session.offTheRecordSince()! },
+      participants: session.holders().map((holder) => ({
+        name: holder.name,
+        displayName: holder.displayName ?? holder.name,
+        seat: holder.seat,
+        photoUrl: holder.photoUrl ?? null,
+      })),
+      notesPaused: runnerIsDown() ? notesPausedMessage : null,
+      cue: meetingCue,
+    };
+  }
+  /** Broadcast the one state every participant reads; retained so a late joiner sees it at once. */
+  function publishMeetingState(): void {
+    // The legacy practice instance keeps its own flow and takes no part in real-meeting state.
+    if (runnerKind !== 'real') return;
+    hub.publish(
+      { type: 'MEETING_STATE', audience: { kind: 'all' }, payload: buildMeetingState() },
+      { retainKey: 'meeting:state' },
+    );
+  }
+  const stopRunnerPresence = runnerPresence?.subscribe(() => publishMeetingState());
+
   const runnerEpoch = { startedAt: Date.now(), id: randomUUID() };
   let runnerStateSeq = 0;
   let runnerStateSignature: string | undefined;
@@ -804,6 +878,7 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
       agendaIndex: meetingAgendaIndex?.(),
       paused: meetingPaused?.(),
       pauseKind: meetingPause?.kind(),
+      offTheRecordSince: session.offTheRecordSince(),
     });
     const signature = JSON.stringify(state);
     let version = { epoch: runnerEpoch, seq: runnerStateSeq };
@@ -820,16 +895,32 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
   }
   // Start, agenda moves and pause/resume all surface as these events; a seat change is published
   // by whoever changes the roster, because it has no event of its own.
+  let endedRecordedFor: string | undefined;
   hub.subscribe((event) => {
     if (event.type === 'MEETING_RESET') {
       // A reset always yields a newer snapshot, even when it keeps the meeting id and every visible
       // field (the runner cleared its copy and must be able to adopt the republished version).
       runnerStateSignature = undefined;
+      meetingCue = null;
       publishRunnerState();
+      publishMeetingState();
       return;
     }
-    if (event.type === 'MEETING_STARTED' || event.type === 'MEETING_RECORD_UPDATED') {
+    if (event.type === 'MEETING_STARTED') {
       publishRunnerState();
+      publishMeetingState();
+    } else if (event.type === 'MEETING_RECORD_UPDATED') {
+      publishRunnerState();
+      if (event.payload.ended === true) publishMeetingState();
+    }
+    if (event.type === 'MEETING_RECORD_UPDATED' && event.payload.ended === true && onEnded !== undefined) {
+      // The meeting row is over for everyone, not merely this process's session.
+      if (endedRecordedFor !== meeting.id) {
+        endedRecordedFor = meeting.id;
+        void onEnded?.(new Date().toISOString()).catch((error: unknown) =>
+          console.error('kaki meetings: could not mark the meeting ended', error),
+        );
+      }
     }
   });
   // Server-side recognition lives in the runner, so the screen must know when that service is gone.
@@ -887,6 +978,7 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
         if (reservations.active(roster.map((person) => person.name)).length > 0) return;
         session.pruneHolders();
         publishRunnerState();
+        publishMeetingState();
         // An ended meeting that is verified empty has nobody left to review the minutes.
         if (session.phase() === 'ended') session.finishReview();
         if (session.phase() === 'running') session.abandon();
@@ -1459,6 +1551,13 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
       ...(meetingAgendaIndex === undefined ? {} : { meetingAgendaIndex }),
       ...(meetingPaused === undefined ? {} : { meetingPaused }),
       runnerStateChanged: () => publishRunnerState(),
+      meetingStateChanged: () => publishMeetingState(),
+      meetingKind: () => session.kind(),
+      quietCue: (text: string) => {
+        meetingCue = { text, at: new Date().toISOString() };
+        publishMeetingState();
+      },
+      isOffTheRecord: () => session.offTheRecordSince() !== undefined,
       seating,
       visibleScenario,
       publicScenario,
@@ -1488,6 +1587,12 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
         serializeChange: (task) => admit(async () => task()),
         onReset: session.onReset,
         session,
+        // Host cues are quiet only on a real product instance; the legacy demo keeps its scripted voice.
+        meetingKind: () => (session.kind() === 'practice' ? 'practice' : runnerKind === 'real' ? 'real' : undefined),
+        quietCue: (text: string) => {
+          meetingCue = { text, at: new Date().toISOString() };
+          publishMeetingState();
+        },
         packFree,
         meetingDetails: () => session.snapshot(),
       });
@@ -1501,6 +1606,7 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
         }
       }
       closeRejoin();
+      stopRunnerPresence?.();
       hub.close();
       await persistence
         ?.flush()
@@ -1537,8 +1643,9 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
       { retainKey: 'meeting:started' },
     );
   }
-  // Keep the runner snapshot available to a runner that starts after the server (and before Start).
+  // Keep the runner snapshot and the participants' state available to anyone who connects late.
   publishRunnerState();
+  publishMeetingState();
 
   let disposed = false;
   const instance: MeetingInstance = {
@@ -1573,6 +1680,7 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
         }
       }
       closeRejoin();
+      stopRunnerPresence?.();
       hub.close();
       await persistence
         ?.flush()

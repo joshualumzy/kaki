@@ -34,6 +34,10 @@ export interface KakiContext {
   onReset?(hook: () => void): () => void;
   /** The session that owns meeting state, for modules that need more than reset and onReset. */
   session?: MeetingSession;
+  /** The journey this meeting runs: real or practice. Read it every time; a reset can clear it. */
+  meetingKind?(): 'real' | 'practice' | undefined;
+  /** A quiet note for the shared meeting state; real meetings have no spoken cues. */
+  quietCue?(text: string): void;
   /** The setup, code and seat holders the app server owns, saved alongside the meeting record. */
   meetingDetails?(): SavedMeetingDetails;
   /**

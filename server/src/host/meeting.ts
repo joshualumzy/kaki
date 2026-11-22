@@ -58,8 +58,12 @@ export function createMeetingModule({
       onReset,
       meetingDetails,
       session,
+      meetingKind,
+      quietCue,
     }: KakiContext) {
       const clock = sharedClock ?? createAgendaClock({ agenda: activeScenario().agenda, speed });
+      // A real meeting keeps Kaki silent: no spoken opening, cues or closing, only quiet state notes.
+      const realMeeting = (): boolean => meetingKind?.() === 'real';
       clock.setAgenda(activeScenario().agenda);
       const runSerialized = async <T>(task: () => Promise<T> | T): Promise<T> =>
         serializeChange === undefined ? await task() : await serializeChange(task);
@@ -147,6 +151,7 @@ export function createMeetingModule({
             ? () => humanHost
             : () => hostIsHumanFromSession(session, activeScenario()),
           holdUntilSettled: holdSuggestionsUntilSettled,
+          speaks: () => !realMeeting(),
           agendaIndex: () => clock.snapshot().agendaIndex });
 
       let lastSignature: string | undefined;
@@ -213,6 +218,8 @@ export function createMeetingModule({
         if (now.started || now.ended) return;
         clock.start();
         meetingStartedAt ??= startedAt ?? new Date().toISOString();
+        // A real meeting has no spoken welcome: the people are already in the room and Kaki stays quiet.
+        if (realMeeting()) return;
         // Retained so a screen that opens a moment after Start still shows the welcome.
         hub.publish(
           {
@@ -242,6 +249,10 @@ export function createMeetingModule({
 
       clock.onOverrun((index, item) => {
         console.log(`kaki host: agenda item ${index} "${item.title}" is over its ${item.minutes} minutes`);
+        if (realMeeting()) {
+          quietCue?.(`Over time on ${spokenAgendaName(activeScenario(), item.title)}`);
+          return;
+        }
         hub.publish({
           type: 'HOST_SPEECH_TRIGGERED',
           audience: { kind: 'screen' },
@@ -255,11 +266,27 @@ export function createMeetingModule({
       // On a restore the room already knows the current item; do not announce it again.
       let announcedAgendaIndex = saved?.state.clock.agendaIndex ?? -1;
 
+      // A real meeting's one quiet clock cue: five minutes before an item's time is up.
+      const FIVE_MINUTES_SECONDS = 5 * 60;
+      const warnedItems = new Set<number>();
+      function warnFiveMinutesLeft(): void {
+        if (!realMeeting()) return;
+        const now = clock.snapshot();
+        if (!now.started || now.ended || now.paused === true) return;
+        const item = clock.agenda()[now.agendaIndex];
+        if (item === undefined || item.minutes * 60 <= FIVE_MINUTES_SECONDS) return;
+        const remaining = item.minutes * 60 - now.itemElapsedSeconds;
+        if (remaining > FIVE_MINUTES_SECONDS || warnedItems.has(now.agendaIndex)) return;
+        warnedItems.add(now.agendaIndex);
+        quietCue?.(`5 min left on ${spokenAgendaName(activeScenario(), item.title)}`);
+      }
+
       let ticker: ReturnType<typeof setInterval> | undefined;
       function startTicker(): void {
         ticker ??= setInterval(() => {
           guarded('the agenda tick', () => {
             clock.tick();
+            warnFiveMinutesLeft();
             publishRecord();
           });
         }, TICK_MS);
@@ -299,6 +326,7 @@ export function createMeetingModule({
         lastSignature = undefined;
         lastPublishedAt = 0;
         announcedAgendaIndex = -1;
+        warnedItems.clear();
         startTicker();
       });
 
@@ -321,7 +349,7 @@ export function createMeetingModule({
         if (currentAgendaIndex > 0 && currentAgendaIndex !== announcedAgendaIndex) {
           announcedAgendaIndex = currentAgendaIndex;
           const item = activeScenario().agenda[currentAgendaIndex];
-          if (item) {
+          if (item && !realMeeting()) {
             hub.publish({
               type: 'HOST_SPEECH_TRIGGERED',
               audience: { kind: 'screen' },
@@ -398,14 +426,16 @@ export function createMeetingModule({
         // One last record so screens show the frozen clock, then a final notetaker pass for the last lines.
         lastSignature = undefined;
         guarded('publishing the record', publishRecord);
-        hub.publish({
-          type: 'HOST_SPEECH_TRIGGERED',
-          audience: { kind: 'screen' },
-          payload: {
-            kind: 'CLOSING',
-            text: `Alright team, that wraps up our huddle. Thanks everyone, let's get back to the floor.`,
-          },
-        });
+        if (!realMeeting()) {
+          hub.publish({
+            type: 'HOST_SPEECH_TRIGGERED',
+            audience: { kind: 'screen' },
+            payload: {
+              kind: 'CLOSING',
+              text: `Alright team, that wraps up our huddle. Thanks everyone, let's get back to the floor.`,
+            },
+          });
+        }
         void runNotetaker();
       }
 

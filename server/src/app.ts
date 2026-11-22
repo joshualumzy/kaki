@@ -265,14 +265,30 @@ function createRunnerControl({
 }) {
   const wss = new WebSocketServer({ noServer: true });
   const sockets = new Set<WebSocket>();
+  const presenceHandlers = new Set<(connected: boolean) => void>();
+  let wasConnected = false;
+  function notifyPresence(): void {
+    const connected = sockets.size > 0;
+    if (connected === wasConnected) return;
+    wasConnected = connected;
+    for (const handler of presenceHandlers) {
+      try {
+        handler(connected);
+      } catch (error) {
+        console.error('kaki meetings: a runner-presence handler failed', error);
+      }
+    }
+  }
   wss.on('connection', (socket) => {
     sockets.add(socket);
+    notifyPresence();
     // A (re)connecting runner gets every open meeting as its list.
     for (const meeting of openMeetings()) {
       socket.send(JSON.stringify({ type: 'MEETING_OPENED', ...meeting }));
     }
     const forget = (): void => {
       sockets.delete(socket);
+      notifyPresence();
     };
     socket.on('close', forget);
     socket.on('error', (error) => {
@@ -311,7 +327,17 @@ function createRunnerControl({
     close(): void {
       for (const socket of sockets) socket.terminate();
       sockets.clear();
+      notifyPresence();
       wss.close();
+    },
+    presence: {
+      connected: () => sockets.size > 0,
+      subscribe(handler: (connected: boolean) => void): () => void {
+        presenceHandlers.add(handler);
+        return () => {
+          presenceHandlers.delete(handler);
+        };
+      },
     },
   };
 }
@@ -425,6 +451,14 @@ export async function createApp({
     });
   }
 
+  // The control channel exists before any instance, so each meeting can say loudly when its
+  // runner is away. Its listener reads the registry lazily, after the registry is built.
+  const runnerControl = createRunnerControl({
+    serviceToken,
+    authOn: auth !== undefined,
+    openMeetings: () => registry.openMeetings(),
+  });
+
   const legacy = await createMeetingInstance({
     id: LEGACY_MEETING_ID,
     workspaceId: SAMPLE_WORKSPACE_ID,
@@ -455,14 +489,7 @@ export async function createApp({
     ...(meetingPause === undefined ? {} : { meetingPause }),
     speechRecognition,
     idle,
-  });
-
-  // The control channel is created before the registry, but its listener runs only after both
-  // exist, so reading the registry lazily is safe.
-  const runnerControl = createRunnerControl({
-    serviceToken,
-    authOn: auth !== undefined,
-    openMeetings: () => registry.openMeetings(),
+    runnerPresence: runnerControl.presence,
   });
 
   async function buildRowInstance(
@@ -470,6 +497,10 @@ export async function createApp({
     rowPersistence: MeetingPersistence | undefined,
   ): Promise<MeetingInstance> {
     const built = meetingModules === undefined ? createMeetingModules(row, scenario, toolSource) : meetingModules(row);
+    const owner =
+      auth !== undefined && row.ownerUserId !== null
+        ? await auth.store.findUserById(row.ownerUserId).catch(() => undefined)
+        : undefined;
     return createMeetingInstance({
       id: row.id,
       workspaceId: row.workspaceId,
@@ -503,6 +534,11 @@ export async function createApp({
       meetingPause: built.meetingPause,
       speechRecognition,
       idle,
+      ...(owner === undefined ? {} : { ownerName: owner.name ?? owner.email }),
+      runnerPresence: runnerControl.presence,
+      onEnded: async (endedAt: string) => {
+        await meetings.markEnded?.(row.id, endedAt);
+      },
     });
   }
 

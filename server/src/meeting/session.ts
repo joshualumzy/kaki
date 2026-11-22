@@ -1,4 +1,10 @@
-import { parseScenario, type MeetingMemoryEntry, type MeetingSetup, type Scenario } from '@kaki/shared';
+import {
+  parseScenario,
+  type MeetingMemoryEntry,
+  type MeetingSetup,
+  type OffTheRecordSpan,
+  type Scenario,
+} from '@kaki/shared';
 import type { MeetingHub } from '../core/hub';
 import type { MeetingPersistence } from '../persist/persistence';
 import type { SavedMeetingDetails, SavedMeetingPhase, StoredMeeting } from '../persist/state';
@@ -16,6 +22,7 @@ export const MEETING_RETAINED_KEYS = [
   'nudge:',
   'meeting:restored',
   'runner:state',
+  'meeting:state',
   'speech:recording',
   'task:',
 ] as const;
@@ -113,6 +120,12 @@ export interface MeetingSession {
   sealed(): MeetingSetup | undefined;
   /** Whether the owner edited the next draft after the seal. */
   draftEditedSinceSeal(): boolean;
+  /** ISO time the room went off the record, or undefined while it is on the record. */
+  offTheRecordSince(): string | undefined;
+  /** Closed off-the-record spans, kept for the minutes with no content. */
+  offTheRecordSpans(): OffTheRecordSpan[];
+  /** Take the room off the record, or bring it back on. */
+  setOffTheRecord(on: boolean): void;
   /** A saved meeting that did not come back running: the next arrival starts fresh. */
   restoredWithoutMeeting(): boolean;
   /** Who holds which seat right now; the rejoin grace reads this, never a transcript. */
@@ -182,6 +195,9 @@ export function createMeetingSession(deps: MeetingSessionDeps): MeetingSession {
   let editedSinceSeal = false;
   let holders: SeatHolder[] = [];
   let started: string | undefined;
+  // The room may be off the record: closed spans are kept for the minutes, never their content.
+  let offRecordSince: string | undefined;
+  let offRecordSpans: OffTheRecordSpan[] = [];
   let meetingKind: MeetingKind | undefined;
   let practiceGrant: PracticeGrant | undefined;
   // The grace ended with nobody back: the running meeting is over and must never resume.
@@ -215,6 +231,7 @@ export function createMeetingSession(deps: MeetingSessionDeps): MeetingSession {
       name: holder.name,
       seat: holder.seat,
       ...(holder.displayName === undefined ? {} : { displayName: holder.displayName }),
+      ...(holder.photoUrl === undefined ? {} : { photoUrl: holder.photoUrl }),
     }));
   }
 
@@ -266,6 +283,8 @@ export function createMeetingSession(deps: MeetingSessionDeps): MeetingSession {
       draftWasTouched = saved.draftTouched;
       editedSinceSeal = saved.draftEditedSinceSeal ?? false;
       started = saved.startedAt;
+      offRecordSpans = (saved.offTheRecordSpans ?? []).map((span) => ({ ...span }));
+      offRecordSince = saved.offTheRecordSince;
       abandonedMeeting = saved.abandoned === true;
       restoredNoMeeting = false;
       storedEnded = false;
@@ -282,6 +301,8 @@ export function createMeetingSession(deps: MeetingSessionDeps): MeetingSession {
     phase = endedReview ? 'ended' : 'lobby';
     active = checked(deps.restoreActive(saved));
     started = endedReview ? saved.startedAt : undefined;
+    offRecordSpans = endedReview ? (saved.offTheRecordSpans ?? []).map((span) => ({ ...span })) : [];
+    offRecordSince = endedReview ? saved.offTheRecordSince : undefined;
     abandonedMeeting = false;
     // An ended real meeting keeps its consumed seal so Start can reopen it and the next arrival can
     // drop a draft that was not edited after END. A draft edited after END is the next meeting's
@@ -342,6 +363,8 @@ export function createMeetingSession(deps: MeetingSessionDeps): MeetingSession {
     activeSealKind = undefined;
     holders = [];
     started = undefined;
+    offRecordSince = undefined;
+    offRecordSpans = [];
 
     active = checked(deps.resetScenario({
       seat,
@@ -401,6 +424,17 @@ export function createMeetingSession(deps: MeetingSessionDeps): MeetingSession {
     draftTouched: () => draftWasTouched,
     sealed: () => (activeSealKind === 'practice' ? practiceSeal : sealedSetup),
     draftEditedSinceSeal: () => editedSinceSeal,
+    offTheRecordSince: () => offRecordSince,
+    offTheRecordSpans: () => offRecordSpans.map((span) => ({ ...span })),
+    setOffTheRecord(on) {
+      if (on) {
+        offRecordSince ??= new Date().toISOString();
+        return;
+      }
+      if (offRecordSince === undefined) return;
+      offRecordSpans.push({ from: offRecordSince, to: new Date().toISOString() });
+      offRecordSince = undefined;
+    },
     restoredWithoutMeeting: () => restoredNoMeeting,
     holders: () => copyHolders(holders),
     addHolder(holder) {
@@ -412,10 +446,12 @@ export function createMeetingSession(deps: MeetingSessionDeps): MeetingSession {
           existing.name.trim().toLowerCase() !== name && existing.seat.trim().toLowerCase() !== seat,
       );
       const displayName = holder.displayName?.trim() || holder.name.trim();
+      const photoUrl = holder.photoUrl?.trim();
       holders.push({
         name,
         seat: holder.seat,
         ...(displayName === name ? {} : { displayName }),
+        ...(photoUrl === undefined || photoUrl === '' ? {} : { photoUrl }),
       });
     },
     pruneHolders() {
@@ -478,6 +514,11 @@ export function createMeetingSession(deps: MeetingSessionDeps): MeetingSession {
     end() {
       if (phase !== 'running') refuse('end the meeting');
       abandonedMeeting = false;
+      // A meeting that ends while off the record closes its span at the end time.
+      if (offRecordSince !== undefined) {
+        offRecordSpans.push({ from: offRecordSince, to: new Date().toISOString() });
+        offRecordSince = undefined;
+      }
       // A finished meeting is neither real nor practice until the next one is opened. Ending is a
       // handoff: every credential granted for it stops working now. The journey is captured before
       // the kind clears: a practice room must lose its people, while a real room is kept for the
@@ -525,6 +566,10 @@ export function createMeetingSession(deps: MeetingSessionDeps): MeetingSession {
               }
           : {}),
         ...(abandonedMeeting && storedPhase === 'running' ? { abandoned: true } : {}),
+        ...(offRecordSpans.length === 0
+          ? {}
+          : { offTheRecordSpans: offRecordSpans.map((span) => ({ ...span })) }),
+        ...(offRecordSince === undefined ? {} : { offTheRecordSince: offRecordSince }),
         holders: copyHolders(holders),
         meetingCode: deps.meetingCode(),
         ...(started === undefined ? {} : { startedAt: started }),

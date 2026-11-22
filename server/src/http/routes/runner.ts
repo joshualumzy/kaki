@@ -3,6 +3,24 @@ import { CommandError } from '../../core/hub';
 import { MAX_BODY_BYTES, type RouteCall } from '../routeCall';
 import { readJsonBody, sendJson } from '../http';
 
+/** Events that carry the room's content; off the record none of them may be published or stored. */
+const CONTENT_EVENT_TYPES = new Set([
+  'TRANSCRIPT_CHUNK',
+  'TRANSCRIPT_LINE_UPDATED',
+  'MEETING_RECORD_UPDATED',
+  'HOST_SPEECH_TRIGGERED',
+  'NUDGE',
+  'FACT_FOUND',
+  'TASK_UPDATED',
+  'TOPIC_SETTLED',
+  'COLLEAGUE_REACTION',
+]);
+
+/** True while a real meeting is off the record: nothing from the room is kept. */
+function offTheRecord(context: RouteCall['context']): boolean {
+  return context.meetingKind() === 'real' && context.isOffTheRecord?.() === true;
+}
+
 /** Accepts one demo event onto the hub, keeping transcript and reactions live-only and retaining the rest. */
 export async function handleEmit(call: RouteCall): Promise<void> {
   const { request, response, context } = call;
@@ -17,6 +35,12 @@ export async function handleEmit(call: RouteCall): Promise<void> {
   }
   if (body.value.type === 'MEETING_RESET') {
     sendJson(response, 400, { error: 'MEETING_RESET can only be published by the meeting session' });
+    return;
+  }
+  if (offTheRecord(context) && CONTENT_EVENT_TYPES.has(body.value.type)) {
+    // Off the record: the runner may keep speaking, but none of the room's content is published,
+    // analysed by Wingman or the notetaker, or saved.
+    sendJson(response, 200, { ok: true, ignored: true });
     return;
   }
 
@@ -85,6 +109,10 @@ export async function handleHumanLine(call: RouteCall): Promise<void> {
     });
     return;
   }
+  if (offTheRecord(context)) {
+    sendJson(response, 200, { ok: true, ignored: true });
+    return;
+  }
   // The runner sends this on the person's behalf, so it is a real action even though the request
   // itself is runner traffic.
   context.idle.recordAction();
@@ -123,6 +151,10 @@ export async function handleSuggestTask(call: RouteCall): Promise<void> {
     sendJson(response, 400, { error: 'Body must be a valid task suggestion' });
     return;
   }
+  if (offTheRecord(context)) {
+    sendJson(response, 200, { ok: true, ignored: true });
+    return;
+  }
   sendJson(response, 200, context.tasks.suggest(body.value));
   return;
 }
@@ -135,6 +167,7 @@ export async function handleMeetingMemory(call: RouteCall): Promise<void> {
   if (!isMeetingMemoryEntries(body.value, context.session.active().agenda.map((item) => item.title))) {
     sendJson(response, 400, { error: 'Invalid meeting memory' }); return;
   }
+  if (offTheRecord(context)) { sendJson(response, 200, { ok: true, ignored: true }); return; }
   context.memory.splice(0, context.memory.length, ...body.value);
   sendJson(response, 200, { ok: true });
   return;
@@ -152,6 +185,10 @@ export async function handleSettleTopic(call: RouteCall): Promise<void> {
   }
   if (!isSuggestInput(body.value, context.session.active())) {
     sendJson(response, 400, { error: 'Body must be a valid task suggestion with an agendaItemTitle' });
+    return;
+  }
+  if (offTheRecord(context)) {
+    sendJson(response, 200, { ok: true, ignored: true });
     return;
   }
   const followUp = body.value;

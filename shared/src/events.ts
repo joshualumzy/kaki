@@ -2,6 +2,7 @@ import { isNonEmptyString, isObject, isString } from './guards';
 import type { Role } from './roles';
 import { isRoleIn } from './scenario';
 import type { Scenario } from './scenarioTypes';
+import { isMeetingStateSnapshot, type MeetingStateSnapshot } from './meetingState';
 import { isRunnerMeetingSnapshot, type RunnerMeetingSnapshot } from './runnerMeeting';
 import type { Fact } from './services';
 import { isTask, type Task } from './task';
@@ -58,7 +59,8 @@ type KakiEventType =
   | 'SPEECH_RECORDING'
   | 'TOPIC_SETTLED'
   | 'COLLEAGUE_REACTION'
-  | 'COMMAND_REJECTED';
+  | 'COMMAND_REJECTED'
+  | 'MEETING_STATE';
 
 type KakiEventOf<T extends KakiEventType, P> = { type: T; payload: P; audience: Audience };
 
@@ -158,7 +160,9 @@ export type KakiEvent =
   /** Live demo: the visitor's decision on an agenda item is locked; tasks held for that item may go out, `taskId` first. */
   | KakiEventOf<'TOPIC_SETTLED', { title: string; taskId?: string }>
   | KakiEventOf<'COLLEAGUE_REACTION', { who: string; emoji: '👍' | '😬' | '🤔' | '😅' | '🙌' | '💸' | '🤨' | '⏰'; timestamp: string }>
-  | KakiEventOf<'COMMAND_REJECTED', { commandType: string; reason: string }>;
+  | KakiEventOf<'COMMAND_REJECTED', { commandType: string; reason: string }>
+  /** The one shared state every participant reads: off the record, waiting for the owner, people and cues. */
+  | KakiEventOf<'MEETING_STATE', MeetingStateSnapshot>;
 
 const KAKI_EVENT_TYPES: readonly KakiEventType[] = [
   'TRANSCRIPT_CHUNK',
@@ -176,6 +180,7 @@ const KAKI_EVENT_TYPES: readonly KakiEventType[] = [
   'TOPIC_SETTLED',
   'COLLEAGUE_REACTION',
   'COMMAND_REJECTED',
+  'MEETING_STATE',
 ];
 
 /** True for a finite number that is zero or more. */
@@ -313,6 +318,7 @@ const PAYLOAD_CHECKS: Record<KakiEventType, PayloadCheck> = {
     isString(payload.emoji) && ['👍', '😬', '🤔', '😅', '🙌', '💸', '🤨', '⏰'].includes(payload.emoji) &&
     isString(payload.timestamp) && Number.isFinite(Date.parse(payload.timestamp)),
   COMMAND_REJECTED: (payload) => isString(payload.commandType) && isString(payload.reason),
+  MEETING_STATE: (payload) => isMeetingStateSnapshot(payload),
 };
 
 /** Validate unknown data (such as JSON from a socket) as a complete KakiEvent for the scenario. */
@@ -324,5 +330,6 @@ export function isKakiEvent(value: unknown, scenario: Scenario): value is KakiEv
   if ((type === 'NUDGE' || type === 'FACT_FOUND') && audience.kind !== 'role') return false;
   if (type === 'COLLEAGUE_REACTION' && audience.kind !== 'all') return false;
   if (type === 'RUNNER_STATE' && audience.kind !== 'service') return false;
+  if (type === 'MEETING_STATE' && audience.kind !== 'all') return false;
   return true;
 }

@@ -148,6 +148,17 @@ export async function handleLivekitToken(call: RouteCall): Promise<void> {
     });
     return;
   }
+  // The joiner's Google photo, when they have an account. Looked up before the admission queue
+  // so no extra await can land between the seat claim and the holder it records.
+  let joinerPhotoUrl: string | undefined;
+  if (
+    context.auth !== undefined &&
+    (principal.kind === 'host' || principal.kind === 'user') &&
+    principal.userId !== undefined
+  ) {
+    const user = await context.auth.store.findUserById(principal.userId);
+    joinerPhotoUrl = user?.picture ?? undefined;
+  }
   try {
     await context.admit(async () => {
       // A Start flips the phase inside this same queue: this catches a join that queued behind it.
@@ -500,8 +511,13 @@ export async function handleLivekitToken(call: RouteCall): Promise<void> {
         }
       }
       context.reservations.add({ participantName, seatId });
-      context.session.addHolder({ name: participantName, seat: seatId });
+      context.session.addHolder({
+        name: participantName,
+        seat: seatId,
+        ...(joinerPhotoUrl === undefined ? {} : { photoUrl: joinerPhotoUrl }),
+      });
       context.runnerStateChanged();
+      context.meetingStateChanged();
       if (roomEmpty) context.rejoin.joined();
       else context.rejoin.occupied();
       // Seat holders are part of the meeting: save them so a restart recognises the same people.

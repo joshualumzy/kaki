@@ -94,6 +94,7 @@ export function installAutoDispatch({
   scenario: activeScenario,
   hostIsHuman = () => false,
   holdUntilSettled = () => false,
+  speaks = () => true,
   agendaIndex,
 }: {
   hub: Hub;
@@ -102,6 +103,8 @@ export function installAutoDispatch({
   scenario: () => Scenario;
   /** True while a person plays the host: then every task stays SUGGESTED for them to dispatch or dismiss. */
   hostIsHuman?: () => boolean;
+  /** False for a real meeting: tasks still move, but Kaki never says a cue aloud. */
+  speaks?: () => boolean;
   /**
    * The server's authoritative agenda position (the agenda clock), not the Note Taker's record.
    * Read when a NEXT_AGENDA_ITEM arrives, which still names the topic being left. Omitted by
@@ -133,12 +136,14 @@ export function installAutoDispatch({
     const present = scenario.attendees.some((attendee) => attendee.role === task.suggestedAssignee);
     if (role === undefined || role.facilitator === true || !present) return;
     tasks.transition(task.id, 'DISPATCHED', { assignee: task.suggestedAssignee });
-    const cue: KakiEvent = {
-      type: 'HOST_SPEECH_TRIGGERED', audience: { kind: 'screen' },
-      payload: { kind: 'DISPATCH', text: dispatchLine(addressee(scenario, task), task.title, sent),
-        assignee: addressee(scenario, task), title: task.title, taskId: task.id },
-    };
-    hub.publish(cue);
+    if (speaks()) {
+      const cue: KakiEvent = {
+        type: 'HOST_SPEECH_TRIGGERED', audience: { kind: 'screen' },
+        payload: { kind: 'DISPATCH', text: dispatchLine(addressee(scenario, task), task.title, sent),
+          assignee: addressee(scenario, task), title: task.title, taskId: task.id },
+      };
+      hub.publish(cue);
+    }
     sent += 1;
   };
   const release = (title?: string, priorityId?: string): void => {

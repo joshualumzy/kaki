@@ -13,6 +13,7 @@ export async function ensureAuthSchema(pool: Pool): Promise<void> {
   // Google is the product sign-in; password accounts are still created by the host CLI.
   await pool.query('alter table users add column if not exists google_sub text');
   await pool.query('alter table users add column if not exists name text');
+  await pool.query('alter table users add column if not exists picture text');
   await pool.query('alter table users alter column password_hash drop not null');
   await pool.query('create unique index if not exists users_google_sub_key on users (google_sub)');
 

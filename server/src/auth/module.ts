@@ -255,13 +255,21 @@ export function createAuth({
     expectedMeetingId: string = currentMeetingId(),
   ): Promise<boolean> {
     const existing = await currentSession(request);
-    // The meeting this claim was validated against must still be the one it enters. A lifecycle
-    // change during the session lookup (a close, a reset, a practice handoff) refuses the claim.
-    if (currentMeetingId() !== expectedMeetingId) return false;
+    // The meeting this claim was validated against is the one it enters. Every caller re-checks the
+    // meeting's generation and phase after this await, so a lifecycle change during the claim is
+    // still refused; a real meeting's id is not the auth module's single legacy identity.
     const token = randomBytes(32).toString('base64url');
     const meetingId = expectedMeetingId;
     // A host taking a seat is still the host; the new session also carries the seat's meeting.
-    const kind: SessionKind = existing?.kind === 'host' ? 'host' : 'participant';
+    // A signed-in product user is the host only when they own this meeting or administer its
+    // workspace, exactly as every other host check decides it.
+    const ownerByAccount =
+      existing?.kind === 'user' &&
+      existing.userId !== null &&
+      existing.userId !== undefined &&
+      meetingHost !== undefined &&
+      (await meetingHost(meetingId, existing.userId));
+    const kind: SessionKind = existing?.kind === 'host' || ownerByAccount ? 'host' : 'participant';
     // The claim transfer, the new session and the old session's retirement are one store step:
     // two simultaneous joins cannot both win, and a failure leaves the old session in charge.
     const claimed = await store.enterSeat({
@@ -273,6 +281,8 @@ export function createAuth({
         role,
         kind === 'host' ? null : meetingCode.value,
         meetingId,
+        existing?.displayName ?? null,
+        existing?.userId ?? null,
       ),
       ...(existing === undefined ? {} : { replaces: existing.tokenHash }),
     });
@@ -560,8 +570,17 @@ export function createAuth({
     }
 
     if (session.kind === 'host' && expectedMeetingId !== undefined) {
-      // A password host owns the legacy meeting only; a real meeting names its owner by user id.
-      return { ok: false, ended: false };
+      // A password host owns the legacy meeting only. A real meeting's host session carries the
+      // product user's id, and its ownership is re-checked on every request so a host session
+      // taken in one meeting can never act as the host of another.
+      if (
+        session.userId === null ||
+        session.userId === undefined ||
+        meetingHost === undefined ||
+        !(await meetingHost(expectedMeetingId, session.userId))
+      ) {
+        return { ok: false, ended: false };
+      }
     }
 
     const meetingId = expectedMeetingId ?? currentMeetingId();
@@ -679,8 +698,10 @@ export function createAuth({
       }
       if (audience.kind === 'screen') {
         // The shared screen is the owner's: it carries every seat's private facts and unfinished
-        // drafts. A participant follows the meeting through their own projection instead.
-        if (session.kind !== 'host') {
+        // drafts. A participant follows the meeting through their own projection instead. A real
+        // meeting's host is its owner or a workspace admin (a `user` session resolved to `host`),
+        // while the legacy password owner is already a `host` session.
+        if (principal.kind !== 'host') {
           return { ok: false, message: 'Only the meeting owner can follow the shared screen' };
         }
         return { ok: true, participant, principal, sessionTokenHash };

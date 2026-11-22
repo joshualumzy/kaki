@@ -1,4 +1,14 @@
-import { errorMessage, humanSeatRoles, isObject, roleLabel, type Question, type Role, type Scenario, type Task } from '@kaki/shared';
+import {
+  errorMessage,
+  humanSeatRoles,
+  isObject,
+  roleLabel,
+  type OffTheRecordSpan,
+  type Question,
+  type Role,
+  type Scenario,
+  type Task,
+} from '@kaki/shared';
 import type { ChatMessage, LlmClient } from '../services/llm';
 import type { KakiModule } from '../core/modules';
 import type { WorkspaceTools } from '../workspace/tools';
@@ -31,6 +41,12 @@ export interface WikiModuleOptions {
   today?: () => string;
 }
 
+/** Server time as HH:MM, with no timezone, exactly as the minutes print it. */
+function clockTime(iso: string): string {
+  const time = new Date(iso);
+  return `${String(time.getUTCHours()).padStart(2, '0')}:${String(time.getUTCMinutes()).padStart(2, '0')}`;
+}
+
 /** Format the complete end-of-meeting minutes as Markdown for the team wiki. */
 export function buildMeetingMinutes(
   scenario: Scenario,
@@ -38,6 +54,7 @@ export function buildMeetingMinutes(
   transcript: ReadonlyArray<{ speaker: string; text: string }>,
   openQuestions: readonly Question[],
   allTasks: readonly Task[],
+  offTheRecordSpans: readonly OffTheRecordSpan[] = [],
 ): string {
   const sections: string[] = [
     `# ${scenario.meetingTitle} — Meeting Minutes`,
@@ -74,6 +91,14 @@ export function buildMeetingMinutes(
     for (const question of openQuestions) {
       const ownerSuffix = question.forRole !== undefined ? ` *(${roleLabel(scenario, question.forRole)})*` : '';
       sections.push(`- ${question.text}${ownerSuffix}`);
+    }
+  }
+
+  if (offTheRecordSpans.length > 0) {
+    // A closed span leaves a marker only: the room's words in it are never kept.
+    sections.push('', '## Off the Record');
+    for (const span of offTheRecordSpans) {
+      sections.push(`- Off the record ${clockTime(span.from)}–${clockTime(span.to)}`);
     }
   }
 
@@ -407,6 +432,63 @@ export function createWikiModule({
       let minutesPublished = false;
       let minutesTimer: ReturnType<typeof setTimeout> | undefined;
 
+      const scheduleMinutes = (): void => {
+        if (minutesPublished) return;
+        minutesPublished = true;
+        const snapshotLines = [...transcriptLines];
+        minutesTimer = setTimeout(() => {
+          minutesTimer = undefined;
+          if (stopped) return;
+          const date = today();
+          // The meeting that just closed, with its own seats and agenda, not the startup scenario.
+          const scenario = context.activeScenario();
+          const title = `${scenario.meetingTitle} — Meeting Minutes`;
+          const content = buildMeetingMinutes(
+            scenario,
+            date,
+            snapshotLines,
+            openQuestions,
+            context.tasks.list(),
+            context.meetingDetails?.().offTheRecordSpans ?? [],
+          );
+          const assignee = minutesAssignee(scenario, context.meetingDetails?.().holders ?? []);
+          if (assignee === undefined) {
+            console.warn('kaki action-wiki: no human seat to review the end-of-meeting minutes; nothing was drafted');
+            return;
+          }
+          let minutesTask: ReturnType<typeof context.tasks.suggestWithPurpose> | undefined;
+          try {
+            minutesTask = context.tasks.suggestWithPurpose(
+              {
+                title: 'Publish meeting minutes to the team wiki',
+                context: `Full summary of ${scenario.meetingTitle} (agenda, action items, open questions, and discussion transcript).`,
+                suggestedAssignee: assignee,
+                actionKind: 'wiki_page',
+              },
+              'meeting_minutes',
+            );
+            context.tasks.transition(minutesTask.id, 'DISPATCHED', { assignee });
+            context.tasks.transition(minutesTask.id, 'CLAIMED', {
+              mode: 'ACTION_AGENT',
+              draft: { target: 'Wiki: meeting notes', subject: title, body: content },
+            });
+            context.tasks.transition(minutesTask.id, 'DRAFT_READY');
+          } catch (error) {
+            console.warn(`kaki action-wiki: could not draft the end-of-meeting minutes: ${errorMessage(error)}`);
+            // The end-of-meeting card waits on this task: leave the failure visible on it, never
+            // a panel stuck on "syncing".
+            try {
+              const id = minutesTask?.id;
+              if (id !== undefined && context.tasks.get(id)?.status === 'CLAIMED') {
+                context.tasks.transition(id, 'FAILED', { error: errorMessage(error) });
+              }
+            } catch (failure) {
+              console.error('kaki action-wiki: could not mark the minutes task failed', failure);
+            }
+          }
+        }, minutesDelayMs);
+      };
+
       const unsubscribe = context.hub.subscribe((event) => {
         if (stopped) return;
         if (event.type === 'MEETING_RESET') {
@@ -425,62 +507,11 @@ export function createWikiModule({
         }
         if (event.type === 'MEETING_RECORD_UPDATED') {
           openQuestions = [...event.payload.openQuestions];
+          // A real meeting has no spoken CLOSING cue; its ended record is the one end signal.
+          if (event.payload.ended === true) scheduleMinutes();
           return;
         }
-        if (event.type === 'HOST_SPEECH_TRIGGERED' && event.payload.kind === 'CLOSING' && !minutesPublished) {
-          minutesPublished = true;
-          const snapshotLines = [...transcriptLines];
-          minutesTimer = setTimeout(() => {
-            minutesTimer = undefined;
-            if (stopped) return;
-            const date = today();
-            // The meeting that just closed, with its own seats and agenda, not the startup scenario.
-            const scenario = context.activeScenario();
-            const title = `${scenario.meetingTitle} — Meeting Minutes`;
-            const content = buildMeetingMinutes(
-              scenario,
-              date,
-              snapshotLines,
-              openQuestions,
-              context.tasks.list(),
-            );
-            const assignee = minutesAssignee(scenario, context.meetingDetails?.().holders ?? []);
-            if (assignee === undefined) {
-              console.warn('kaki action-wiki: no human seat to review the end-of-meeting minutes; nothing was drafted');
-              return;
-            }
-            let minutesTask: ReturnType<typeof context.tasks.suggestWithPurpose> | undefined;
-            try {
-              minutesTask = context.tasks.suggestWithPurpose(
-                {
-                  title: 'Publish meeting minutes to the team wiki',
-                  context: `Full summary of ${scenario.meetingTitle} (agenda, action items, open questions, and discussion transcript).`,
-                  suggestedAssignee: assignee,
-                  actionKind: 'wiki_page',
-                },
-                'meeting_minutes',
-              );
-              context.tasks.transition(minutesTask.id, 'DISPATCHED', { assignee });
-              context.tasks.transition(minutesTask.id, 'CLAIMED', {
-                mode: 'ACTION_AGENT',
-                draft: { target: 'Wiki: meeting notes', subject: title, body: content },
-              });
-              context.tasks.transition(minutesTask.id, 'DRAFT_READY');
-            } catch (error) {
-              console.warn(`kaki action-wiki: could not draft the end-of-meeting minutes: ${errorMessage(error)}`);
-              // The end-of-meeting card waits on this task: leave the failure visible on it, never
-              // a panel stuck on "syncing".
-              try {
-                const id = minutesTask?.id;
-                if (id !== undefined && context.tasks.get(id)?.status === 'CLAIMED') {
-                  context.tasks.transition(id, 'FAILED', { error: errorMessage(error) });
-                }
-              } catch (failure) {
-                console.error('kaki action-wiki: could not mark the minutes task failed', failure);
-              }
-            }
-          }, minutesDelayMs);
-        }
+        if (event.type === 'HOST_SPEECH_TRIGGERED' && event.payload.kind === 'CLOSING') scheduleMinutes();
       });
 
       return () => {

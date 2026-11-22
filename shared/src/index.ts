@@ -12,6 +12,7 @@ export * from './speaker';
 export * from './task';
 export * from './events';
 export * from './runnerMeeting';
+export * from './meetingState';
 export * from './meetingMemory';
 export * from './catch';
 export * from './commands';

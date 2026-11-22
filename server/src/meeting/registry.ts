@@ -26,6 +26,8 @@ export interface MeetingStore {
   }): Promise<MeetingRow>;
   get(id: string): Promise<MeetingRow | undefined>;
   list(workspaceId: string): Promise<MeetingRow[]>;
+  /** Mark the row ended once the meeting finishes, so workspace pages show it as over. */
+  markEnded?(id: string, endedAt: string): Promise<void>;
   /** Release the store's connection, when it owns one. */
   close?(): Promise<void>;
 }
@@ -285,6 +287,13 @@ export function createPostgresMeetingStore(pool: Pool): MeetingStore {
       );
       return result.rows[0] === undefined ? undefined : row(result.rows[0]);
     },
+    async markEnded(id, endedAt) {
+      await ensureMeetingsSchema(pool);
+      await pool.query(
+        "update meetings set status = 'ended', ended_at = $2 where id = $1 and status <> 'ended'",
+        [id, endedAt],
+      );
+    },
     async list(workspaceId) {
       await ensureMeetingsSchema(pool);
       const result = await pool.query(
@@ -320,6 +329,11 @@ export function createMemoryMeetingStore(): MeetingStore & { rows: Map<string, M
     },
     async get(id) {
       return rows.get(id);
+    },
+    async markEnded(id, endedAt) {
+      const meeting = rows.get(id);
+      if (meeting === undefined) return;
+      rows.set(id, { ...meeting, status: 'ended', endedAt });
     },
     async list(workspaceId) {
       return [...rows.values()]

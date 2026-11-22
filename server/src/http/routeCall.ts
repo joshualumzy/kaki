@@ -117,6 +117,14 @@ export interface RequestContext {
   meetingPaused?: () => boolean | undefined;
   /** Rebuild and publish the runner snapshot after a change no hub event announces (a seat holder). */
   runnerStateChanged(): RunnerMeetingSnapshot;
+  /** Rebuild and publish the state every participant reads (a seat holder joined or left). */
+  meetingStateChanged(): void;
+  /** The journey this meeting runs, read at the moment of use. */
+  meetingKind(): 'real' | 'practice' | undefined;
+  /** Record a quiet agenda-clock note for the shared meeting state. */
+  quietCue(text: string): void;
+  /** True while the room is off the record: nothing is transcribed, analysed or stored. */
+  isOffTheRecord?(): boolean;
   /**
    * The scenario people see, plus the one admission resolves seats against. A returning seat holder
    * inside the grace of a running meeting is judged against its sealed setup; every other arrival

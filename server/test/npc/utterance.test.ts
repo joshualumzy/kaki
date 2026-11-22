@@ -58,6 +58,29 @@ describe('UtteranceRecorder', () => {
     expect(total(sessions[1]!.pushed)).toBe(100);
   });
 
+  it('sends no audio at all while suspended, and starts a fresh stretch after resume', () => {
+    const { sessions, recorder } = fake();
+    recorder.push(block(300));
+    recorder.speaking(true);
+    expect(sessions).toHaveLength(1);
+    // Off the record: the stretch in progress is cancelled and every frame is dropped.
+    recorder.suspend();
+    expect(sessions[0]!.cancelled).toBe(true);
+    recorder.push(block(300));
+    recorder.speaking(false);
+    recorder.push(block(300));
+    expect(sessions).toHaveLength(1);
+
+    // Back on the record: a new stretch sends only the audio that arrives after the resume.
+    recorder.resume();
+    recorder.speaking(true);
+    expect(sessions).toHaveLength(2);
+    expect(total(sessions[1]!.pushed)).toBe(0);
+    recorder.push(block(200));
+    expect(total(sessions[1]!.pushed)).toBe(200);
+    recorder.speaking(false);
+  });
+
   it('throws away a stretch too short to be speech', () => {
     const { sessions, recorder, texts } = fake();
     recorder.push(block(100));

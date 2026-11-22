@@ -8,12 +8,14 @@ import {
   isQuestion,
   isReviewIssue,
   isRoleIn,
+  isString,
   isTask,
   normalizeMeetingCode,
   NOTETAKER_STATUSES,
   parseMeetingSetup,
   type MeetingSetup,
   type NotetakerStatus,
+  type OffTheRecordSpan,
   type Question,
   type ReviewIssue,
   type Role,
@@ -26,7 +28,7 @@ import {
  * The server refuses to load a meeting saved by a different version, so an old row is never
  * guessed at or silently replaced with an empty meeting.
  */
-export const MEETING_STATE_SCHEMA_VERSION = 7;
+export const MEETING_STATE_SCHEMA_VERSION = 8;
 
 /** The one saved meeting. A single row: Kaki hosts one meeting at a time. */
 export const MEETING_STATE_ID = 'meeting';
@@ -96,6 +98,8 @@ export interface SavedSeatAssignment {
   name: string;
   seat: string;
   displayName?: string;
+  /** The person's Google photo, so a restart keeps the same avatars. */
+  photoUrl?: string;
 }
 
 /**
@@ -130,6 +134,10 @@ export interface SavedMeetingDetails {
   lobbyAgenda?: string[];
   /** The grace ended with nobody back: the meeting is over and the next arrival starts a new one. */
   abandoned?: boolean;
+  /** Closed off-the-record spans, kept for the minutes with no content. */
+  offTheRecordSpans?: OffTheRecordSpan[];
+  /** Set while the room is still off the record across a restart. */
+  offTheRecordSince?: string;
 }
 
 /** Everything one save point writes: the session's details plus the running record. */
@@ -279,12 +287,35 @@ function meetingCodeProblem(value: unknown): string | undefined {
   return undefined;
 }
 
+function offTheRecordSpansProblem(value: unknown): string | undefined {
+  if (!Array.isArray(value)) return 'its off-the-record spans are not a list';
+  for (const span of value) {
+    if (!isObject(span)) return 'its off-the-record spans are not a list of times';
+    if (
+      !isString(span.from) ||
+      !isString(span.to) ||
+      !Number.isFinite(Date.parse(span.from)) ||
+      !Number.isFinite(Date.parse(span.to)) ||
+      Date.parse(span.to) < Date.parse(span.from)
+    ) {
+      return 'its off-the-record spans are not a list of times';
+    }
+  }
+  return undefined;
+}
+
 function holdersProblem(value: unknown): string | undefined {
   if (!Array.isArray(value)) return 'its seat holders are not a list';
   const seats = new Set<string>();
   for (const entry of value) {
     if (!isObject(entry) || !isNonEmptyString(entry.name) || !isNonEmptyString(entry.seat)) {
       return 'its seat holders are not a list of names and seats';
+    }
+    if (entry.photoUrl !== undefined && !isString(entry.photoUrl)) {
+      return 'its seat holders have an invalid photo';
+    }
+    if (entry.displayName !== undefined && !isString(entry.displayName)) {
+      return 'its seat holders have an invalid display name';
     }
     const seat = entry.seat.trim().toLowerCase();
     if (seats.has(seat)) return 'its seat holders repeat a seat';
@@ -366,6 +397,15 @@ export function savedMeetingProblem(saved: StoredMeeting, scenario: Scenario): s
   if (meetingCode !== undefined) return meetingCode;
   const holders = holdersProblem((saved as { holders?: unknown }).holders);
   if (holders !== undefined) return holders;
+  const spans = (saved as { offTheRecordSpans?: unknown }).offTheRecordSpans;
+  if (spans !== undefined) {
+    const problem = offTheRecordSpansProblem(spans);
+    if (problem !== undefined) return problem;
+  }
+  const since = (saved as { offTheRecordSince?: unknown }).offTheRecordSince;
+  if (since !== undefined && (!isString(since) || !Number.isFinite(Date.parse(since)))) {
+    return 'its off-the-record start is not a date';
+  }
   if ((saved.phase === 'running' || saved.phase === 'ended') && saved.startedAt === undefined) {
     return 'its start time is missing';
   }

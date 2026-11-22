@@ -57,6 +57,7 @@ interface IdTokenClaims {
   email?: unknown;
   name?: unknown;
   email_verified?: unknown;
+  picture?: unknown;
 }
 
 interface Jwk {
@@ -155,7 +156,7 @@ function verifyIdToken(
   keys: readonly Jwk[],
   clientId: string,
   nowMs: number,
-): { sub: string; email: string; name: string } {
+): { sub: string; email: string; name: string; picture: string | null } {
   const parts = token.split('.');
   if (parts.length !== 3) throw new Error('the ID token is not a JWT');
   const [encodedHeader, encodedPayload, encodedSignature] = parts as [string, string, string];
@@ -188,7 +189,8 @@ function verifyIdToken(
     typeof claims.name === 'string' && claims.name.trim() !== ''
       ? claims.name.trim()
       : claims.email.split('@')[0] ?? claims.email;
-  return { sub: claims.sub, email: claims.email, name };
+  const picture = typeof claims.picture === 'string' && claims.picture.trim() !== '' ? claims.picture.trim() : null;
+  return { sub: claims.sub, email: claims.email, name, picture };
 }
 
 /** Build the server-side Google code flow (PKCE + JWKS signature verification). */
@@ -285,7 +287,7 @@ export function createGoogleSignIn({
       return;
     }
 
-    let profile: { sub: string; email: string; name: string };
+    let profile: { sub: string; email: string; name: string; picture: string | null };
     try {
       const idToken = await exchangeCode(code, stored.verifier);
       profile = verifyIdToken(idToken, await fetchJwks(), clientId, now());
@@ -305,9 +307,10 @@ export function createGoogleSignIn({
           googleSub: profile.sub,
           name: profile.name,
           email: profile.email,
+          picture: profile.picture,
         }));
       if (existing !== undefined) {
-        await store.updateUserProfile({ id: user.id, name: profile.name, email: profile.email });
+        await store.updateUserProfile({ id: user.id, name: profile.name, email: profile.email, picture: profile.picture });
       }
     } catch (error) {
       log(`kaki auth: could not save the Google user: ${error instanceof Error ? error.message : String(error)}`);

@@ -11,6 +11,8 @@ export interface SeatHolder {
   seat: string;
   /** The name exactly as the person joined with, for anything a human reads. */
   displayName?: string;
+  /** The person's Google photo URL, when their account has one. */
+  photoUrl?: string;
 }
 
 /** What the rejoin guard needs to decide whether an arrival resumes, resets or joins the room. */

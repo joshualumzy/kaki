@@ -41,7 +41,12 @@ function quietHub(): Hub {
 function setup(
   options: WikiModuleOptions,
   draftOnly = false,
-  context: { scenario?: Scenario; activeScenario?: Scenario; seats?: Array<{ name: string; seat: string }> } = {},
+  context: {
+    scenario?: Scenario;
+    activeScenario?: Scenario;
+    seats?: Array<{ name: string; seat: string }>;
+    offTheRecordSpans?: Array<{ from: string; to: string }>;
+  } = {},
 ): TaskStore & { hub: Hub } {
   const scenario = context.scenario ?? testScenario;
   const hub = quietHub();
@@ -53,7 +58,15 @@ function setup(
     draftOnly,
     ...(context.seats === undefined
       ? {}
-      : { meetingDetails: () => ({ holders: context.seats! }) as unknown as SavedMeetingDetails }),
+      : {
+          meetingDetails: () =>
+            ({
+              holders: context.seats!,
+              ...(context.offTheRecordSpans === undefined
+                ? {}
+                : { offTheRecordSpans: context.offTheRecordSpans }),
+            }) as unknown as SavedMeetingDetails,
+        }),
   });
   if (stop !== undefined) stops.push(stop);
   return Object.assign(tasks, { hub });
@@ -279,6 +292,49 @@ describe('wiki action module', () => {
     });
     expect(fetchImpl).not.toHaveBeenCalled();
     expect(llm.calls).toHaveLength(0);
+  });
+
+  it('marks each off-the-record span with its times and no content', () => {
+    const minutes = buildMeetingMinutes(
+      testScenario,
+      '2026-11-03',
+      [{ speaker: 'Mei (Chef)', text: 'On the record.' }],
+      [],
+      [],
+      [
+        { from: '2026-11-03T10:05:00.000Z', to: '2026-11-03T10:07:00.000Z' },
+        { from: '2026-11-03T10:20:00.000Z', to: '2026-11-03T10:21:30.000Z' },
+      ],
+    );
+    expect(minutes).toContain('- Off the record 10:05–10:07');
+    expect(minutes).toContain('- Off the record 10:20–10:21');
+    expect(minutes).not.toContain('secret');
+  });
+
+  it('drafts the minutes from the ended record of a real meeting, with no spoken closing', async () => {
+    const tasks = setup(
+      { llm: createFakeLlm(() => reply), wiki: settings, fetchImpl: wikiFetch(), minutesDelayMs: 10, today: () => '2026-11-03' },
+      false,
+      {
+        seats: [{ name: 'Bao', seat: 'cashier' }],
+        offTheRecordSpans: [{ from: '2026-11-03T10:05:00.000Z', to: '2026-11-03T10:06:00.000Z' }],
+      },
+    );
+    tasks.hub.publish({
+      type: 'MEETING_RECORD_UPDATED',
+      audience: { kind: 'screen' },
+      payload: {
+        agendaIndex: 0,
+        openQuestions: [],
+        elapsedSeconds: 60,
+        speakerTalkSeconds: {},
+        ended: true,
+      },
+    });
+
+    const minutesTask = await waitFor(() => minutesTaskIn(tasks), 'the real meeting minutes task');
+    expect(minutesTask.status).toBe('DRAFT_READY');
+    expect(minutesTask.draft?.body).toContain('- Off the record 10:05–10:06');
   });
 
   it('drafts the minutes even when the meeting closed with an empty transcript', async () => {

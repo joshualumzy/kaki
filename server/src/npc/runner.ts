@@ -1083,6 +1083,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
       previous !== undefined && previous.meetingId === state.meetingId && sameVersion(previous.version, state.version);
     const accepted = meeting.apply(state, options);
     if (!accepted && !identical) return false;
+    applyOffTheRecord(state.offTheRecord !== undefined && state.offTheRecord !== null);
     if (state.phase !== 'ended') endedTerminal = false;
     if (changed) {
       log(`the server is on meeting ${state.meetingId}; clearing the old meeting ${held}`);
@@ -1157,6 +1158,24 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     syncCast();
   }
 
+  /** Each person's recorder, so going off the record can stop every one of them at once. */
+  const recorders = new Map<string, UtteranceRecorder>();
+  // Off the record: no microphone audio reaches speech recognition and no recognised line is posted.
+  let offTheRecord = false;
+
+  function applyOffTheRecord(next: boolean): void {
+    if (offTheRecord === next) return;
+    offTheRecord = next;
+    if (next) {
+      for (const recorder of recorders.values()) recorder.suspend();
+      talking.clear();
+      log('the room is off the record; speech recognition is paused');
+      return;
+    }
+    for (const recorder of recorders.values()) recorder.resume();
+    log('the room is back on the record; speech recognition resumes');
+  }
+
   async function listenTo(track: RemoteTrack, identity: string): Promise<void> {
     const key = track.sid ?? identity;
     if (listeningTracks.has(key)) return;
@@ -1189,6 +1208,10 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
               speechLines.settle(timing);
             },
             onText: (text, timing) => {
+              if (offTheRecord) {
+                speechLines.settle(timing);
+                return;
+              }
               if (!meetingOpen()) {
                 log(`ignored "${text}": the meeting has not started`);
                 speechLines.settle(timing);
@@ -1221,6 +1244,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
               });
             },
           });
+    if (recorder !== undefined) recorders.set(identity, recorder);
     const vad: EnergyVad = new EnergyVad(
       (speaking) => {
         if (!meetingOpen()) return;
@@ -1255,7 +1279,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     let lastTrace = 0;
     try {
       for await (const frame of new AudioStream(track, SAMPLE_RATE, 1)) {
-        if (!meetingOpen()) continue;
+        if (!meetingOpen() || offTheRecord) continue;
         vad.push(frame.data, frame.sampleRate);
         if (suppressed.has(identity) && vad.isSpeaking && Date.now() >= typingUntil) {
           suppressed.delete(identity);
@@ -1285,6 +1309,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     } catch (error) {
       log(`audio from ${identity} ended: ${String(error)}`);
     } finally {
+      if (recorders.get(identity) === recorder) recorders.delete(identity);
       recorder?.close();
       vad.close();
       if (vads.get(identity) === vad) vads.delete(identity);

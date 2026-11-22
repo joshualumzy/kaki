@@ -10,6 +10,8 @@ export interface UserRecord {
   passwordHash: string | null;
   googleSub: string | null;
   name: string | null;
+  /** The Google account photo URL, when the ID token carried one. */
+  picture: string | null;
   createdAt: Date;
 }
 
@@ -71,8 +73,13 @@ export interface AuthStore {
    * with them as admin in the same transaction. A second sign-in neither duplicates the user nor
    * the workspace.
    */
-  createGoogleUser(input: { googleSub: string; name: string; email: string }): Promise<UserRecord>;
-  updateUserProfile(input: { id: string; name: string; email: string }): Promise<void>;
+  createGoogleUser(input: {
+    googleSub: string;
+    name: string;
+    email: string;
+    picture?: string | null;
+  }): Promise<UserRecord>;
+  updateUserProfile(input: { id: string; name: string; email: string; picture?: string | null }): Promise<void>;
   createSession(session: SessionRecord): Promise<void>;
   /** Return undefined for an unknown or expired session; expired rows are dropped. */
   findSession(tokenHash: string): Promise<SessionRecord | undefined>;
@@ -178,11 +185,12 @@ export function createMemoryAuthStore(now: () => number = Date.now): AuthStore {
         passwordHash,
         googleSub: null,
         name: null,
+        picture: null,
         createdAt: new Date(now()),
       };
       return rememberUser(user);
     },
-    async createGoogleUser({ googleSub, name, email }) {
+    async createGoogleUser({ googleSub, name, email, picture = null }) {
       const existingBySub = userIdByGoogleSub.get(googleSub);
       if (existingBySub !== undefined) {
         const existing = usersById.get(existingBySub);
@@ -191,7 +199,7 @@ export function createMemoryAuthStore(now: () => number = Date.now): AuthStore {
           if (emailOwner !== undefined && emailOwner !== existing.id) {
             throw new Error('That email already belongs to another account.');
           }
-          const updated: UserRecord = { ...existing, name, email };
+          const updated: UserRecord = { ...existing, name, email, picture: picture ?? existing.picture };
           userIdByEmail.delete(existing.email);
           return rememberUser(updated);
         }
@@ -203,7 +211,7 @@ export function createMemoryAuthStore(now: () => number = Date.now): AuthStore {
         if (existing.googleSub !== null && existing.googleSub !== googleSub) {
           throw new Error('That email already belongs to another Google account.');
         }
-        const linked: UserRecord = { ...existing, googleSub: existing.googleSub ?? googleSub, name };
+        const linked: UserRecord = { ...existing, googleSub: existing.googleSub ?? googleSub, name, picture: picture ?? existing.picture };
         rememberUser(linked);
         if (personalWorkspace(linked.id) === undefined) {
           insertWorkspace(randomUUID(), PERSONAL_WORKSPACE_NAME, 'personal', linked.id, 'admin');
@@ -217,13 +225,14 @@ export function createMemoryAuthStore(now: () => number = Date.now): AuthStore {
         passwordHash: null,
         googleSub,
         name,
+        picture,
         createdAt: new Date(now()),
       };
       rememberUser(user);
       insertWorkspace(randomUUID(), PERSONAL_WORKSPACE_NAME, 'personal', user.id, 'admin');
       return user;
     },
-    async updateUserProfile({ id, name, email }) {
+    async updateUserProfile({ id, name, email, picture }) {
       const existing = usersById.get(id);
       if (existing === undefined) return;
       const emailOwner = userIdByEmail.get(email);
@@ -231,7 +240,7 @@ export function createMemoryAuthStore(now: () => number = Date.now): AuthStore {
         throw new Error('That email already belongs to another account.');
       }
       userIdByEmail.delete(existing.email);
-      rememberUser({ ...existing, name, email });
+      rememberUser({ ...existing, name, email, ...(picture === undefined ? {} : { picture }) });
     },
     async createSession(session) {
       sessions.set(session.tokenHash, { ...session });

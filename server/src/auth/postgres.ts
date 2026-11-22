@@ -17,6 +17,7 @@ interface UserRow {
   password_hash: string | null;
   google_sub: string | null;
   name: string | null;
+  picture: string | null;
   created_at: Date | string;
 }
 
@@ -48,7 +49,7 @@ interface MemberRow {
 
 const SESSION_KINDS: readonly SessionKind[] = ['host', 'participant', 'user', 'guest'];
 
-const USER_COLUMNS = 'id, email, password_hash, google_sub, name, created_at';
+const USER_COLUMNS = 'id, email, password_hash, google_sub, name, picture, created_at';
 const SESSION_COLUMNS =
   'token_hash, kind, role, meeting_code, meeting_id, display_name, user_id, expires_at';
 
@@ -71,6 +72,7 @@ function toUser(row: UserRow): UserRecord {
     passwordHash: row.password_hash,
     googleSub: row.google_sub,
     name: row.name,
+    picture: row.picture,
     createdAt: new Date(row.created_at),
   };
 }
@@ -192,7 +194,7 @@ export function createPostgresAuthStore(pool: Pool): AuthStore {
       }
     },
 
-    async createGoogleUser({ googleSub, name, email }) {
+    async createGoogleUser({ googleSub, name, email, picture = null }) {
       const client = await pool.connect();
       try {
         await client.query('begin');
@@ -203,8 +205,8 @@ export function createPostgresAuthStore(pool: Pool): AuthStore {
         const subRow = existingBySub.rows[0];
         if (subRow !== undefined) {
           const updated = await client.query<UserRow>(
-            `update users set name = $2, email = $3 where id = $1 returning ${USER_COLUMNS}`,
-            [subRow.id, name, email],
+            `update users set name = $2, email = $3, picture = $4 where id = $1 returning ${USER_COLUMNS}`,
+            [subRow.id, name, email, picture],
           );
           await client.query('commit');
           const row = updated.rows[0] ?? subRow;
@@ -221,8 +223,8 @@ export function createPostgresAuthStore(pool: Pool): AuthStore {
             throw new Error('That email already belongs to another Google account.');
           }
           const linked = await client.query<UserRow>(
-            `update users set google_sub = $2, name = $3 where id = $1 returning ${USER_COLUMNS}`,
-            [emailRow.id, googleSub, name],
+            `update users set google_sub = $2, name = $3, picture = $4 where id = $1 returning ${USER_COLUMNS}`,
+            [emailRow.id, googleSub, name, picture],
           );
           await ensurePersonalWorkspace(client, emailRow.id);
           await client.query('commit');
@@ -232,10 +234,10 @@ export function createPostgresAuthStore(pool: Pool): AuthStore {
 
         const userId = randomUUID();
         const created = await client.query<UserRow>(
-          `insert into users (id, email, password_hash, google_sub, name)
-           values ($1, $2, null, $3, $4)
+          `insert into users (id, email, password_hash, google_sub, name, picture)
+           values ($1, $2, null, $3, $4, $5)
            returning ${USER_COLUMNS}`,
-          [userId, email, googleSub, name],
+          [userId, email, googleSub, name, picture],
         );
         const workspaceId = randomUUID();
         await client.query(
@@ -263,8 +265,12 @@ export function createPostgresAuthStore(pool: Pool): AuthStore {
       }
     },
 
-    async updateUserProfile({ id, name, email }) {
-      await pool.query('update users set name = $2, email = $3 where id = $1', [id, name, email]);
+    async updateUserProfile({ id, name, email, picture }) {
+      if (picture === undefined) {
+        await pool.query('update users set name = $2, email = $3 where id = $1', [id, name, email]);
+        return;
+      }
+      await pool.query('update users set name = $2, email = $3, picture = $4 where id = $1', [id, name, email, picture]);
     },
 
     async createSession(session) {

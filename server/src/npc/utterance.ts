@@ -76,6 +76,7 @@ export class UtteranceRecorder {
   private chain: Promise<void> = Promise.resolve();
   private pendingRecognitions = 0;
   private speech: SpeechStart | undefined;
+  private suspended = false;
 
   constructor(
     private readonly recognizer: Recognizer,
@@ -86,9 +87,30 @@ export class UtteranceRecorder {
     this.minMs = options.minMs ?? 250;
   }
 
+  /**
+   * Stop sending audio to speech recognition: any stretch in progress is thrown away and every
+   * frame that arrives while suspended is dropped. Off the record, nothing the room says is sent.
+   */
+  suspend(): void {
+    this.suspended = true;
+    const session = this.session;
+    this.session = undefined;
+    this.speech = undefined;
+    session?.cancel();
+    this.preroll = [];
+    this.prerollSamples = 0;
+    this.sent = [];
+    this.sentSamples = 0;
+  }
+
+  /** Start listening again; new speech opens a fresh recognition session. */
+  resume(): void {
+    this.suspended = false;
+  }
+
   /** Audio from the microphone, all of it, as it arrives. */
   push(samples: Int16Array): void {
-    if (samples.length === 0) return;
+    if (this.suspended || samples.length === 0) return;
     if (this.session === undefined) {
       this.preroll.push(samples);
       this.prerollSamples += samples.length;
@@ -107,6 +129,7 @@ export class UtteranceRecorder {
 
   /** The voice detector's verdict changed. */
   speaking(on: boolean): void {
+    if (this.suspended) return;
     if (on) {
       if (this.session !== undefined) return;
       this.session = this.recognizer.start();
