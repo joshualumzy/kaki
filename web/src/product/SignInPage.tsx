@@ -53,6 +53,7 @@ export function SignInPage() {
   const [search] = useSearchParams();
   const next = safeNext(search.get('next'));
   const startHref = `/api/auth/google/start?next=${encodeURIComponent(next)}`;
+  const error = search.get('error');
 
   if (auth.status === 'loading') {
     return (
@@ -95,6 +96,11 @@ export function SignInPage() {
         <p className="signin-line">
           Kaki writes the minutes and to-dos so your workspace can just talk.
         </p>
+        {error !== null && error !== '' && (
+          <p className="product-error" role="alert">
+            {error}
+          </p>
+        )}
         <a className="signin-google" href={startHref}>
           <GoogleMark />
           <span>Sign in with Google</span>

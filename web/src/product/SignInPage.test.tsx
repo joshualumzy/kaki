@@ -71,6 +71,12 @@ describe('SignInPage', () => {
     expect(screen.getByTestId('location').textContent).toBe('/workspaces/ws-1');
   });
 
+  it('shows the message the server sent back, instead of leaving the person on raw JSON', () => {
+    renderPage('/signin?error=Google%20sign-in%20isn%27t%20set%20up%20on%20this%20server%20yet');
+    expect(screen.getByRole('alert').textContent).toBe("Google sign-in isn't set up on this server yet");
+    expect(screen.getByRole('link', { name: 'Sign in with Google' })).toBeTruthy();
+  });
+
   it('shows a plain sign-in error with a retry', () => {
     mocks.state = { status: 'error', message: 'Could not reach the server.' };
     renderPage();

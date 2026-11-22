@@ -16,6 +16,7 @@ import { clearSessionCookie, readSessionCookie, SESSION_TTL_MS, sessionCookie } 
 import {
   createGoogleSignIn,
   GOOGLE_NOT_SET_UP_MESSAGE,
+  sendAuthFailure,
   type GoogleSignIn,
 } from './google';
 import { hashPassword, hashToken, verifyPassword } from './password';
@@ -664,7 +665,7 @@ export function createAuth({
         (path === '/api/auth/google/start' || path === '/api/auth/google/callback')
       ) {
         if (google === undefined) {
-          sendJson(response, 503, { error: GOOGLE_NOT_SET_UP_MESSAGE });
+          sendAuthFailure(request, response, 503, GOOGLE_NOT_SET_UP_MESSAGE);
         } else {
           await google.handleHttp(request, response);
         }

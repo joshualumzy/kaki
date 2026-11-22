@@ -44,6 +44,8 @@ export interface MeetingInfo {
   scheduledFor: string | null;
   status: string;
   ownerName: string | null;
+  /** Set only for an ended meeting's owner or a member: where its minutes can be read. */
+  historyWorkspaceId: string | null;
 }
 
 export interface AgendaPayload {
@@ -452,6 +454,8 @@ export async function getMeetingInfo(id: string): Promise<MeetingInfo> {
     scheduledFor: typeof body.scheduledFor === 'string' ? body.scheduledFor : null,
     status: typeof body.status === 'string' ? body.status : 'open',
     ownerName: typeof body.ownerName === 'string' ? body.ownerName : null,
+    historyWorkspaceId:
+      typeof body.historyWorkspaceId === 'string' ? body.historyWorkspaceId : null,
   };
 }
 

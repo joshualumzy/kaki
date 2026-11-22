@@ -21,6 +21,29 @@ export const GOOGLE_ENDPOINTS: GoogleEndpoints = {
 /** The exact message the sign-in page shows when this server has no Google credentials. */
 export const GOOGLE_NOT_SET_UP_MESSAGE = "Google sign-in isn't set up on this server yet";
 
+/**
+ * A browser navigating here must never be left on raw JSON. Send it back to the sign-in page with
+ * the message; an API client (no text/html accept) still gets the JSON it asked for.
+ */
+export function sendAuthFailure(
+  request: IncomingMessage,
+  response: ServerResponse,
+  status: number,
+  message: string,
+): void {
+  const accept = request.headers.accept;
+  if (typeof accept === 'string' && accept.includes('text/html')) {
+    const url = new URL(request.url ?? '/', 'http://localhost');
+    const next = safeNext(url.searchParams.get('next'));
+    const query = new URLSearchParams({ error: message });
+    if (next !== '/') query.set('next', next);
+    response.writeHead(303, { location: `/signin?${query.toString()}` });
+    response.end();
+    return;
+  }
+  sendJson(response, status, { error: message });
+}
+
 const OAUTH_COOKIE = 'kaki_google_oauth';
 const OAUTH_TTL_SECONDS = 10 * 60;
 const ALLOWED_ISSUERS = new Set(['accounts.google.com', 'https://accounts.google.com']);
@@ -268,22 +291,22 @@ export function createGoogleSignIn({
     const url = new URL(request.url ?? '/', 'http://localhost');
     const rawStateCookie = readCookie(request, OAUTH_COOKIE);
     if (rawStateCookie === undefined) {
-      sendJson(response, 400, { error: 'Google sign-in expired. Try again.' });
+      sendAuthFailure(request, response, 400, 'Google sign-in expired. Try again.');
       return;
     }
     const stored = parseStateCookie(rawStateCookie);
     if (stored === undefined) {
-      sendJson(response, 400, { error: 'Google sign-in expired. Try again.' });
+      sendAuthFailure(request, response, 400, 'Google sign-in expired. Try again.');
       return;
     }
     const state = url.searchParams.get('state');
     if (state === null || state !== stored.state) {
-      sendJson(response, 400, { error: 'Google sign-in could not be verified. Try again.' });
+      sendAuthFailure(request, response, 400, 'Google sign-in could not be verified. Try again.');
       return;
     }
     const code = url.searchParams.get('code');
     if (code === null || code === '') {
-      sendJson(response, 400, { error: 'Google sign-in did not return a code. Try again.' });
+      sendAuthFailure(request, response, 400, 'Google sign-in did not return a code. Try again.');
       return;
     }
 
@@ -294,7 +317,7 @@ export function createGoogleSignIn({
     } catch (error) {
       // Never log the token or the code: only the reason verification failed.
       log(`kaki auth: Google sign-in failed: ${error instanceof Error ? error.message : String(error)}`);
-      sendJson(response, 401, { error: 'Google sign-in could not be verified. Try again.' });
+      sendAuthFailure(request, response, 401, 'Google sign-in could not be verified. Try again.');
       return;
     }
 
@@ -314,7 +337,7 @@ export function createGoogleSignIn({
       }
     } catch (error) {
       log(`kaki auth: could not save the Google user: ${error instanceof Error ? error.message : String(error)}`);
-      sendJson(response, 500, { error: 'Google sign-in could not be saved. Try again.' });
+      sendAuthFailure(request, response, 500, 'Google sign-in could not be saved. Try again.');
       return;
     }
 

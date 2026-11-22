@@ -1,6 +1,5 @@
 import type { Page } from 'playwright';
 import {
-  BASE,
   createMeeting,
   guestPerson,
   inviteLink,

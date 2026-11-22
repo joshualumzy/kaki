@@ -258,4 +258,15 @@ describe('Google sign-in', () => {
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({ error: GOOGLE_NOT_SET_UP_MESSAGE });
   });
+
+  it('sends a browser navigating the start route back to sign in, never raw JSON', async () => {
+    const { base } = await buildApp(false);
+    const response = await fetch(`${base}/api/auth/google/start?next=%2Fnew`, {
+      redirect: 'manual',
+      headers: { accept: 'text/html,application/xhtml+xml' },
+    });
+    expect(response.status).toBe(303);
+    const query = new URLSearchParams({ error: GOOGLE_NOT_SET_UP_MESSAGE, next: '/new' });
+    expect(response.headers.get('location')).toBe(`/signin?${query.toString()}`);
+  });
 });

@@ -794,6 +794,11 @@ function RealEntryCard({
               : 'Joining the meeting…'}
         </h1>
         <p className="kd-sub">{title}</p>
+        {ask === 'code' ? (
+          <p className="kd-hint">
+            Ask the host for the meeting code, or open the invite link they sent.
+          </p>
+        ) : null}
         {ask === undefined ? null : (
           <label className="kd-label" style={{ display: 'block', marginBottom: 14 }}>
             {ask === 'name' ? 'Your name' : 'Meeting code'}

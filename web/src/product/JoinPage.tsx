@@ -4,6 +4,7 @@ import { useMe } from '../auth/useMe';
 import { Button, Card } from '../ui';
 import { storeRealJoinName, storeRealMeetingCode } from '../meeting/room/rejoinSession';
 import { getMeetingInfo, joinMeeting, type MeetingInfo } from './api';
+import { EndedMeetingCard } from './EndedMeetingCard';
 import './product.css';
 
 /** What a visitor sees from a meeting link before they join. */
@@ -120,6 +121,12 @@ export function JoinPage() {
             Loading this meeting…
           </p>
         ) : null
+      ) : info.status === 'ended' ? (
+        <EndedMeetingCard
+          meetingId={id}
+          meetingTitle={info.title}
+          historyWorkspaceId={info.historyWorkspaceId ?? null}
+        />
       ) : (
         <>
           <header className="page-header">

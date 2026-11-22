@@ -91,8 +91,8 @@ export interface Hub {
   requestStart?(request: RunnerStartRequest): boolean;
   /** The AI runner service channels connected right now. */
   servicePresence?(): ServicePresence;
-  /** Called whenever a runner service channel connects or disconnects. */
-  onServicePresence?(handler: (presence: ServicePresence) => void): void;
+  /** Called whenever a runner service channel connects or disconnects; returns an unsubscribe. */
+  onServicePresence?(handler: (presence: ServicePresence) => void): () => void;
   /** Listen for readiness and failure messages from the AI runner. */
   onServiceMessage?(handler: (message: ServiceMessage) => void): void;
   /** Forget retained events whose key starts with `prefix`, so clients that connect later do not get them. */
@@ -608,6 +608,9 @@ export function createHub(
     },
     onServicePresence(handler) {
       servicePresenceHandlers.add(handler);
+      return () => {
+        servicePresenceHandlers.delete(handler);
+      };
     },
     clearRetained(prefix) {
       for (const key of [...retained.keys()]) if (key.startsWith(prefix)) retained.delete(key);

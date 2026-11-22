@@ -36,6 +36,7 @@ import type { ActionToolOptions } from '../action/tools';
 import type { AttemptLimiter } from '../http/attemptLimiter';
 import { audienceRole, type ClientAudience } from '../core/audience';
 import { CommandError, createHub, type MeetingHub } from '../core/hub';
+import type { RunnerStartRequest } from '../core/serviceMessages';
 import type { IdleTracker } from '../core/idle';
 import type { KakiModule } from '../core/modules';
 import type { WorkspaceTools } from '../workspace/tools';
@@ -575,12 +576,54 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
     else waiter.reject(new Error(message.reason ?? 'the AI attendees could not prepare the meeting'));
   });
 
-  function waitForRunner(attempt: string, meetingId: string): Promise<void> {
+  /**
+   * A real meeting's runner needs a few seconds after the meeting is created to open its control and
+   * service sockets. Wait for both inside the Start window rather than failing the owner's first press.
+   */
+  function waitForRunnerReady(deadline: number): Promise<boolean> {
+    const ready = (): boolean =>
+      (runnerPresence === undefined || runnerPresence.connected()) &&
+      hub.servicePresence?.().connected === true;
+    if (ready()) return Promise.resolve(true);
+    return new Promise<boolean>((resolve) => {
+      let settled = false;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      function settle(value: boolean): void {
+        if (settled) return;
+        settled = true;
+        unsubscribePresence();
+        unsubscribeService();
+        if (timer !== undefined) clearTimeout(timer);
+        resolve(value);
+      }
+      const onPresence = (): void => {
+        if (ready()) settle(true);
+      };
+      const unsubscribePresence: () => void =
+        runnerPresence === undefined ? () => {} : runnerPresence.subscribe(onPresence);
+      const unsubscribeService =
+        hub.onServicePresence === undefined ? () => {} : hub.onServicePresence(onPresence);
+      timer = setTimeout(() => settle(ready()), Math.max(0, deadline - Date.now()));
+      timer.unref?.();
+    });
+  }
+
+  /** Ask the runner to open the meeting, waiting for it to connect when a real meeting starts early. */
+  async function requestRunnerStart(request: RunnerStartRequest, deadline: number): Promise<boolean> {
+    for (;;) {
+      if (hub.requestStart?.(request) === true) return true;
+      if (Date.now() >= deadline) return false;
+      const isReady = await waitForRunnerReady(deadline);
+      if (!isReady) return false;
+    }
+  }
+
+  function waitForRunner(attempt: string, meetingId: string, deadline: number): Promise<void> {
     return new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => {
         runnerWaiters.delete(attempt);
         reject(new Error('no acknowledgement from the AI attendees'));
-      }, Math.max(1, startAckTimeoutMs));
+      }, Math.max(1, deadline - Date.now()));
       timer.unref?.();
       runnerWaiters.set(attempt, {
         meetingId,
@@ -1199,11 +1242,14 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
     meetingId,
     generation,
     activeAi,
+    deadline,
   }: {
     attempt: string;
     meetingId: string;
     generation: number;
     activeAi: boolean;
+    /** When this Start's one window closes; the runner must be ready and acknowledge by then. */
+    deadline: number;
   }): Promise<StartOutcome> {
     /** Drop the candidate and leave the active scenario untouched; a reset has already replaced it. */
     const failed = (outcome: StartOutcome, reason: string): StartOutcome => {
@@ -1228,30 +1274,41 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
           return resetDuringStart();
         }
         if (activeAi) {
-          if (
-            hub.requestStart?.({
-              requestId: attempt,
-              attempt,
-              meetingId,
-              startedAt,
-              agendaIndex: 0,
-              resumed: false,
-            }) !== true
-          ) {
+          const startRequest = {
+            requestId: attempt,
+            attempt,
+            meetingId,
+            startedAt,
+            agendaIndex: 0,
+            resumed: false,
+          };
+          // A practice meeting fails at once when its runner is absent; only a real meeting's owner
+          // gets the wait for a runner that is still opening the room.
+          const sent =
+            runnerKind === 'real'
+              ? await requestRunnerStart(startRequest, deadline)
+              : hub.requestStart?.(startRequest) === true;
+          if (!sent) {
             return failed(
-              {
-                status: 503,
-                body: {
-                  error:
-                    'The AI attendees are not connected, so the meeting cannot open yet. Start the runner with npm run npc, then try again.',
-                  retryable: true,
-                },
-              },
+              runnerKind === 'real'
+                ? realRunnerNotReadyOutcome()
+                : {
+                    status: 503,
+                    body: {
+                      error:
+                        'The AI attendees are not connected, so the meeting cannot open yet. Start the runner with npm run npc, then try again.',
+                      retryable: true,
+                    },
+                  },
               'the AI runner is not connected',
             );
           }
+          // The wait may have outlived the meeting (a reset or the Start window closing).
+          if (meeting.id !== meetingId || session.generation() !== generation || session.phase() !== 'starting') {
+            return resetDuringStart();
+          }
           try {
-            await waitForRunner(attempt, meetingId);
+            await waitForRunner(attempt, meetingId, deadline);
           } catch (error) {
             const reason = error instanceof Error ? error.message : String(error);
             // A reset cancels the waiter on purpose: say that, instead of blaming the runner.
@@ -1261,13 +1318,16 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
             }
             console.warn(`[start] the AI attendees did not prepare the meeting: ${reason}`);
             return failed(
-              {
-                status: 503,
-                body: {
-                  error: 'The AI attendees did not open the meeting. Check that npm run npc is running, then try again.',
-                  retryable: true,
-                },
-              },
+              runnerKind === 'real'
+                ? realRunnerNotReadyOutcome()
+                : {
+                    status: 503,
+                    body: {
+                      error:
+                        'The AI attendees did not open the meeting. Check that npm run npc is running, then try again.',
+                      retryable: true,
+                    },
+                  },
               reason,
             );
           }
@@ -1310,7 +1370,19 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
     return pending.promise;
   }
 
+  /** A real meeting's owner sees plain words: the developer runner command belongs to practice only. */
+  function realRunnerNotReadyOutcome(): StartOutcome {
+    return {
+      status: 503,
+      body: {
+        error: 'Kaki is still getting ready for this meeting. Try again in a few seconds.',
+        retryable: true,
+      },
+    };
+  }
+
   function startTimeoutOutcome(): StartOutcome {
+    if (runnerKind === 'real') return realRunnerNotReadyOutcome();
     return {
       status: 503,
       body: {
@@ -1327,6 +1399,7 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
     const requestedGeneration = session.generation();
     // The one Start timeout covers the queue wait as well as the runner acknowledgement. A Start
     // still waiting when it expires never runs later.
+    const deadline = Date.now() + Math.max(1, startAckTimeoutMs);
     let cancelled = false;
     let timeout: ReturnType<typeof setTimeout> | undefined;
     const timedOut = new Promise<StartOutcome>((resolve) => {
@@ -1468,7 +1541,7 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
         const meetingId = requestedMeetingId;
         const generation = requestedGeneration;
         session.beginStart(candidate, sealed);
-        return () => runStart({ attempt, meetingId, generation, activeAi });
+        return () => runStart({ attempt, meetingId, generation, activeAi, deadline });
       },
     ).then((result) => (typeof result === 'function' ? result() : result));
     return Promise.race([queued, timedOut]).finally(() => {

@@ -5,7 +5,6 @@ import {
   enterOwnRoom,
   guestPerson,
   inviteLink,
-  joinAsGuest,
   launch,
   Run,
   sendTyped,

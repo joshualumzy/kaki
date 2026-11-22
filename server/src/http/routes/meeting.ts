@@ -242,7 +242,12 @@ export async function handleLivekitToken(call: RouteCall): Promise<void> {
       // a person needs the code; the signed-in owner may start or carry on a meeting without it.
       const authOn = context.auth !== undefined;
       const isHost = principal.kind === 'host';
-      if (authOn && principal.kind !== 'service' && !isHost && !wantsPractice) {
+      // A guest who came through this meeting's own link already holds a session bound to exactly
+      // this meeting; that link is the capability, so they need no typed code. A guest session for
+      // any other meeting never resolves here.
+      const isLinkGuest =
+        principal.kind === 'guest' && principal.meetingId === context.meeting.id;
+      if (authOn && principal.kind !== 'service' && !isHost && !isLinkGuest && !wantsPractice) {
         const codeError = codeProblem(
           1,
           context.meetingCode.value,

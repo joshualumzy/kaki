@@ -39,19 +39,25 @@ async function signIn(store: AuthStore, name: string): Promise<SignedIn> {
   return { user, cookie: `kaki_session=${token}` };
 }
 
-async function buildApp(): Promise<{ base: string; store: AuthStore; auth: Auth }> {
+async function buildApp(): Promise<{
+  base: string;
+  store: AuthStore;
+  auth: Auth;
+  meetings: ReturnType<typeof createMemoryMeetingStore>;
+}> {
   const store = createMemoryAuthStore();
   const meetingCode = createMeetingCodeSource('K7M2Q9');
   const auth = createAuth({ store, meetingCode });
+  const meetings = createMemoryMeetingStore();
   const app = await createApp({
     scenario: testScenario,
     speechRecognition: 'browser',
     auth,
     meetingCode,
-    meetings: createMemoryMeetingStore(),
+    meetings,
   });
   apps.push(app);
-  return { base: `http://127.0.0.1:${portOf(app)}`, store, auth };
+  return { base: `http://127.0.0.1:${portOf(app)}`, store, auth, meetings };
 }
 
 function request(
@@ -124,7 +130,37 @@ describe('meetings API', () => {
       scheduledFor: null,
       status: 'open',
       ownerName: 'Ada',
+      historyWorkspaceId: null,
     });
+  });
+
+  it('tells the link an ended meeting is over and points only its members at the notes', async () => {
+    const { base, store, meetings } = await buildApp();
+    const ada = await signIn(store, 'Ada');
+    const ben = await signIn(store, 'Ben');
+    const outsider = await signIn(store, 'Outsider');
+    const team = await store.createWorkspace({ name: 'Team', createdBy: ada.user.id });
+    await store.addWorkspaceMember({ workspaceId: team.workspace.id, userId: ben.user.id, role: 'member' });
+    const meeting = await createMeeting(base, ada.cookie, team.workspace.id, 'Weekly planning');
+    await meetings.markEnded!(meeting.id, new Date().toISOString());
+
+    const guest = (await (await request(base, `/api/meetings/${meeting.id}/info`)).json()) as Record<string, unknown>;
+    expect(guest).toMatchObject({ status: 'ended', historyWorkspaceId: null });
+
+    const owner = (await (
+      await request(base, `/api/meetings/${meeting.id}/info`, { cookie: ada.cookie })
+    ).json()) as Record<string, unknown>;
+    expect(owner.historyWorkspaceId).toBe(team.workspace.id);
+
+    const member = (await (
+      await request(base, `/api/meetings/${meeting.id}/info`, { cookie: ben.cookie })
+    ).json()) as Record<string, unknown>;
+    expect(member.historyWorkspaceId).toBe(team.workspace.id);
+
+    const stranger = (await (
+      await request(base, `/api/meetings/${meeting.id}/info`, { cookie: outsider.cookie })
+    ).json()) as Record<string, unknown>;
+    expect(stranger.historyWorkspaceId).toBeNull();
   });
 
   it('marks a future meeting as scheduled and a past one as open', async () => {

@@ -107,7 +107,7 @@ export async function handleCreateMeeting(call: RouteCall): Promise<void> {
 
 /** The public facts a visitor may see from a meeting link; the id is the capability. */
 export async function handleMeetingInfo(call: RouteCall): Promise<void> {
-  const { response, context, path } = call;
+  const { response, context, path, principal } = call;
   const id = meetingIdFrom(path, 'info');
   const meetings = context.meetings;
   const store = context.authStore;
@@ -125,12 +125,23 @@ export async function handleMeetingInfo(call: RouteCall): Promise<void> {
     workspace?.name ??
     (row.workspaceId === SAMPLE_WORKSPACE_ID ? SAMPLE_WORKSPACE.name : null);
   const owner = row.ownerUserId === null ? undefined : await store.findUserById(row.ownerUserId);
+  // Only this meeting's owner or a workspace member may be pointed at its minutes.
+  let historyWorkspaceId: string | null = null;
+  if (row.status === 'ended' && principal.kind === 'user') {
+    const isOwner = row.ownerUserId === principal.userId;
+    const isMember =
+      isOwner ||
+      (await store.getMembership({ workspaceId: row.workspaceId, userId: principal.userId })) !==
+        undefined;
+    if (isMember) historyWorkspaceId = row.workspaceId;
+  }
   sendJson(response, 200, {
     title: row.title,
     workspaceName,
     scheduledFor: row.scheduledFor,
     status: row.status,
     ownerName: owner === undefined ? null : (owner.name ?? owner.email),
+    historyWorkspaceId,
   });
 }
 

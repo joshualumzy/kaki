@@ -151,7 +151,7 @@ describe('the AI runner HTTP client', () => {
   });
   it('calls a real meeting through /api/meetings/<id>/runner/..., not /api/meetings/<id>/api/runner/...', async () => {
     const urls: string[] = [];
-    const fakeFetch = (async (input: RequestInfo | URL) => {
+    const fakeFetch = (async (input: string | URL | Request) => {
       urls.push(String(input));
       return new Response('{}', { status: 200 });
     }) as typeof fetch;

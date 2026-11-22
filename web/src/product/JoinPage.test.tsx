@@ -156,6 +156,43 @@ describe('JoinPage', () => {
     expect(screen.queryByText('Loading this meeting…')).toBeNull();
   });
 
+  it('says an ended meeting is over instead of inviting a guest to join', async () => {
+    installFetch({
+      'GET /api/meetings/mtg-1/info': () =>
+        reply(
+          scheduledInfo({
+            scheduledFor: null,
+            status: 'ended',
+            historyWorkspaceId: null,
+          }),
+        ),
+    });
+    renderPage();
+
+    expect(await screen.findByRole('heading', { name: 'This meeting has ended' })).toBeTruthy();
+    expect(screen.getByText('Ask the host for the minutes.')).toBeTruthy();
+    expect(screen.queryByLabelText('Your name')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Join meeting' })).toBeNull();
+  });
+
+  it('gives a member a link to the notes of an ended meeting', async () => {
+    installFetch({
+      'GET /api/meetings/mtg-1/info': () =>
+        reply(
+          scheduledInfo({
+            scheduledFor: null,
+            status: 'ended',
+            historyWorkspaceId: 'ws-1',
+          }),
+        ),
+    });
+    renderPage();
+
+    const link = await screen.findByRole('link', { name: 'Read the meeting notes' });
+    expect(link.getAttribute('href')).toBe('/workspaces/ws-1/meetings/mtg-1');
+    expect(screen.queryByLabelText('Your name')).toBeNull();
+  });
+
   it('does not show a planned time for a meeting that is open now', async () => {
     installFetch({
       'GET /api/meetings/mtg-1/info': () =>
