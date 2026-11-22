@@ -1,6 +1,7 @@
 /// <reference lib="dom" />
 /**
- * One visible, one-visitor rehearsal. The operator starts the draft-only stack separately.
+ * One visible, one-visitor rehearsal. The operator starts the draft-only stack separately, with the AI runner
+ * on KAKI_FAKE_STT=1: the robot visitor speaks through the fake recogniser, never a text box.
  * `--act` needs a stack started without KAKI_DRAFT_ONLY, and writes to the local mock tools only.
  */
 import '../server/src/env';
@@ -22,6 +23,7 @@ import {
 import { decideRobotCall } from './robot-decision';
 import { reportResultLine, statusFor, type PlaytestCheck } from './playtest-report';
 import { escapeCell, parseArgv, stamp, writeMarkdownReport } from './lib/playtest';
+import { createFakeSpeaker } from '../server/src/npc/fakeStt';
 
 /** The demo to test; set KAKI_PLAYTEST_URL (e.g. the cloud URL) to test a deployed copy instead of the local stack. */
 const BASE = (process.env.KAKI_PLAYTEST_URL ?? 'http://localhost:5173').replace(/\/+$/, '');
@@ -126,13 +128,14 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks: PlaytestHo
   let scenario: Scenario | undefined;
   let page: Page | undefined;
   let browser: Browser | undefined;
+  // The visitor speaks through the dev-only fake recogniser; the runner must run with KAKI_FAKE_STT=1.
+  const fakeSpeaker = createFakeSpeaker();
   let phoneMode = false;
   let agendaIndex = 0;
   let lastAiLineAt = Date.now();
   let lastProgressAt = Date.now();
   let closing = false;
   let screenSocketSeen = false;
-  let pausedByApi = false;
   let shotNumber = 0;
   let globalDeadline = Date.now() + 25 * 60_000;
   let visitorRole = '';
@@ -215,7 +218,6 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks: PlaytestHo
         lastProgressAt = now;
         lastAiLineAt = now;
       }
-      pausedByApi = event.payload.paused === true;
     } else if (event.type === 'TRANSCRIPT_CHUNK') {
       const { speaker, text, timestamp } = event.payload;
       // Read the gate defensively: a deployed server may not send it, and an older shared build may not type it.
@@ -280,24 +282,16 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks: PlaytestHo
     return false;
   }
 
-  async function uiContains(selector: string, value: string): Promise<boolean> {
-    if (page === undefined) return false;
-    return (await page.locator(selector).first().textContent().catch(() => ''))?.includes(value) === true;
-  }
-
-  async function typeLine(text: string): Promise<{ ok: boolean; at: number }> {
+  /** Say a line as the robot through the dev-only fake recogniser: the runner takes it exactly like speech. */
+  async function sayLine(text: string): Promise<{ ok: boolean; at: number }> {
     if (page === undefined) return { ok: false, at: Date.now() };
-    const input = page.getByRole('textbox', { name: 'Type to the meeting' });
     try {
-      await input.fill(text, { timeout: 5_000 });
-      await input.press('Enter', { timeout: 5_000 });
+      await fakeSpeaker.say(robotSpeaker, text);
       const at = Date.now();
-      // A person on a phone closes the keyboard after sending; the app hides the Kaki panel while the box has focus.
-      if (phoneMode) await input.blur();
-      notes.push(`${stamp()} Robot Visitor typed: ${text}`);
+      notes.push(`${stamp()} Robot Visitor said: ${text}`);
       return { ok: true, at };
     } catch (error) {
-      await check('Type bar', false, String(error));
+      await check('Fake speech', false, `${String(error)} (is the AI runner started with KAKI_FAKE_STT=1?)`);
       return { ok: false, at: Date.now() };
     }
   }
@@ -318,7 +312,7 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks: PlaytestHo
     await page.getByRole('radio', { name: new RegExp(visitorRoleLabel, 'i') }).click();
     for (;;) {
       if (Date.now() > deadline) return 'full';
-      await page.getByRole('button', { name: 'Join to type' }).click();
+      await page.getByRole('button', { name: 'Join with mic off' }).click();
       const joined = page.locator('.kd-meeting').first().waitFor({ timeout: 10_000 }).then(() => 'joined' as const);
       const full = page.getByText(/The meeting is full/).first().waitFor({ timeout: 10_000 }).then(() => 'full' as const);
       const outcome = await Promise.any([joined, full]).catch(() => 'unknown' as const);
@@ -463,14 +457,14 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks: PlaytestHo
     if (hooks?.behaviour === 'interrupter' && interruptArmed.delete(index)) {
       const robotLineBefore = transcript.length;
       const stillSpeaking = await waitFor(`Topic ${index + 1} AI still speaking`, () => aiSpeaking(), 15_000, false);
-      const typed = await typeLine(text);
+      const typed = await sayLine(text);
       if (!typed.ok) return false;
       lastVisitorLine = text;
       interruptedTopics.add(index);
       await evaluateInterrupt(index, typed.at, robotLineBefore, stillSpeaking);
       return true;
     }
-    const typed = await typeLine(text);
+    const typed = await sayLine(text);
     if (typed.ok) lastVisitorLine = text;
     return typed.ok;
   }
@@ -500,17 +494,8 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks: PlaytestHo
     const recovered = await waitFor(`Topic ${index + 1} offer recovery`, () =>
       settled.has(scenario?.agenda[index]?.title ?? '') ||
       lockOfferLine(index, before) !== undefined, 35_000, false);
-    let lockWorked = false;
-    if (!recovered && page !== undefined) {
-      const lock = page.getByRole('button', { name: 'Lock in my decision' });
-      if (await lock.isEnabled().catch(() => false)) {
-        await lock.click({ timeout: 5_000 });
-        lockWorked = await waitFor(`Topic ${index + 1} lock fallback settlement`, () =>
-          settled.has(scenario?.agenda[index]?.title ?? ''), 15_000, false);
-      }
-    }
-    await check(`Topic ${index + 1} offer recovery`, recovered || lockWorked,
-      recovered ? 'Offer returned or topic locked after clarification' : lockWorked ? 'Lock button settled topic after clarification' : 'Neither renewed offer nor working Lock after clarification');
+    await check(`Topic ${index + 1} offer recovery`, recovered,
+      recovered ? 'Offer returned or topic locked after clarification' : 'No renewed offer and no settlement after clarification (see #68)');
   }
 
   async function acceptVisitorTasks(index: number): Promise<void> {
@@ -855,7 +840,7 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks: PlaytestHo
     if (role === undefined) throw new Error(`Role ${parsed.role ?? '(default)'} is not a playable non-Sam seat; choices: ${playable.map((r) => r.id).join(', ')}`);
     visitorRole = role.id;
     visitorRoleLabel = role.label;
-    await check('Microphone muted', await ensureMicrophoneMuted(), 'Visitor input uses the type bar only');
+    await check('Microphone muted', await ensureMicrophoneMuted(), 'Visitor input goes through the fake speech recogniser only');
     // A previous visitor who did not leave cleanly holds the only seat until LiveKit drops them; wait for it to free.
     const seatDeadline = Date.now() + 90_000;
     if (await joinAsRobot(seatDeadline) === 'full') {
@@ -913,17 +898,7 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks: PlaytestHo
       }
       let decision: string | undefined;
       if (i === 0) {
-        const pause = page.locator('.kd-typebar .kd-stop');
         await waitFor('First colleague line on topic 1', () => firstColleagueLine(0, hostName) !== undefined, 120_000);
-        if (await waitFor('Pause control', () => pause.isVisible(), 15_000)) {
-          // The type bar can shift by a pixel while captions grow; don't wait for it to be perfectly still.
-          await pause.click({ force: true });
-          const paused = await waitFor('Paused state', () => pausedByApi && uiContains('.kd-stop', 'Play'), 12_000);
-          await check('Pause', paused, 'API record paused and UI showed Play');
-          await page.locator('.kd-typebar .kd-stop').click({ force: true });
-          const resumed = await waitFor('Resumed state', () => !pausedByApi && uiContains('.kd-stop', 'Pause'), 12_000);
-          await check('Resume', resumed, 'API record resumed and UI showed Pause');
-        }
       }
 
       const before = transcript.length;
@@ -940,18 +915,20 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks: PlaytestHo
         const available = await waitFor(`Topic ${i + 1} table starter available`, () => ideas.isVisible(), 45_000);
         if (available) {
           await ideas.click();
-          const chip = page.getByRole('button', { name: /Table topic & set a follow-up/ });
-          const visible = await waitFor(`Topic ${i + 1} table topic chip`, () => chip.isVisible(), 8_000);
+          // The ideas are lines to say, not buttons: the robot reads the table-it idea out loud.
+          const idea = page.locator('.kd-starter-chip').filter({ hasText: /table it for now/i }).first();
+          const visible = await waitFor(`Topic ${i + 1} table topic idea`, () => idea.isVisible(), 8_000);
           if (visible) {
             if (await quietBeforeTyping(i)) {
               for (const line of transcript) {
                 if (line.agendaIndex === i && !isRobotSpeaker(line.speaker)) reacted.add(lineKey(line));
               }
-              await chip.click();
+              const text = ((await idea.textContent()) ?? '').replace(/^\W+/u, '').trim();
+              if ((await sayLine(text)).ok) lastVisitorLine = text;
             }
             await check('Table topic starter', await waitFor('Table starter transcript', () =>
               transcript.some((line) => line.agendaIndex === i && /table it for now and set up a follow-up/i.test(line.text)), 15_000),
-            'Starter chip sent its line to the meeting');
+            'The visitor said the table-it idea and it reached the meeting');
           }
         }
       } else {
@@ -985,15 +962,6 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks: PlaytestHo
             notes.push(`${stamp()} Topic ${i + 1}: no colleague reply after the first call, so the flip-flop reversal was skipped`);
           }
         }
-        if (i === 3) {
-          const lock = page.getByRole('button', { name: 'Lock in my decision' });
-          const thinking = await waitFor('Thinking with Lock enabled', async () =>
-            await page!.locator('.kd-state').filter({ hasText: 'thinking' }).count() > 0 && await lock.isEnabled(), 12_000);
-          if (thinking) {
-            await check('Lock enabled while thinking', true, 'AI tile showed thinking and Lock was enabled');
-            await lock.click();
-          }
-        }
       }
 
       await waitFor(`Topic ${i + 1} typed line in transcript`, () =>
@@ -1008,10 +976,9 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks: PlaytestHo
         await delay(350);
       }
       if (!settled.has(title) && agendaIndex === i) {
-        const lock = page.getByRole('button', { name: 'Lock in my decision' });
-        if (await lock.isEnabled().catch(() => false)) {
-          await lock.click();
-          notes.push(`${stamp()} Lock fallback pressed for ${title}`);
+        // No Lock button any more: confirm out loud, the way a person would.
+        if (await speak('Yes, lock that in.', 'Confirm the decision so the topic can settle.')) {
+          notes.push(`${stamp()} Spoken confirmation fallback for ${title}`);
         }
       }
       await check(`Topic ${i + 1} settled`, await waitFor(`Topic ${i + 1} settlement event`, () => settled.has(title), 20_000), title);

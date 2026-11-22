@@ -191,9 +191,9 @@ Screen map:
 - The stage shows each person's LiveKit tile, who is speaking, live captions and reaction badges. In a practice meeting, AI colleagues appear as animated orbs. `web/src/meeting/room/MeetingGrid.tsx`, `web/src/meeting/room/CaptionedTile.tsx`, `web/src/meeting/room/Orb.tsx`, `web/src/meeting/room/stageModel.ts`
 - A briefing covers the practice stage until the visitor presses Start. The AI colleagues stay silent before that. `web/src/meeting/room/StartPrompt.tsx`
 - The dock carries the role card, the agenda clock, the transcript, the task board, the private Wingman panel and any private task card. `web/src/meeting/room/Dock.tsx`, `web/src/meeting/room/RoleCard.tsx`, `web/src/meeting/room/WingmanPanel.tsx`, `web/src/meeting/room/ActiveRoleCards.tsx`, `web/src/meeting/room/MeetingPanel.tsx`
-- The real meeting bar has microphone and camera controls, Type, Off the record, Invite, People and Leave, plus End for everyone (owner or admin). An off-the-record banner shows while the room is off the record. `web/src/meeting/room/RealMeetingBar.tsx`, `web/src/meeting/room/RealRoomOverlays.tsx`, `web/src/meeting/room/TypeBar.tsx`
+- The real meeting bar has microphone and camera controls, Type, Off the record, Invite, People and Leave, plus End for everyone (owner or admin). An off-the-record banner shows while the room is off the record. `web/src/meeting/room/RealMeetingBar.tsx`, `web/src/meeting/room/RealRoomOverlays.tsx`
 - Microphone and speaker controls show a live level. A phone can tap to start playback when the browser blocks it. `web/src/meeting/room/MediaPreview.tsx`, `web/src/meeting/room/AudioUnlock.tsx`
-- Narrow screens put the stage above the dock and keep the type bar at the bottom. `web/src/meeting/room/demo.css`
+- Narrow screens put the stage above the dock and keep the meeting controls at the bottom. `web/src/meeting/room/demo.css`
 - One hook holds the WebSocket connection, the event window, the task list and the send function. `web/src/kaki/useKaki.ts`
 
 ### After the meeting (front end)
@@ -204,7 +204,7 @@ Screen map:
 
 ### Practise alone
 
-- `/practice` and `/demo` open a meeting where AI colleagues fill the other seats. The visitor can speak or type, and the AI stops when interrupted. `web/src/meeting/room/Meeting.tsx`, `web/src/meeting/room/TypeBar.tsx`
+- `/practice` and `/demo` open a meeting where AI colleagues fill the other seats. The visitor takes part by speaking, and the AI stops when interrupted. `web/src/meeting/room/Meeting.tsx`
 
 ## Back-end features
 
