@@ -43,6 +43,7 @@ import type { WorkspaceTools } from '../workspace/tools';
 import type { MeetingPersistence } from '../persist/persistence';
 import type { ArchivedMeetingTodo, MeetingRow } from './types';
 import {
+  holderForRoomIdentity,
   realBaseScenario,
   realMeetingSetup,
   realScenarioWithPeople,
@@ -895,9 +896,7 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
     const holder =
       participantIdentity === undefined
         ? holders.find((candidate) => seatKey(candidate.seat) === wantedSeat)
-        : holders.find(
-            (candidate) => candidate.name.trim().toLowerCase() === participantIdentity.trim().toLowerCase(),
-          );
+        : holderForRoomIdentity(holders, participantIdentity);
     if (holder === undefined) {
       throw new CommandError(
         participantIdentity === undefined

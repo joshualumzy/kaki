@@ -128,6 +128,24 @@ export function realSeatId(
   return identitySeat(`name:${participantName.trim().toLowerCase()}|${meetingId}`);
 }
 
+/**
+ * The holder a room participant's LiveKit identity names. A real meeting's token makes the stable
+ * seat id the room identity, so the identity finds the holder by seat. Practice keeps the person's
+ * display name as the room identity, so the same lookup falls back to a name only when no holder
+ * has that seat id. This is the one rule every speech line is matched by, and it never lets a
+ * shared display name decide between two real seats.
+ */
+export function holderForRoomIdentity(
+  holders: readonly SeatHolder[],
+  participantIdentity: string,
+): SeatHolder | undefined {
+  const identity = participantIdentity.trim().toLowerCase();
+  if (identity === '') return undefined;
+  const bySeat = holders.find((holder) => holder.seat.trim().toLowerCase() === identity);
+  if (bySeat !== undefined) return bySeat;
+  return holders.find((holder) => holder.name.trim().toLowerCase() === identity);
+}
+
 /** The name a real meeting shows: the account's, the guest's own, or the one they typed. */
 export function realPersonName(principal: Principal, typedName: string): string {
   if (principal.kind === 'host' || principal.kind === 'user' || principal.kind === 'guest') {
