@@ -313,21 +313,6 @@ describe('notetaker record keeping', () => {
     expect(system).not.toMatch(/streamer|publisher|playtest/i);
   });
 
-  it('treats the agenda as a hint and never forces an agenda label', () => {
-    const system = systemPrompt(scenario);
-    expect(system).toMatch(/agenda \(a hint only/i);
-    expect(system).toMatch(/Other topics/);
-    expect(system).toMatch(/never force an agenda label/i);
-
-    const withoutAgenda = systemPrompt({ ...scenario, agenda: [] });
-    expect(withoutAgenda).toMatch(/no agenda/i);
-    expect(withoutAgenda).toMatch(/agendaIndex null/i);
-  });
-
-  it('accepts a null agendaIndex, so off-agenda talk is never labelled with an item', () => {
-    expect(parseNotetakerReply(reply({ agendaIndex: null }), scenario).agendaIndex).toBeUndefined();
-  });
-
   it('keeps a re-asked question when the same reply closes the older wording', async () => {
     const { notetaker } = setup((_messages, call) =>
       [

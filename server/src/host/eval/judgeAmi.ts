@@ -34,7 +34,6 @@ export interface SectionInput {
   kind: JudgeKind;
   found: string[];
   gold: string[];
-  /** Background context for the AMI gold key; empty when the caller has none. */
   decisions: string[];
 }
 
@@ -42,21 +41,19 @@ function numbered(items: string[]): string {
   return items.length === 0 ? '(none)' : items.map((item, index) => `${index + 1}. ${item}`).join('\n');
 }
 
-function systemPrompt(input: SectionInput): string {
+function systemPrompt(): string {
   return [
-    'You are scoring a meeting notetaker against an expected answer key.',
-    'For each judgement you receive a numbered list of expected items and a numbered list of items the notetaker found.',
-    ...(input.decisions.length === 0
-      ? []
-      : ['The expected decisions are background context only. Never pair a found item with a decision.']),
-    'Go through the expected list in order. For each expected item, give the number of the found item that describes the',
+    'You are scoring a meeting notetaker against a gold answer key from the AMI Meeting Corpus.',
+    'For each judgement you receive a numbered list of gold items and a numbered list of items the notetaker found.',
+    'The gold decisions are background context only. Never pair a found item with a decision.',
+    'Go through the gold list in order. For each gold item, give the number of the found item that describes the',
     'same concrete task or the same open question, or null when no found item does.',
     'Do not pair items merely because they share a topic, a person or a keyword.',
-    'A found task covers an expected task only when doing the found task would itself get that task done. A card to',
-    'post, send or announce a summary covers only an expected task about sharing that summary, not the work it lists.',
-    'One found item may be named for several expected items when it really covers each of them (for example one card',
-    '"email the minutes and the slides" covers two expected tasks).',
-    'Return one JSON object only, with exactly one entry per expected item, in expected order:',
+    'A found task covers a gold action only when doing the found task would itself get that action done. A card to',
+    'post, send or announce a summary covers only a gold action about sharing that summary, not the work it lists.',
+    'One found item may be named for several gold items when it really covers each of them (for example one card',
+    '"email the minutes and the slides" covers two gold actions).',
+    'Return one JSON object only, with exactly one entry per gold item, in gold order:',
     '{"matches":[{"gold":1,"found":2,"reason":"why these are the same"},{"gold":2,"found":null,"reason":"why nothing matches"}]}',
   ].join('\n');
 }
@@ -126,7 +123,7 @@ export function validateJudgeReply(text: string, foundCount: number, goldCount: 
 
 export async function judgeSection(llm: LlmClient, input: SectionInput): Promise<JudgeSection> {
   const messages: ChatMessage[] = [
-    { role: 'system', content: systemPrompt(input) },
+    { role: 'system', content: systemPrompt() },
     { role: 'user', content: userPrompt(input) },
   ];
   const first = await llm.complete(messages, { json: true });
@@ -145,7 +142,7 @@ export async function judgeSection(llm: LlmClient, input: SectionInput): Promise
     } catch (retryError) {
       const retryReason = retryError instanceof Error ? retryError.message : String(retryError);
       throw new Error(
-        `The judge for ${input.kind} in ${input.meeting} returned an unusable reply twice: ${retryReason}`,
+        `AMI judge for ${input.kind} in ${input.meeting} returned an unusable reply twice: ${retryReason}`,
         { cause: retryError },
       );
     }
