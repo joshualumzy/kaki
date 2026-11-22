@@ -82,7 +82,8 @@ type KakiEventType =
   | 'TOPIC_SETTLED'
   | 'COLLEAGUE_REACTION'
   | 'COMMAND_REJECTED'
-  | 'MEETING_STATE';
+  | 'MEETING_STATE'
+  | 'SCENARIO_CHANGED';
 
 type KakiEventOf<T extends KakiEventType, P> = { type: T; payload: P; audience: Audience };
 
@@ -184,7 +185,9 @@ export type KakiEvent =
   | KakiEventOf<'COLLEAGUE_REACTION', { who: string; emoji: '👍' | '😬' | '🤔' | '😅' | '🙌' | '💸' | '🤨' | '⏰'; timestamp: string }>
   | KakiEventOf<'COMMAND_REJECTED', { commandType: string; reason: string }>
   /** The one shared state every participant reads: off the record, waiting for the owner, people and cues. */
-  | KakiEventOf<'MEETING_STATE', MeetingStateSnapshot>;
+  | KakiEventOf<'MEETING_STATE', MeetingStateSnapshot>
+  /** The people (and so the roles) in a real meeting changed; every page reloads its scenario. */
+  | KakiEventOf<'SCENARIO_CHANGED', { meetingId: string }>;
 
 const KAKI_EVENT_TYPES: readonly KakiEventType[] = [
   'TRANSCRIPT_CHUNK',
@@ -202,6 +205,7 @@ const KAKI_EVENT_TYPES: readonly KakiEventType[] = [
   'COLLEAGUE_REACTION',
   'COMMAND_REJECTED',
   'MEETING_STATE',
+  'SCENARIO_CHANGED',
 ];
 
 /** True for a finite number that is zero or more. */
@@ -356,6 +360,7 @@ const PAYLOAD_CHECKS: Record<KakiEventType, PayloadCheck> = {
     isString(payload.timestamp) && Number.isFinite(Date.parse(payload.timestamp)),
   COMMAND_REJECTED: (payload) => isString(payload.commandType) && isString(payload.reason),
   MEETING_STATE: (payload) => isMeetingStateSnapshot(payload),
+  SCENARIO_CHANGED: (payload) => isNonEmptyString(payload.meetingId),
 };
 
 /** Validate unknown data (such as JSON from a socket) as a complete KakiEvent for the scenario. */

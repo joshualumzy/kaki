@@ -385,10 +385,15 @@ export function createAuth({
       sendJson(response, 401, { error: 'Not signed in', authEnabled: true });
       return;
     }
-    if (session.kind === 'user') {
-      const user = session.userId === null || session.userId === undefined
-        ? undefined
-        : await store.findUserById(session.userId);
+    // Host and participant sessions taken in a meeting still belong to the signed-in account:
+    // the seat is a meeting role, never a downgrade of the account. The legacy password host has
+    // no user id and stays a plain host.
+    const accountId =
+      session.kind === 'user' || session.kind === 'host' || session.kind === 'participant'
+        ? session.userId
+        : null;
+    if (accountId !== null && accountId !== undefined) {
+      const user = await store.findUserById(accountId);
       if (user === undefined) {
         sendJson(response, 401, { error: 'Not signed in', authEnabled: true });
         return;
@@ -398,6 +403,10 @@ export function createAuth({
         user: { id: user.id, name: user.name ?? user.email, email: user.email },
         authEnabled: true,
       });
+      return;
+    }
+    if (session.kind === 'user') {
+      sendJson(response, 401, { error: 'Not signed in', authEnabled: true });
       return;
     }
     if (session.kind === 'guest') {

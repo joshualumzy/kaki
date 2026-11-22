@@ -10,7 +10,6 @@ import type { KakiContext, KakiModule } from '../core/modules';
 import type { ChatMessage, LlmClient } from '../services/llm';
 import type { WorkspaceTools } from '../workspace/tools';
 import { parseDraftObject } from './draft';
-import { SAMPLE_WORKSPACE_ID } from '../workspace/constants';
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 
@@ -151,16 +150,6 @@ export function createFitModule({ llm, timeoutMs = DEFAULT_TIMEOUT_MS }: FitModu
       function check(task: Task): void {
         if (stopped) return;
         if (task.purpose !== undefined) return;
-        // The sample workspace is built in for practice; a real meeting can never use it, but if
-        // one ever did, no button may appear for its built-in tools.
-        if (ctx.workspaceId() === SAMPLE_WORKSPACE_ID && ctx.meetingKind?.() === 'real') {
-          ctx.tasks.setActionFit(
-            task.id,
-            { status: 'none', reason: 'The sample workspace is for practice and cannot act in a real meeting.' },
-            task.updatedAt,
-          );
-          return;
-        }
         if (task.fit !== undefined) return;
         if (task.status !== 'SUGGESTED' && task.status !== 'DISPATCHED') return;
         if (inFlight.has(task.id)) return;

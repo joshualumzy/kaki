@@ -1,4 +1,5 @@
 import { isObject } from '@kaki/shared';
+import { accountUserId } from '../access';
 import { readJsonBody, sendJson } from '../http';
 import type { RouteCall } from '../routeCall';
 import type { WorkspaceMember, WorkspaceRecord } from '../../auth/store';
@@ -134,7 +135,9 @@ export async function handleWorkspaces(call: RouteCall): Promise<void> {
     sendJson(response, 500, { error: 'Workspace storage is unavailable.' });
     return;
   }
-  if (principal.kind !== 'user') {
+  // A person who took a meeting seat keeps their account; only the seat grant changed.
+  const userId = accountUserId(principal);
+  if (userId === undefined) {
     sendJson(response, 403, { error: 'Sign in with Google to use workspaces.' });
     return;
   }
@@ -153,7 +156,7 @@ export async function handleWorkspaces(call: RouteCall): Promise<void> {
       sendJson(response, 403, { error: "The sample workspace's meetings are built in" });
       return;
     }
-    const membership = await store.getMembership({ workspaceId: historyWorkspaceId, userId: principal.userId });
+    const membership = await store.getMembership({ workspaceId: historyWorkspaceId, userId: userId });
     if (membership === undefined) {
       sendJson(response, 404, { error: 'Workspace not found' });
       return;
@@ -189,7 +192,7 @@ export async function handleWorkspaces(call: RouteCall): Promise<void> {
       sendJson(response, 409, { error: 'This meeting has not ended yet.' });
       return;
     }
-    const canEdit = meeting.ownerUserId === principal.userId || membership === 'admin';
+    const canEdit = meeting.ownerUserId === userId || membership === 'admin';
 
     if (method === 'GET' && todoId === undefined && path.endsWith('/minutes')) {
       sendJson(response, 200, {
@@ -245,7 +248,7 @@ export async function handleWorkspaces(call: RouteCall): Promise<void> {
       sendJson(response, 403, { error: "The sample workspace's tools are built in" });
       return;
     }
-    const membership = await store.getMembership({ workspaceId: toolWorkspaceId, userId: principal.userId });
+    const membership = await store.getMembership({ workspaceId: toolWorkspaceId, userId: userId });
     if (membership === undefined) {
       sendJson(response, 404, { error: 'Workspace not found' });
       return;
@@ -363,7 +366,7 @@ export async function handleWorkspaces(call: RouteCall): Promise<void> {
         kind,
         settings: test.settings,
         ...encrypted,
-        connectedBy: principal.userId,
+        connectedBy: userId,
         connectedAt: now,
         lastOkAt: now,
       });
@@ -408,7 +411,7 @@ export async function handleWorkspaces(call: RouteCall): Promise<void> {
   const workspaceId = detail === null ? undefined : decodeURIComponent(detail[1] ?? '');
 
   if (method === 'GET' && workspaceId === undefined) {
-    const memberships = await store.listWorkspacesForUser(principal.userId);
+    const memberships = await store.listWorkspacesForUser(userId);
     sendJson(response, 200, [
       ...memberships.map((membership) => summary(membership.workspace, membership.role)),
       { id: SAMPLE_WORKSPACE.id, name: SAMPLE_WORKSPACE.name, kind: SAMPLE_WORKSPACE.kind, role: 'member' },
@@ -431,7 +434,7 @@ export async function handleWorkspaces(call: RouteCall): Promise<void> {
       sendJson(response, 400, { error: 'A workspace name must be 1-60 characters.' });
       return;
     }
-    const created = await store.createWorkspace({ name, createdBy: principal.userId });
+    const created = await store.createWorkspace({ name, createdBy: userId });
     sendJson(response, 200, summary(created.workspace, created.role));
     return;
   }
@@ -456,7 +459,7 @@ export async function handleWorkspaces(call: RouteCall): Promise<void> {
     }
     const membership = await store.getMembership({
       workspaceId,
-      userId: principal.userId,
+      userId: userId,
     });
     if (membership === undefined) {
       // Not being a member is indistinguishable from the workspace not existing.
@@ -507,7 +510,7 @@ export async function handleWorkspaces(call: RouteCall): Promise<void> {
     }
     const membership = await store.getMembership({
       workspaceId,
-      userId: principal.userId,
+      userId: userId,
     });
     if (membership === undefined) {
       sendJson(response, 404, { error: 'Workspace not found' });

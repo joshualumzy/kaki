@@ -721,6 +721,13 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
   function refreshRealPeople(): void {
     if (legacy) return;
     session.refreshRealScenario(realScenarioWithPeople(fullScenario, session.holders()));
+    // The web validates speaker roles against its scenario, so a person who joins must also be
+    // told to reload it; otherwise their lines are dropped as unknown roles on everyone's screen.
+    hub.publish({
+      type: 'SCENARIO_CHANGED',
+      audience: { kind: 'all' },
+      payload: { meetingId: meeting.id },
+    });
   }
   // The task store belongs to the meeting, so a reset forgets its cards too. The session clears
   // every retained key (including 'task:') after these hooks run.

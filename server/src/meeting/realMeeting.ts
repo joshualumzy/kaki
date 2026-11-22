@@ -16,7 +16,9 @@ export const REAL_BASE_ROLE = 'everyone';
 const REAL_BASE_LABEL = 'Everyone';
 
 /** The plain scenario a real meeting starts from: its own title and agenda, no pack content. */
-export function realBaseScenario(row: Pick<MeetingRow, 'id' | 'title' | 'agenda'>): Scenario {
+export function realBaseScenario(
+  row: Pick<MeetingRow, 'id' | 'title' | 'agenda' | 'ownerUserId'>,
+): Scenario {
   const agenda: Scenario['agenda'] = row.agenda.map((item: AgendaItem) => ({
     title: item.title,
     minutes: item.minutes ?? 10,
@@ -24,10 +26,16 @@ export function realBaseScenario(row: Pick<MeetingRow, 'id' | 'title' | 'agenda'
     deadline: 'today',
     ownerRole: REAL_BASE_ROLE,
   }));
+  // The owner chairs a real meeting, so their plain seat is the facilitator. Without that identity
+  // the shared screen has no seat to speak from, and Start could never end the meeting either.
+  const ownerRole: ScenarioRole[] =
+    row.ownerUserId === null
+      ? []
+      : [{ id: identitySeat(`user:${row.ownerUserId}`), label: 'Owner', facilitator: true }];
   return {
     id: `real-${row.id}`,
     meetingTitle: row.title,
-    roles: [{ id: REAL_BASE_ROLE, label: REAL_BASE_LABEL }],
+    roles: [{ id: REAL_BASE_ROLE, label: REAL_BASE_LABEL }, ...ownerRole],
     attendees: [],
     agenda,
     joinSeats: [],
@@ -39,12 +47,12 @@ function personName(holder: SeatHolder): string {
 }
 
 function uniqueRoles(base: readonly ScenarioRole[], holders: readonly SeatHolder[]): ScenarioRole[] {
-  const seen = new Set(base.map((role) => role.id));
-  const roles = [...base];
+  const roles = base.map((role) => ({ ...role }));
   for (const holder of holders) {
-    if (seen.has(holder.seat)) continue;
-    seen.add(holder.seat);
-    roles.push({ id: holder.seat, label: personName(holder) });
+    const index = roles.findIndex((role) => role.id === holder.seat);
+    const existing = roles[index];
+    if (existing === undefined) roles.push({ id: holder.seat, label: personName(holder) });
+    else roles[index] = { ...existing, label: personName(holder) };
   }
   return roles;
 }
@@ -74,7 +82,7 @@ export function realMeetingSetup(base: Scenario, holders: readonly SeatHolder[])
     roles: uniqueRoles(base.roles, holders).map((role) => ({
       id: role.id,
       label: role.label,
-      facilitator: false,
+      facilitator: role.facilitator === true,
     })),
     seats: holders.map((holder) => ({
       displayName: personName(holder),

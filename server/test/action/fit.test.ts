@@ -171,7 +171,7 @@ describe('action fit', () => {
     expect(tasks.get(task.id)?.status).toBe('DISPATCHED');
   });
 
-  it('offers no button for the sample workspace in a real meeting', async () => {
+  it('judges the sample workspace’s built-in tools in a real meeting too', async () => {
     const tasks = setup({
       tools: allTools,
       workspaceId: SAMPLE_WORKSPACE_ID,
@@ -182,8 +182,8 @@ describe('action fit', () => {
 
     const judged = await ready(tasks, task.id);
 
-    expect(judged.fit?.status).toBe('none');
-    expect(tasks.llm?.calls).toHaveLength(0);
+    expect(judged.fit?.status).toBe('ready');
+    expect(tasks.llm?.calls).toHaveLength(1);
   });
 
   it('refuses “Do it for me” when the cached fit is not ready, with a plain error', () => {

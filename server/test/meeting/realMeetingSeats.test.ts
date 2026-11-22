@@ -132,6 +132,35 @@ describe('real meeting seats', () => {
     expect(scenario.attendees.map((attendee) => attendee.name)).toEqual(['Ada']);
   });
 
+  it('keeps the owner as the chair and the same signed-in account after joining', async () => {
+    const { app, base, store } = await build();
+    const owner = await signIn(store, 'Ada');
+    const meeting = await app.registry.create({
+      workspaceId: 'workspace-1',
+      ownerUserId: owner.userId,
+      title: 'Weekly planning',
+    });
+
+    const joined = await seat(base, meeting.id, owner.cookie, 'Ada');
+    expect(joined.status).toBe(200);
+
+    const instance = await app.registry.get(meeting.id);
+    if (instance === undefined) throw new Error('the meeting did not load');
+    expect(instance.session.active().roles.find((role) => role.facilitator === true)?.id).toBe(
+      joined.seat,
+    );
+
+    // Taking the seat rewrites the session to the meeting role; the account must survive it.
+    const me = await request(base, '/api/auth/me', { cookie: joined.cookie });
+    expect(me.status).toBe(200);
+    const meBody = (await me.json()) as { kind?: string; user?: { id?: string } };
+    expect(meBody.kind).toBe('user');
+    expect(meBody.user?.id).toBe(owner.userId);
+
+    const workspaces = await request(base, '/api/workspaces', { cookie: joined.cookie });
+    expect(workspaces.status).toBe(200);
+  });
+
   it('seats the owner and two guests who share a name, each under their own name', async () => {
     const { app, base, store } = await build();
     const owner = await signIn(store, 'Ada');

@@ -1,5 +1,5 @@
 import { isObject } from '@kaki/shared';
-import { clientAddress } from '../access';
+import { accountUserId, clientAddress } from '../access';
 import { readJsonBody, sendJson } from '../http';
 import type { RouteCall } from '../routeCall';
 import { parseAgendaInput } from '../../meeting/agenda';
@@ -39,7 +39,8 @@ export async function handleCreateMeeting(call: RouteCall): Promise<void> {
     sendJson(response, 500, { error: 'Meeting storage is unavailable.' });
     return;
   }
-  if (principal.kind !== 'user') {
+  const creatorId = accountUserId(principal);
+  if (creatorId === undefined) {
     sendJson(response, 403, { error: 'Sign in with Google to create a meeting.' });
     return;
   }
@@ -85,7 +86,7 @@ export async function handleCreateMeeting(call: RouteCall): Promise<void> {
   // The sample workspace is built in rather than a row, so it has no membership record; every
   // signed-in person may still hold a real meeting there, and practice stays one click away.
   if (workspaceId !== SAMPLE_WORKSPACE_ID) {
-    const membership = await store.getMembership({ workspaceId, userId: principal.userId });
+    const membership = await store.getMembership({ workspaceId, userId: creatorId });
     if (membership === undefined) {
       sendJson(response, 403, { error: 'You are not a member of that workspace.' });
       return;
@@ -96,7 +97,7 @@ export async function handleCreateMeeting(call: RouteCall): Promise<void> {
     scheduledFor !== undefined && Date.parse(scheduledFor) > Date.now() ? 'scheduled' : 'open';
   const meeting = await meetings.create({
     workspaceId,
-    ownerUserId: principal.userId,
+    ownerUserId: creatorId,
     title,
     status,
     agenda,
@@ -127,12 +128,12 @@ export async function handleMeetingInfo(call: RouteCall): Promise<void> {
   const owner = row.ownerUserId === null ? undefined : await store.findUserById(row.ownerUserId);
   // Only this meeting's owner or a workspace member may be pointed at its minutes.
   let historyWorkspaceId: string | null = null;
-  if (row.status === 'ended' && principal.kind === 'user') {
-    const isOwner = row.ownerUserId === principal.userId;
+  const viewerId = accountUserId(principal);
+  if (row.status === 'ended' && viewerId !== undefined) {
+    const isOwner = row.ownerUserId === viewerId;
     const isMember =
       isOwner ||
-      (await store.getMembership({ workspaceId: row.workspaceId, userId: principal.userId })) !==
-        undefined;
+      (await store.getMembership({ workspaceId: row.workspaceId, userId: viewerId })) !== undefined;
     if (isMember) historyWorkspaceId = row.workspaceId;
   }
   sendJson(response, 200, {
@@ -161,9 +162,10 @@ export async function handleMeetingJoin(call: RouteCall): Promise<void> {
     return;
   }
 
-  if (principal.kind === 'user') {
+  if (accountUserId(principal) !== undefined) {
     // Signed-in people join under their Google name; joining never adds them to the workspace.
-    sendJson(response, 200, { ok: true, name: principal.name });
+    const name = 'name' in principal ? principal.name ?? '' : '';
+    sendJson(response, 200, { ok: true, name });
     return;
   }
 

@@ -46,6 +46,16 @@ export type Principal =
   | { kind: 'practice' }
   | { kind: 'service' };
 
+/**
+ * The account behind a request, if the person is signed in. Taking a meeting seat rewrites the
+ * session to host or seat, but it is still the same account and keeps every account power.
+ */
+export function accountUserId(principal: Principal): string | undefined {
+  return principal.kind === 'user' || principal.kind === 'host' || principal.kind === 'seat'
+    ? principal.userId
+    : undefined;
+}
+
 /** One HTTP route declaration: the method, path pattern and mandatory access level. */
 export interface Route {
   method: string;
@@ -152,7 +162,8 @@ export function accessProblem(
 
     case 'user':
       if (!context.authEnabled) return undefined;
-      if (principal.kind === 'user') return undefined;
+      // Taking a meeting seat must never cost a signed-in person their account.
+      if (accountUserId(principal) !== undefined) return undefined;
       return {
         status: principal.kind === 'anonymous' ? 401 : 403,
         error: 'Sign in with Google to do that.',
