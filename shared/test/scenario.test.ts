@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isRoleIn, parseScenario, roleForDisplayName, roleLabel } from '../src/scenario';
+import { assigneeLabel, isRoleIn, parseScenario, roleForDisplayName, roleLabel } from '../src/scenario';
 import { testScenario } from './fixtures';
 
 function cloneScenario(): Record<string, unknown> {
@@ -478,5 +478,24 @@ describe('scenario helpers', () => {
   it('maps display names to roles', () => {
     expect(roleForDisplayName(testScenario, '  ADA (chef) ')).toBe('chef');
     expect(roleForDisplayName(testScenario, 'Nobody')).toBeUndefined();
+  });
+});
+
+describe('assigneeLabel', () => {
+  const team = {
+    ...testScenario,
+    roles: [{ id: 'owner', label: 'Owner One' }],
+    attendees: [{ name: 'Owner One', displayName: 'Owner One', role: 'owner' }],
+  } as unknown as typeof testScenario;
+
+  it('shows a team member once, not as "Name (Name)"', () => {
+    expect(assigneeLabel(team, 'owner')).toBe('Owner One');
+    expect(assigneeLabel(team, 'owner', { name: 'Owner One', seatName: 'Owner One' })).toBe('Owner One (you)');
+  });
+
+  it('keeps the role note when it differs from the name', () => {
+    const role = testScenario.roles[0]!;
+    const attendee = testScenario.attendees.find((a) => a.role === role.id)!;
+    expect(assigneeLabel(testScenario, role.id)).toBe(`${attendee.name} (${role.label})`);
   });
 });
