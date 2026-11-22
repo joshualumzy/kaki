@@ -275,6 +275,24 @@ export function seatProblem(
   return undefined;
 }
 
+/** How long a seat kept for a departed person stays held, in words the join form can show. */
+export function rejoinGraceDuration(graceMs: number): string {
+  if (graceMs < 60_000) {
+    const seconds = Math.max(1, Math.round(graceMs / 1_000));
+    return `${seconds} second${seconds === 1 ? '' : 's'}`;
+  }
+  const minutes = Math.max(1, Math.round(graceMs / 60_000));
+  return `${minutes} minute${minutes === 1 ? '' : 's'}`;
+}
+
+/** Why a seat is not free although its holder has left: the rejoin grace keeps it for them. */
+export function seatKeptForDepartedMessage(graceMs: number): string {
+  return (
+    `That seat is being kept for someone who just left. ` +
+    `It frees within about ${rejoinGraceDuration(graceMs)}, or pick another seat.`
+  );
+}
+
 /** Case, spaces and dashes do not matter when a code is typed. */
 export function normalizeMeetingCode(code: string | undefined): string {
   return (code ?? '').toUpperCase().replace(/[\s-]/g, '');

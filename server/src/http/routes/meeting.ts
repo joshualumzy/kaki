@@ -8,6 +8,7 @@ import {
   joinSeatRoles,
   KAKI_LISTENER_IDENTITY,
   NO_TEAM_MEETING_MESSAGE,
+  seatKeptForDepartedMessage,
   seatProblem,
   speakerName,
   type MeetingSetup,
@@ -17,7 +18,7 @@ import { clientAddress, publicUrlIsHttps } from '../access';
 import { MAX_BODY_BYTES, PRACTICE_COOKIE, type RouteCall } from '../routeCall';
 import { readJsonBody, sendJson } from '../http';
 import { MEETING_CODE_RATE_LIMIT_MESSAGE } from '../../meeting/meetingCode';
-import { admission, type Admission } from '../../meeting/rejoin';
+import { admission, departedSeatGraceMs, type Admission } from '../../meeting/rejoin';
 import { createRoomToken, joinNameProblem, JoinError, livekitPublicUrl } from '../../services/livekit';
 
 /** The one message for a role id this meeting does not offer: name it and list the offered seats. */
@@ -480,6 +481,16 @@ export async function handleLivekitToken(call: RouteCall): Promise<void> {
           console.error(
             `kaki join: ${participantName} could not take seat ${seatId} after the meeting reset; the seat is already held`,
           );
+          const departedGraceMs = departedSeatGraceMs({
+            seat: seatId,
+            holders: context.session.holders(),
+            graceActive: roomEmpty || context.rejoin.graceActive(),
+            graceMs: context.rejoin.graceMs(),
+          });
+          if (departedGraceMs !== undefined) {
+            sendJson(response, 409, { error: seatKeptForDepartedMessage(departedGraceMs) });
+            return;
+          }
           sendJson(response, 409, { error: 'That seat is taken. Pick another role.' });
           return;
         }

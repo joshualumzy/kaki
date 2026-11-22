@@ -1,7 +1,12 @@
 import { randomBytes } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { Pool } from 'pg';
-import { isObject, MEETING_ENDED_MESSAGE, NO_TEAM_MEETING_MESSAGE } from '@kaki/shared';
+import {
+  isObject,
+  MEETING_ENDED_MESSAGE,
+  NO_TEAM_MEETING_MESSAGE,
+  seatKeptForDepartedMessage,
+} from '@kaki/shared';
 import type { ClientAudience } from '../core/audience';
 import { clientAddress, publicUrlIsHttps, type Principal } from '../http/access';
 import { readJsonBody, sendJson } from '../http/http';
@@ -78,6 +83,11 @@ interface JoinGuard {
    * lifecycle change can then never land between this request's checks and its seat claim.
    */
   admit<T>(task: () => Promise<T>): Promise<T>;
+  /**
+   * How long this seat is still kept for a holder who left and the grace is open, or undefined
+   * when the seat is not being held for a departed person.
+   */
+  departedSeatGraceMs(seat: string): number | undefined;
 }
 
 /** Everything the auth module needs, injected so tests can use an in-memory store. */
@@ -451,6 +461,11 @@ export function createAuth({
             error: 'The meeting changed while you were joining; try again in a moment.',
             retryable: true,
           });
+          return;
+        }
+        const departedGraceMs = joinGuard?.departedSeatGraceMs(role);
+        if (departedGraceMs !== undefined) {
+          sendJson(response, 409, { error: seatKeptForDepartedMessage(departedGraceMs) });
           return;
         }
         sendJson(response, 409, { error: 'That seat is taken. Pick another role.' });

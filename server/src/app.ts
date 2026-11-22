@@ -30,7 +30,7 @@ import {
   type MeetingCodeSource,
 } from './meeting/meetingCode';
 import type { MeetingPauseControl } from './host';
-import { createRejoinGuard, createRoomPoll, rejoinGraceMsFromEnv, roomPollIntervalMs, REJOIN_POLL_MS } from './meeting/rejoin';
+import { createRejoinGuard, createRoomPoll, departedSeatGraceMs, rejoinGraceMsFromEnv, roomPollIntervalMs, REJOIN_POLL_MS } from './meeting/rejoin';
 import { buildRunnerMeetingSnapshot, hostIsHumanFromSession } from './meeting/runnerState';
 import { createMeetingSession, type MeetingSession } from './meeting/session';
 import { createTaskStore, type TaskStore } from './meeting/tasks';
@@ -631,6 +631,13 @@ export async function createApp({
     practiceSeat: () => session.practiceSeat(),
     hasPracticeCapability: (request) => practicePrincipal(request) !== undefined,
     admit,
+    departedSeatGraceMs: (seat) =>
+      departedSeatGraceMs({
+        seat,
+        holders: session.holders(),
+        graceActive: rejoin.graceActive(),
+        graceMs: rejoin.graceMs(),
+      }),
   });
   auth?.onSessionEnded((sessionTokenHash) => hub.endSession?.(sessionTokenHash));
   const tasks = createTaskStore({ hub, scenario: () => session.active() });
