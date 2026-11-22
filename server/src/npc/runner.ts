@@ -764,6 +764,15 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     if (humans.size > 0) syncCast();
   }
 
+  /**
+   * A live snapshot for the meeting the runner holds as ended is a new meeting under the same id
+   * (a practice meeting is reused): it deserves the same clean slate as a changed id. A reconnect
+   * to a meeting that never ended keeps everything.
+   */
+  function reopensEndedMeeting(state: RunnerMeetingSnapshot): boolean {
+    return endedTerminal && state.phase !== 'ended';
+  }
+
   /** Adopt a server snapshot without opening anything: used by prepare and by catch-up reads. */
   function adoptSnapshot(state: RunnerMeetingSnapshot): void {
     const held = meeting.meetingId();
@@ -776,15 +785,19 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     // A prepare is fetched on the live service connection, so it may prove a new server epoch.
     const accepted = meeting.apply(state, { currentConnection: true });
     if (!accepted && !identical) return;
+    const restarted = reopensEndedMeeting(state);
     if (state.phase !== 'ended') endedTerminal = false;
     if (changed) {
       log(`the server is on meeting ${state.meetingId}; clearing the old meeting ${held}`);
       clearLocalMeeting();
       moveToRoom(roomForMeeting(state.meetingId));
+    } else if (restarted) {
+      log(`the server says ended meeting ${state.meetingId} is live again; clearing it as a new meeting`);
+      clearLocalMeeting();
     } else if (accepted && heldEpoch !== undefined && !sameRunnerEpoch(state.version.epoch, heldEpoch)) {
       clearStopGate();
     }
-    if (accepted && !changed) notePauseTransition(previous, state);
+    if (accepted && !changed && !restarted) notePauseTransition(previous, state);
   }
 
   /** Forget the local Stop and its safety timeout: the server snapshot now owns the pause. */
@@ -1081,11 +1094,15 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     const accepted = meeting.apply(state, options);
     if (!accepted && !identical) return false;
     applyOffTheRecord(state.offTheRecord !== undefined && state.offTheRecord !== null);
+    const restarted = reopensEndedMeeting(state);
     if (state.phase !== 'ended') endedTerminal = false;
     if (changed) {
       log(`the server is on meeting ${state.meetingId}; clearing the old meeting ${held}`);
       clearLocalMeeting();
       moveToRoom(roomForMeeting(state.meetingId));
+    } else if (restarted) {
+      log(`the server says ended meeting ${state.meetingId} is live again; clearing it as a new meeting`);
+      clearLocalMeeting();
     } else if (accepted && heldEpoch !== undefined && !sameRunnerEpoch(state.version.epoch, heldEpoch)) {
       // A new server incarnation owns the state now: a local hold from the old one cannot apply to it.
       clearStopGate();
@@ -1137,7 +1154,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
         log(`caught up to agenda item ${state.agendaIndex + 1} (${title}) without repeating the cue`);
       }
     }
-    if (accepted && !changed && !lostStart) notePauseTransition(previous, state);
+    if (accepted && !changed && !restarted && !lostStart) notePauseTransition(previous, state);
     if (state.started) adoptPaused(state.paused);
     if ((changed || lostStart) && humans.size > 0) syncCast();
     return accepted;
