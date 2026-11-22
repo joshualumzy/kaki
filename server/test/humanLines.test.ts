@@ -21,6 +21,13 @@ import { testScenario } from './fixtures/scenario';
 
 const CODE = 'K7M2Q9';
 const TOKEN = 'local-test-runner-token';
+/** The sample workspace's Mattermost connection, so a chat card has somewhere real to go. */
+const mattermostEnv = {
+  MATTERMOST_URL: 'http://mattermost.test',
+  MATTERMOST_TOKEN: 'secret-token',
+  MATTERMOST_TEAM: 'kopitiam',
+  MATTERMOST_CHANNEL: 'launch',
+};
 
 type SocketResult = { ok: true; ws: WebSocket; messages: KakiEvent[] } | { ok: false; status: number };
 
@@ -76,6 +83,7 @@ async function humanOnlyApp(
   const llm = createFakeLlm(() => JSON.stringify({ newQuestions: [], answeredQuestionIds: [], answeredQuestions: [], newTasks: [], revisions: [] }));
   const app = await createApp({
     scenario: pack,
+    actionTools: { env: mattermostEnv },
     modules: [createMeetingModule({ llm, notetakerIntervalMs: 40 })],
     roomRoster: async () => [],
     speechRecognition,
@@ -421,13 +429,17 @@ describe('human lines are not held for a human-only meeting but are held with an
       actionKind: 'mattermost_post',
       agendaItemTitle: 'Opening checklist',
     });
-    expect(human.app.tasks.get(humanTask.id)?.status).toBe('DISPATCHED');
+    await waitFor(
+      () => (human.app.tasks.get(humanTask.id)?.status === 'DISPATCHED' ? true : undefined),
+      'the human-only card to dispatch',
+    );
 
     // With an AI cast, the Director owns TOPIC_SETTLED, so the card stays held until it arrives.
     const pack = await loadScenario('kopitiam');
     const clock = createAgendaClock({ agenda: pack.agenda });
     const app = await createApp({
       scenario: pack,
+      actionTools: { env: mattermostEnv },
       modules: [createMeetingModule({ clock, notetakerIntervalMs: 60_000 })],
       roomRoster: async () => [],
     });
@@ -471,7 +483,10 @@ describe('human lines are not held for a human-only meeting but are held with an
       audience: { kind: 'screen' },
       payload: { title: pack.agenda[2]!.title },
     });
-    expect(app.tasks.get(aiTask.id)?.status).toBe('DISPATCHED');
+    await waitFor(
+      () => (app.tasks.get(aiTask.id)?.status === 'DISPATCHED' ? true : undefined),
+      'the settled AI card to dispatch',
+    );
   });
 });
 

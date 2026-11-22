@@ -13,10 +13,27 @@ import type { StoredMeeting } from '../src/persist/state';
 import type { MeetingRow } from '../src/meeting/types';
 import type { MeetingModules } from '../src/modules';
 import { createMemoryMeetingStore } from '../src/meeting/registry';
+import { encryptSecret } from '../src/workspace/secrets';
+import { createMemoryWorkspaceToolStore, type WorkspaceToolRecord } from '../src/workspace/tools';
 import { testScenario } from './fixtures/scenario';
 import { portOf, settle, waitFor } from './helpers';
 
 const SERVICE_TOKEN = 'multi-meeting-runner-token';
+
+/** A Gitea connection in each real workspace, so the issue card has somewhere real to go. */
+const toolKey = Buffer.alloc(32, 7);
+const toolEnv = { KAKI_SECRET_KEY: toolKey.toString('base64') };
+function giteaTool(workspaceId: string): WorkspaceToolRecord {
+  return {
+    workspaceId,
+    kind: 'gitea',
+    settings: { url: 'http://gitea.test', owner: 'kopitiam', repo: 'issues' },
+    ...encryptSecret('secret-token', toolKey),
+    connectedBy: 'owner-1',
+    connectedAt: new Date('2026-11-01T00:00:00Z'),
+    lastOkAt: null,
+  };
+}
 
 /** The notetaker's empty but valid reply, so a fake model can run without inventing a record. */
 function emptyNotetakerReply(): string {
@@ -154,6 +171,9 @@ afterEach(async () => {
 describe('many meetings at once', () => {
   it('keeps two meetings isolated end to end', async () => {
     const meetings = createMemoryMeetingStore();
+    const workspaceTools = createMemoryWorkspaceToolStore();
+    await workspaceTools.save(giteaTool('workspace-1'));
+    await workspaceTools.save(giteaTool('workspace-2'));
     const state = new FakeStateStore();
     const persistenceFor = async (id: string): Promise<MeetingPersistence | undefined> => {
       const store = state.forId(id);
@@ -166,6 +186,8 @@ describe('many meetings at once', () => {
       roomRoster: async () => [],
       meetings,
       persistenceFor,
+      workspaceTools,
+      actionTools: { env: toolEnv },
       meetingModules: fakeModules,
     });
     apps.push(app);
@@ -248,6 +270,8 @@ describe('many meetings at once', () => {
       roomRoster: async () => [],
       meetings,
       persistenceFor,
+      workspaceTools,
+      actionTools: { env: toolEnv },
       meetingModules: fakeModules,
     });
     apps.push(restarted);

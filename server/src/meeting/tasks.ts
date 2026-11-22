@@ -298,10 +298,17 @@ export function createTaskStore({
 
   function handleCommand(command: KakiCommand, sender: ClientAudience): void {
     switch (command.type) {
-      case 'DISPATCH_TASK':
+      case 'DISPATCH_TASK': {
         requireScreen(sender);
+        const task = requireTask(command.taskId);
+        // A card whose tool this workspace has not connected can never look sent: no one may
+        // dispatch it, on the shared screen or otherwise.
+        if (task.fit?.toolMissing === true) {
+          throw new CommandError(task.fit.reason);
+        }
         transition(command.taskId, 'DISPATCHED', { assignee: command.assignee });
         return;
+      }
       case 'DISMISS_TASK':
         requireScreen(sender);
         transition(command.taskId, 'DISMISSED');

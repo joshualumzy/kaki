@@ -28,6 +28,8 @@ export interface ActionFit {
   kind?: ActionKind;
   /** One short plain-words reason, shown on the card. */
   reason: string;
+  /** Set when the to-do's tool is not connected in this workspace: the card can never be sent. */
+  toolMissing?: true;
 }
 
 /** Lifecycle state of a task on the Shared Action Panel. */

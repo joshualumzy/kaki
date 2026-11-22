@@ -3,7 +3,7 @@ import type { KakiCommand, KakiEvent, Task } from '@kaki/shared';
 import { createMattermostModule, type MattermostSettings } from '../../src/action/mattermost';
 import { createMeetingModule } from '../../src/host/meeting';
 import { createFakeLlm } from '../../src/services/llm';
-import { connectClient, createTestApp, portOf, settle, waitForEvent, type TestClient } from '../helpers';
+import { connectClient, createTestApp, portOf, settle, waitFor, waitForEvent, type TestClient } from '../helpers';
 
 // A test verifier: trust the extraction model's suggested owner for the cards it extracted.
 function verifierLlm() {
@@ -27,6 +27,14 @@ const settings: MattermostSettings = {
   token: 'secret-token',
   team: 'kopitiam',
   channel: 'launch',
+};
+
+/** The sample workspace's tools, so a Mattermost card has somewhere real to go in these tests. */
+const mattermostEnv = {
+  MATTERMOST_URL: settings.url,
+  MATTERMOST_TOKEN: settings.token,
+  MATTERMOST_TEAM: settings.team,
+  MATTERMOST_CHANNEL: settings.channel,
 };
 
 const decision =
@@ -93,6 +101,7 @@ describe('meeting to task to draft', () => {
     });
 
     app = await createTestApp({
+      actionTools: { env: mattermostEnv },
       modules: [
         createMeetingModule({
           llm: notetakerLlm,
@@ -194,6 +203,7 @@ describe('meeting to task to draft', () => {
     });
 
     app = await createTestApp({
+      actionTools: { env: mattermostEnv },
       modules: [
         createMeetingModule({
           llm: notetakerLlm,
@@ -225,5 +235,65 @@ describe('meeting to task to draft', () => {
     expect(app.tasks.list().map((task) => task.suggestedAssignee).sort()).toEqual(['cashier', 'chef']);
     expect(app.tasks.list().every((task) => task.decisionSource === decisionLine)).toBe(true);
     expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('keeps a card whose tool the workspace has not connected as a plain to-do', async () => {
+    const notetakerLlm = createFakeLlm((messages) => {
+      const text = messages.map((message) => message.content).join('\n');
+      if (!text.includes('Earlier lines on this agenda item')) return reply({});
+      if (!text.includes(decisionLine) || !text.includes('post that decision in the team channel')) return reply({});
+      return reply({
+        newTasks: [
+          {
+            title: 'Post the cash box decision in the team channel',
+            context: decision,
+            suggestedAssignee: 'chef',
+            actionKind: 'mattermost_post',
+            evidence: assignment,
+            decisionEvidence: decisionLine,
+          },
+        ],
+      });
+    });
+    app = await createTestApp({
+      actionTools: { env: {} },
+      modules: [
+        createMeetingModule({
+          llm: notetakerLlm,
+          verifier: verifierLlm(),
+          notetakerIntervalMs: 25,
+          speed: 100,
+          replay: [
+            { at: 0, speaker: 'Ada (Chef)', text: decisionLine },
+            { at: 100, speaker: 'Bao (Cashier)', text: assignment },
+          ],
+        }),
+      ],
+    });
+    const screen = await connect('screen');
+    await connect('chef');
+
+    const suggested = await waitForEvent(
+      screen,
+      (event) =>
+        event.type === 'TASK_UPDATED' &&
+        event.payload.task.title === 'Post the cash box decision in the team channel',
+      'the suggested cash box card',
+    );
+    const task = taskOf(suggested);
+    await waitFor(() => {
+      const current = app!.tasks.get(task.id);
+      return current?.fit === undefined ? undefined : current;
+    }, 'the unavailable-tool reason');
+
+    const kept = app!.tasks.get(task.id)!;
+    expect(kept.status).toBe('SUGGESTED');
+    expect(kept.assignee).toBeUndefined();
+    expect(kept.actionKind).toBeUndefined();
+    expect(kept.fit).toEqual({
+      status: 'none',
+      reason: 'No Mattermost connected in this workspace. Connect one so Kaki can send this.',
+      toolMissing: true,
+    });
   });
 });

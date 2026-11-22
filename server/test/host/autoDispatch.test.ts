@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { KakiEvent } from '@kaki/shared';
 import { installAutoDispatch, shouldStillAskColleague } from '../../src/host/autoDispatch';
 import { roleAudience } from '../../src/core/audience';
-import { connectClient, createTestApp, portOf, settle } from '../helpers';
+import { connectClient, createTestApp, portOf, settle, waitFor } from '../helpers';
 import { testScenario } from '../fixtures/scenario';
 
 describe('auto-dispatch', () => {
@@ -28,6 +28,57 @@ describe('auto-dispatch', () => {
     expect((cue as { payload: { assignee?: string; title?: string; taskId?: string } }).payload).toMatchObject({
       assignee: 'Ada', title: 'Fix the oven', taskId: task.id,
     });
+  });
+
+  it('keeps a card whose tool is not connected as a plain to-do, never sent', async () => {
+    const published: KakiEvent[] = [];
+    app.hub.subscribe((event) => published.push(event));
+    installAutoDispatch({
+      hub: app.hub,
+      tasks: app.tasks,
+      scenario: () => testScenario,
+      connected: async () => false,
+    });
+
+    const task = app.tasks.suggest({
+      title: 'Share the decision',
+      context: 'Tell the team.',
+      suggestedAssignee: 'chef',
+      actionKind: 'mattermost_post',
+    });
+
+    await waitFor(() => app.tasks.get(task.id)?.fit, 'the unavailable-tool reason');
+    const kept = app.tasks.get(task.id)!;
+    expect(kept.status).toBe('SUGGESTED');
+    expect(kept.assignee).toBeUndefined();
+    expect(kept.actionKind).toBeUndefined();
+    expect(kept.fit).toEqual({
+      status: 'none',
+      reason: 'No Mattermost connected in this workspace. Connect one so Kaki can send this.',
+      toolMissing: true,
+    });
+    expect(published.some((event) => event.type === 'HOST_SPEECH_TRIGGERED' && event.payload.kind === 'DISPATCH')).toBe(false);
+    expect(() =>
+      app.tasks.handleCommand({ type: 'DISPATCH_TASK', taskId: task.id, assignee: 'chef' }, { kind: 'screen' }),
+    ).toThrow(/No Mattermost connected in this workspace/);
+  });
+
+  it('dispatches a card once its tool is connected', async () => {
+    installAutoDispatch({
+      hub: app.hub,
+      tasks: app.tasks,
+      scenario: () => testScenario,
+      connected: async () => true,
+    });
+
+    const task = app.tasks.suggest({
+      title: 'Share the decision',
+      context: 'Tell the team.',
+      suggestedAssignee: 'chef',
+      actionKind: 'mattermost_post',
+    });
+
+    await waitFor(() => app.tasks.get(task.id)?.status === 'DISPATCHED', 'the dispatched card');
   });
 
   it('leaves a minutes task waiting for its person even when its title is reworded', () => {
