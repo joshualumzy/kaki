@@ -1091,6 +1091,21 @@ export async function createApp({
   }
 
   /**
+   * The roles for a view that keeps the live agenda: every role the live cast or agenda still names
+   * stays, and a role the next draft defines takes precedence. A blank draft names no roles, so the
+   * finished meeting's registry (including a role the owner added) must not be dropped from the
+   * live view the owner is still looking at.
+   */
+  function rolesKeepingLive(live: Scenario['roles'], next: Scenario['roles']): Scenario['roles'] {
+    const nextById = new Map(next.map((role) => [role.id, role]));
+    const liveIds = new Set(live.map((role) => role.id));
+    return [
+      ...live.map((role) => nextById.get(role.id) ?? role),
+      ...next.filter((role) => !liveIds.has(role.id)),
+    ];
+  }
+
+  /**
    * The scenario people see, plus the one admission resolves seats against. A returning seat holder
    * inside the grace of a running meeting is judged against its sealed setup. Every other arrival
    * starts the next meeting: an untouched draft stays open, an owner-edited one admits its person
@@ -1146,7 +1161,7 @@ export async function createApp({
         ? {
             ...active,
             meetingTitle: setup.title.trim() === '' ? active.meetingTitle : setup.title,
-            roles: derived.roles,
+            roles: rolesKeepingLive(active.roles, derived.roles),
             agenda: active.agenda,
             joinSeats,
           }
