@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from 'react';
 import { parseScenario, type Scenario } from '@kaki/shared';
+import { plainFailureMessage, plainServerText } from '../net/plainFailure';
 import { fetchWithTimeout } from '../net/withTimeout';
 import { Button, Card } from '../ui';
 import { meetingApiPath } from './meetingScope';
@@ -79,15 +80,14 @@ async function attemptScenario(
     } catch {
       // Not a JSON answer: treat it as the proxy still starting.
     }
-    if (payload?.error === 'meeting-not-found') throw new MeetingNotFoundError(payload.error);
-    if (typeof payload?.error === 'string') {
-      throw new Error(
-        typeof payload.message === 'string' && payload.message.trim() !== ''
-          ? payload.message
-          : payload.error,
-      );
+    if (payload?.error === 'meeting-not-found') {
+      throw new MeetingNotFoundError(plainServerText(payload.error));
     }
-    const error = new Error(`GET ${scenarioUrl(view, meetingId)} failed (${response.status})`);
+    if (typeof payload?.error === 'string') {
+      throw new Error(plainFailureMessage(response.status, payload.message ?? payload.error));
+    }
+    console.error(`kaki web: GET ${scenarioUrl(view, meetingId)} failed (${response.status})`);
+    const error = new Error(plainFailureMessage(response.status));
     if (SERVER_STARTING_STATUSES.has(response.status)) return { status: 'starting', error };
     throw error;
   }

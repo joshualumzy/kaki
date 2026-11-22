@@ -25,9 +25,10 @@ export function plainServerText(value: unknown): string | undefined {
   return CODE_SENTENCES[text];
 }
 
-/** The plain sentence for a failed response: its status first, then the server's own words. */
+/** The plain sentence for a failed response: signed out, else the server's own plain words, else a generic one. */
 export function plainFailureMessage(status: number, serverText?: unknown): string {
   if (status === 401 || status === 403) return SIGN_IN_ENDED;
-  if (status === 0 || status >= 500) return SERVER_TROUBLE;
-  return plainServerText(serverText) ?? DID_NOT_WORK;
+  const plain = plainServerText(serverText);
+  if (plain !== undefined) return plain;
+  return status === 0 || status >= 500 ? SERVER_TROUBLE : DID_NOT_WORK;
 }

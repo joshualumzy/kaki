@@ -111,7 +111,7 @@ describe('ScenarioProvider', () => {
     await flush();
 
     expect(screen.getByText('Could not load the scenario')).toBeTruthy();
-    expect(screen.getByRole('alert').textContent).toBe('GET /api/scenario failed (404)');
+    expect(screen.getByRole('alert').textContent).toBe("That didn't work. Try again.");
     expect(screen.getByRole('button', { name: 'Try again' })).toBeTruthy();
     expect(screen.getByRole('link', { name: 'Go to setup' }).getAttribute('href')).toBe('/setup');
 
@@ -231,7 +231,7 @@ describe('ScenarioProvider', () => {
 
     await advance(1_000);
     expect(screen.getByText('Could not load the scenario')).toBeTruthy();
-    expect(screen.getByRole('alert').textContent).toBe('GET /api/scenario failed (502)');
+    expect(screen.getByRole('alert').textContent).toBe('Kaki is having trouble right now. Try again in a minute.');
     const callsAtGiveUp = fetchMock.mock.calls.length;
 
     failing = false;
