@@ -106,6 +106,16 @@ describe('real meeting notices', () => {
     );
   });
 
+  it('shows a plain sentence and a Try again button when starting fails with no message', async () => {
+    mocks.isHost = true;
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('<html>', { status: 502 })));
+    render(<RealWaitingOverlay meetingId="mtg-1" />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Start the meeting' }));
+    expect((await screen.findByRole('alert')).textContent).toBe("Couldn't start the meeting. Try again.");
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeTruthy();
+  });
+
   it('says nothing while the meeting is running', () => {
     mocks.meetingState.waitingForOwner = false;
     const { container } = render(<RealWaitingOverlay meetingId="mtg-1" />);

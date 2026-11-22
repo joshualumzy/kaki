@@ -6,7 +6,8 @@ import { ConnectionState, RoomEvent, type RoomOptions } from 'livekit-client';
 import { joinSeatRoles } from '@kaki/shared';
 import { useMe } from '../../auth/useMe';
 import { meetingApiPath, useKaki, useRefreshScenario, useScenario } from '../../kaki';
-import { fetchWithTimeout } from '../../net/withTimeout';
+import { COULD_NOT_JOIN, plainServerText } from '../../net/plainFailure';
+import { fetchWithTimeout, TimeoutError } from '../../net/withTimeout';
 import { ErrorBoundary } from './ErrorBoundary';
 import { JoinForm } from './JoinForm';
 import type { MediaChoice } from './MediaPreview';
@@ -51,6 +52,9 @@ interface Session {
   /** The code others need to join this meeting. */
   meetingCode?: string;
 }
+
+/** A join the server refused, with the sentence the person is shown. */
+class JoinRefused extends Error {}
 
 /** Disconnects from LiveKit immediately when the browser tab refreshes or closes so the seat frees up right away. */
 function CleanDisconnectOnUnload() {
@@ -301,19 +305,15 @@ export default function Meeting({
           break;
         }
         lastProblem =
-          typeof body.message === 'string' && body.message.trim() !== ''
-            ? body.message
-            : typeof body.error === 'string'
-              ? body.error
-              : `Could not join (HTTP ${response.status}).`;
+          plainServerText(body.message) ?? plainServerText(body.error) ?? COULD_NOT_JOIN;
         const canTryAnotherSeat =
           realJoin &&
           seats.length > 1 &&
           response.status !== 403 &&
           /seat|place for|pick another role|taken/i.test(lastProblem);
-        if (!canTryAnotherSeat) throw new Error(lastProblem);
+        if (!canTryAnotherSeat) throw new JoinRefused(lastProblem);
       }
-      if (joined === undefined) throw new Error(lastProblem ?? 'Could not join this meeting.');
+      if (joined === undefined) throw new JoinRefused(lastProblem ?? COULD_NOT_JOIN);
       const { body, role: joinedRole } = joined;
       const joiningCode =
         meetingCode ?? (typeof body.meetingCode === 'string' ? body.meetingCode : undefined);
@@ -350,7 +350,14 @@ export default function Meeting({
         storeRealJoinName(realMeetingId, name);
       }
     } catch (joinError) {
-      const message = joinError instanceof Error ? joinError.message : String(joinError);
+      // Only the sentences this join chose are shown; a network or parsing failure is logged, not printed.
+      if (!(joinError instanceof JoinRefused) && !(joinError instanceof TimeoutError)) {
+        console.error('kaki web: joining the meeting failed', joinError);
+      }
+      const message =
+        joinError instanceof JoinRefused || joinError instanceof TimeoutError
+          ? joinError.message
+          : COULD_NOT_JOIN;
       if (reconnecting) {
         setRejoinState('failed');
         setRejoinProblem(message);

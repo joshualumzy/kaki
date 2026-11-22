@@ -1,9 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { getMeetingInfo } from '../../product/api';
+import { plainServerText } from '../../net/plainFailure';
 import { fetchWithTimeout } from '../../net/withTimeout';
 import { meetingApiPath } from '../../kaki';
 import { useRealRoom } from './realRoom';
+
+const COULD_NOT_START = "Couldn't start the meeting. Try again.";
 
 /** The loud, plain-words notices a real meeting shows above the stage. */
 export function RealRoomBanners() {
@@ -62,16 +65,11 @@ export function RealWaitingOverlay({ meetingId }: { meetingId: string }) {
         started?: unknown;
       };
       if (!response.ok || body.started !== true) {
-        throw new Error(
-          typeof body.message === 'string' && body.message.trim() !== ''
-            ? body.message
-            : typeof body.error === 'string'
-              ? body.error
-              : `Could not start the meeting (HTTP ${response.status}).`,
-        );
+        setProblem(plainServerText(body.message) ?? plainServerText(body.error) ?? COULD_NOT_START);
       }
     } catch (error) {
-      setProblem(error instanceof Error ? error.message : 'Could not start the meeting.');
+      console.error('kaki web: starting the meeting failed', error);
+      setProblem(COULD_NOT_START);
     } finally {
       setStarting(false);
     }
@@ -84,7 +82,7 @@ export function RealWaitingOverlay({ meetingId }: { meetingId: string }) {
         <p>You are in the meeting room. The meeting begins when the owner starts it.</p>
         {room.isHost ? (
           <button type="button" className="kd-go" onClick={() => void start()} disabled={starting}>
-            {starting ? 'Starting…' : 'Start the meeting'}
+            {starting ? 'Starting…' : problem === undefined ? 'Start the meeting' : 'Try again'}
           </button>
         ) : null}
         {problem === undefined ? null : (
