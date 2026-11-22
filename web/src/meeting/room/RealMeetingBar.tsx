@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { MEDIA_BLOCKED_PROBLEM } from '../../net/plainFailure';
 import { useLocalParticipant, useRoomContext } from '@livekit/components-react';
 import { Avatar } from '../../ui';
 import { QrCode } from '../MeetingOverlays';
@@ -47,8 +48,9 @@ export function RealMeetingBar({
     if (localParticipant === undefined) return;
     try {
       await localParticipant.setMicrophoneEnabled(!isMicrophoneEnabled);
-    } catch {
-      setProblem('Could not change your microphone. Check the browser permission.');
+    } catch (error) {
+      console.error('kaki web: the microphone or camera change failed', error);
+      setProblem(MEDIA_BLOCKED_PROBLEM);
     }
   }
 
@@ -56,8 +58,9 @@ export function RealMeetingBar({
     if (localParticipant === undefined) return;
     try {
       await localParticipant.setCameraEnabled(!isCameraEnabled);
-    } catch {
-      setProblem('Could not change your camera. Check the browser permission.');
+    } catch (error) {
+      console.error('kaki web: the microphone or camera change failed', error);
+      setProblem(MEDIA_BLOCKED_PROBLEM);
     }
   }
 

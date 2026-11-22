@@ -6,7 +6,7 @@ import { ConnectionState, RoomEvent, type RoomOptions } from 'livekit-client';
 import { joinSeatRoles } from '@kaki/shared';
 import { useMe } from '../../auth/useMe';
 import { meetingApiPath, useKaki, useRefreshScenario, useScenario } from '../../kaki';
-import { COULD_NOT_JOIN, plainServerText } from '../../net/plainFailure';
+import { COULD_NOT_JOIN, MEDIA_BLOCKED_PROBLEM, ROOM_CONNECT_PROBLEM, plainServerText } from '../../net/plainFailure';
 import { fetchWithTimeout, TimeoutError } from '../../net/withTimeout';
 import { ErrorBoundary } from './ErrorBoundary';
 import { JoinForm } from './JoinForm';
@@ -143,6 +143,7 @@ export default function Meeting({
     initialStored.current === undefined ? undefined : Date.now() + REJOIN_GRACE_MS,
   );
   const autoRejoinAttempted = useRef(false);
+  const [mediaProblem, setMediaProblem] = useState<string | undefined>();
   // Cleared as soon as a drop starts a rejoin, so an unmount cannot start a second join for the same room.
   const activeSession = useRef<Session | undefined>(undefined);
   const [busy, setBusy] = useState(false);
@@ -337,6 +338,7 @@ export default function Meeting({
         ...(joiningCode === undefined ? {} : { meetingCode: joiningCode }),
       });
       setRestore(undefined);
+      setMediaProblem(undefined);
       setRejoinState('idle');
       setRejoinProblem(undefined);
       setRejoinDeadline(undefined);
@@ -571,15 +573,23 @@ export default function Meeting({
             activeSession.current = undefined;
             setRestore(storedFromSession(target));
             setRejoinState('failed');
-            setRejoinProblem(
-              `Could not reach the meeting server at ${target.serverUrl}: ${roomError.message}. Is LiveKit running (npm run stack:up)?`,
-            );
+            console.error(`kaki web: the room connection to ${target.serverUrl} failed`, roomError);
+            setRejoinProblem(ROOM_CONNECT_PROBLEM);
             setRejoinDeadline(Date.now() + REJOIN_GRACE_MS);
             setSession(undefined);
+          }}
+          onMediaDeviceFailure={(failure) => {
+            console.error('kaki web: the microphone or camera could not start', failure);
+            setMediaProblem(MEDIA_BLOCKED_PROBLEM);
           }}
           data-lk-theme="default"
           style={{ height: '100%' }}
         >
+          {mediaProblem === undefined ? null : (
+            <div className="kd-reconnect-banner" role="alert">
+              {mediaProblem}
+            </div>
+          )}
           <ErrorBoundary>
             <MeetingGrid
               role={session.role}

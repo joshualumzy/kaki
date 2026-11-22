@@ -32,3 +32,8 @@ export function plainFailureMessage(status: number, serverText?: unknown): strin
   if (plain !== undefined) return plain;
   return status === 0 || status >= 500 ? SERVER_TROUBLE : DID_NOT_WORK;
 }
+
+export const ROOM_CONNECT_PROBLEM =
+  "We couldn't connect your audio and video. Check your internet, then press Rejoin.";
+export const MEDIA_BLOCKED_PROBLEM =
+  'Your microphone (or camera) is blocked. Click the lock icon in the address bar to allow it, then press the mic button.';

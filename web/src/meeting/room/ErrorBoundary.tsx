@@ -6,17 +6,16 @@ interface Props {
 
 interface State {
   hasError: boolean;
-  error?: Error;
 }
 
-/** Shows the error instead of a blank page when a child component throws. */
+/** Shows a plain sentence and a Reload button instead of a blank page when a child component throws; the detail goes to the console. */
 export class ErrorBoundary extends Component<Props, State> {
   public state: State = {
     hasError: false
   };
 
-  public static getDerivedStateFromError(error: Error): State {
-    return { hasError: true, error };
+  public static getDerivedStateFromError(): State {
+    return { hasError: true };
   }
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
@@ -25,11 +24,13 @@ export class ErrorBoundary extends Component<Props, State> {
 
   public render() {
     if (this.state.hasError) {
+      // Reloading rejoins the same seat: the tab remembers its join (see rejoinSession).
       return (
-        <div style={{ color: 'red', padding: '20px', backgroundColor: 'black', height: '100%', width: '100%' }}>
-          <h1>Something went wrong.</h1>
-          <pre>{this.state.error?.toString()}</pre>
-          <pre>{this.state.error?.stack}</pre>
+        <div role="alert" style={{ padding: '20px', height: '100%', width: '100%' }}>
+          <p>Something went wrong in the meeting.</p>
+          <button type="button" className="kd-go" onClick={() => window.location.reload()}>
+            Reload
+          </button>
         </div>
       );
     }
