@@ -13,6 +13,8 @@ export interface SeatHolder {
   displayName?: string;
   /** The person's Google photo URL, when their account has one. */
   photoUrl?: string;
+  /** The person's Google address, when they signed in; used only to email them the minutes. */
+  email?: string;
 }
 
 /** What the rejoin guard needs to decide whether an arrival resumes, resets or joins the room. */

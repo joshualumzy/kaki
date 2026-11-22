@@ -195,6 +195,9 @@ function buildServerRouteTable({ auth }: { auth: Auth | undefined }): RoutedRout
     { method: 'POST', path: '/api/workspaces', access: 'user', handle: handleWorkspaces },
     { method: 'GET', path: '/api/workspaces/:id', access: 'user', handle: handleWorkspaces },
     { method: 'PATCH', path: '/api/workspaces/:id', access: 'user', handle: handleWorkspaces },
+    { method: 'GET', path: '/api/workspaces/:id/meetings', access: 'user', handle: handleWorkspaces },
+    { method: 'GET', path: '/api/workspaces/:id/meetings/:meetingId/minutes', access: 'user', handle: handleWorkspaces },
+    { method: 'POST', path: '/api/workspaces/:id/meetings/:meetingId/todos/:taskId', access: 'user', handle: handleWorkspaces },
     { method: 'GET', path: '/api/workspaces/:id/tools', access: 'user', handle: handleWorkspaces },
     { method: 'POST', path: '/api/workspaces/:id/tools/:kind/test', access: 'user', handle: handleWorkspaces },
     { method: 'PUT', path: '/api/workspaces/:id/tools/:kind', access: 'user', handle: handleWorkspaces },
@@ -538,6 +541,9 @@ export async function createApp({
       runnerPresence: runnerControl.presence,
       onEnded: async (endedAt: string) => {
         await meetings.markEnded?.(row.id, endedAt);
+      },
+      onMinutes: async (archive) => {
+        await meetings.saveMinutes?.(row.id, archive);
       },
     });
   }

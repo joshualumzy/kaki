@@ -63,6 +63,33 @@ export interface CreateMeetingInput {
   scheduledFor?: string;
 }
 
+/** One ended meeting in a workspace's history. */
+export interface MeetingHistoryItem {
+  id: string;
+  title: string;
+  date: string;
+  status: string;
+}
+
+/** One to-do in Kaki's copy of an ended meeting's minutes. */
+export interface ArchivedTodo {
+  id: string;
+  title: string;
+  owner: string;
+  status: string;
+  done: boolean;
+}
+
+/** Kaki's own copy of an ended meeting's minutes and to-dos. */
+export interface MeetingMinutes {
+  id: string;
+  title: string;
+  date: string;
+  minutes: string | null;
+  todos: ArchivedTodo[];
+  canEdit: boolean;
+}
+
 /** A failed API call, carrying the server's sentence and HTTP status when there was one. */
 export class ProductApiError extends Error {
   readonly status: number;
@@ -446,4 +473,99 @@ export async function joinMeeting(id: string, name?: string): Promise<{ name: st
 
 export async function logout(): Promise<void> {
   await request('/api/auth/logout', { method: 'POST' }, 'sign out', 'Could not sign out');
+}
+
+
+function historyItemFrom(value: unknown): MeetingHistoryItem | undefined {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  if (typeof record.id !== 'string' || typeof record.title !== 'string') return undefined;
+  return {
+    id: record.id,
+    title: record.title,
+    date: typeof record.date === 'string' ? record.date : '',
+    status: typeof record.status === 'string' ? record.status : 'ended',
+  };
+}
+
+function archivedTodoFrom(value: unknown): ArchivedTodo | undefined {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  if (typeof record.id !== 'string' || typeof record.title !== 'string') return undefined;
+  return {
+    id: record.id,
+    title: record.title,
+    owner: typeof record.owner === 'string' ? record.owner : '',
+    status: typeof record.status === 'string' ? record.status : '',
+    done: record.done === true,
+  };
+}
+
+export async function listMeetingHistory(workspaceId: string): Promise<MeetingHistoryItem[]> {
+  const response = await request(
+    `/api/workspaces/${encodeURIComponent(workspaceId)}/meetings`,
+    {},
+    'load the past meetings',
+    'Could not load the past meetings',
+  );
+  const body = await readJsonArray(response);
+  if (body === null) {
+    throw new ProductApiError('Could not load the past meetings. The server sent no list.', 502);
+  }
+  return body.map(historyItemFrom).filter((item): item is MeetingHistoryItem => item !== undefined);
+}
+
+export async function getMeetingMinutes(
+  workspaceId: string,
+  meetingId: string,
+): Promise<MeetingMinutes> {
+  const response = await request(
+    `/api/workspaces/${encodeURIComponent(workspaceId)}/meetings/${encodeURIComponent(meetingId)}/minutes`,
+    {},
+    'load these minutes',
+    'Could not load these minutes',
+  );
+  const body = await readJson(response);
+  if (body === null || typeof body.id !== 'string' || typeof body.title !== 'string') {
+    throw new ProductApiError('Could not load these minutes. The server sent no meeting.', 502);
+  }
+  return {
+    id: body.id,
+    title: body.title,
+    date: typeof body.date === 'string' ? body.date : '',
+    minutes: typeof body.minutes === 'string' ? body.minutes : null,
+    todos: Array.isArray(body.todos)
+      ? body.todos.flatMap((entry) => {
+          const todo = archivedTodoFrom(entry);
+          return todo === undefined ? [] : [todo];
+        })
+      : [],
+    canEdit: body.canEdit === true,
+  };
+}
+
+export async function setMeetingTodoDone(
+  workspaceId: string,
+  meetingId: string,
+  taskId: string,
+  done: boolean,
+): Promise<ArchivedTodo[]> {
+  const response = await request(
+    `/api/workspaces/${encodeURIComponent(workspaceId)}/meetings/${encodeURIComponent(meetingId)}/todos/${encodeURIComponent(taskId)}`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ done }),
+    },
+    'save the to-do',
+    'Could not save the to-do',
+  );
+  const body = await readJson(response);
+  if (body === null || !Array.isArray(body.todos)) {
+    throw new ProductApiError('Could not save the to-do. The server sent no to-do list.', 502);
+  }
+  return body.todos.flatMap((entry) => {
+    const todo = archivedTodoFrom(entry);
+    return todo === undefined ? [] : [todo];
+  });
 }

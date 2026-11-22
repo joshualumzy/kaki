@@ -97,7 +97,7 @@ function meetingKnowledgeText(options: {
     parts.push('', 'Agenda:', ...options.agenda.map((item) => `- ${item.title}`));
   }
   const todos = options.tasks.filter(
-    (task) => task.purpose !== 'meeting_minutes' && task.status !== 'DISMISSED',
+    (task) => task.purpose === undefined && task.status !== 'DISMISSED',
   );
   parts.push('', 'To-dos:');
   if (todos.length === 0) {

@@ -43,6 +43,14 @@ export interface KakiContext {
   /** The setup, code and seat holders the app server owns, saved alongside the meeting record. */
   meetingDetails?(): SavedMeetingDetails;
   /**
+   * Keep Kaki's own copy of the end-of-meeting minutes and to-dos with the meeting, so the
+   * workspace history still has them after the meeting is unloaded and whatever tools are connected.
+   */
+  archiveMinutes?(input: {
+    minutes: string;
+    todos: Array<{ id: string; title: string; owner: string; status: string }>;
+  }): Promise<void>;
+  /**
    * True when the sealed meeting carries no demo-pack content: every seat is a person and no agenda
    * item is a pack topic. Such a meeting must not use the demo pack's company knowledge.
    */

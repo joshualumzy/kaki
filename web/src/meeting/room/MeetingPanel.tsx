@@ -18,6 +18,18 @@ import { WingmanPanel } from './WingmanPanel';
 import type { TranscriptViewer } from './captions';
 import { entryForEvent, entryForTask, type TimelineEntry } from './timeline';
 
+function downloadMinutes(title: string, body: string): void {
+  const blob = new Blob([body], { type: 'text/markdown;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `${title.replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '').toLowerCase() || 'meeting-notes'}.md`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 /**
  * Everything the room is tracking in one place: the agenda clock, a quick topic cheat sheet for the
  * current item, the live transcript, and the tasks.
@@ -68,6 +80,7 @@ export function MeetingPanel({
   const [entries, setEntries] = useState<TimelineEntry[]>([]);
   const [record, setRecord] = useState<RecordEvent | undefined>();
   const [transcriptOpen, setTranscriptOpen] = useState(false);
+  const [minutesCopyNote, setMinutesCopyNote] = useState<string | null>(null);
   const seenKeys = useRef(new Set<string>());
   const seenEvents = useRef(new WeakSet<KakiEvent>());
   const taskStatus = useRef(new Map<string, Task['status']>());
@@ -348,6 +361,29 @@ export function MeetingPanel({
                 {artifactLinkText(task)}
               </a>
             ))}
+            {minutesTask?.draft?.body !== undefined && (
+              <>
+                <button
+                  type="button"
+                  className="kd-chip"
+                  onClick={() => {
+                    void navigator.clipboard
+                      .writeText(minutesTask.draft!.body)
+                      .then(() => setMinutesCopyNote('Minutes copied.'))
+                      .catch(() => setMinutesCopyNote('Could not copy automatically. Select the minutes to copy them.'));
+                  }}
+                >
+                  Copy minutes
+                </button>
+                <button
+                  type="button"
+                  className="kd-chip"
+                  onClick={() => downloadMinutes(minutesTask.draft!.subject, minutesTask.draft!.body)}
+                >
+                  Download markdown
+                </button>
+              </>
+            )}
             <button
               type="button"
               className="kd-chip"
@@ -359,6 +395,9 @@ export function MeetingPanel({
               Start new meeting / Switch role
             </button>
           </div>
+          {minutesCopyNote === null ? null : (
+            <p className="task-meta" role="status">{minutesCopyNote}</p>
+          )}
         </section>
       )}
       {record === undefined ? (

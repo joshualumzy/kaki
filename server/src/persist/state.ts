@@ -100,6 +100,8 @@ export interface SavedSeatAssignment {
   displayName?: string;
   /** The person's Google photo, so a restart keeps the same avatars. */
   photoUrl?: string;
+  /** The person's Google address, so a restart can still email them the minutes. */
+  email?: string;
 }
 
 /**
@@ -316,6 +318,9 @@ function holdersProblem(value: unknown): string | undefined {
     }
     if (entry.displayName !== undefined && !isString(entry.displayName)) {
       return 'its seat holders have an invalid display name';
+    }
+    if (entry.email !== undefined && !isString(entry.email)) {
+      return 'its seat holders have an invalid email';
     }
     const seat = entry.seat.trim().toLowerCase();
     if (seats.has(seat)) return 'its seat holders repeat a seat';

@@ -4,7 +4,7 @@ import { ensureMeetingsSchema } from '../auth/schema';
 import type { MeetingPersistence } from '../persist/persistence';
 import type { MeetingInstance } from './instance';
 import { agendaFromStored } from './agenda';
-import type { AgendaItem, MeetingRow, MeetingStatus } from './types';
+import type { AgendaItem, ArchivedMeetingTodo, MeetingMinutesArchive, MeetingRow, MeetingStatus } from './types';
 
 /** A registry refusal the HTTP layer turns into a 503 with this exact message. */
 export class MeetingBusyError extends Error {
@@ -28,6 +28,10 @@ export interface MeetingStore {
   list(workspaceId: string): Promise<MeetingRow[]>;
   /** Mark the row ended once the meeting finishes, so workspace pages show it as over. */
   markEnded?(id: string, endedAt: string): Promise<void>;
+  /** Keep Kaki's own copy of the minutes and to-dos with the meeting row. */
+  saveMinutes?(id: string, archive: { minutes: string; todos: ArchivedMeetingTodo[] }): Promise<void>;
+  /** Tick one archived to-do done or not; returns the updated list, or undefined when there is no archive. */
+  setTodoDone?(id: string, taskId: string, done: boolean): Promise<ArchivedMeetingTodo[] | undefined>;
   /** Release the store's connection, when it owns one. */
   close?(): Promise<void>;
 }
@@ -253,6 +257,9 @@ export function createPostgresMeetingStore(pool: Pool): MeetingStore {
     agenda: unknown;
     created_at: Date | string;
     ended_at: Date | string | null;
+    minutes_text?: string | null;
+    minutes_todos?: ArchivedMeetingTodo[] | null;
+    minutes_archived_at?: Date | string | null;
   }): MeetingRow => ({
     id: record.id,
     workspaceId: record.workspace_id,
@@ -265,6 +272,18 @@ export function createPostgresMeetingStore(pool: Pool): MeetingStore {
     agenda: agendaFromStored(record.agenda),
     createdAt: new Date(record.created_at).toISOString(),
     endedAt: record.ended_at === null ? null : new Date(record.ended_at).toISOString(),
+    ...(record.minutes_text === null || record.minutes_text === undefined
+      ? {}
+      : {
+          minutes: {
+            minutes: record.minutes_text,
+            todos: record.minutes_todos ?? [],
+            archivedAt:
+              record.minutes_archived_at === null || record.minutes_archived_at === undefined
+                ? new Date(record.created_at).toISOString()
+                : new Date(record.minutes_archived_at).toISOString(),
+          } satisfies MeetingMinutesArchive,
+        }),
   });
 
   return {
@@ -273,7 +292,8 @@ export function createPostgresMeetingStore(pool: Pool): MeetingStore {
       const result = await pool.query(
         `insert into meetings (id, workspace_id, owner_user_id, title, kind, status, scheduled_for, agenda)
          values ($1, $2, $3, $4, 'real', $5, $6, $7::jsonb)
-         returning id, workspace_id, owner_user_id, title, kind, status, scheduled_for, agenda, created_at, ended_at`,
+         returning id, workspace_id, owner_user_id, title, kind, status, scheduled_for, agenda, created_at, ended_at,
+                   minutes_text, minutes_todos, minutes_archived_at`,
         [newMeetingId(), workspaceId, ownerUserId, title, status, scheduledFor ?? null, JSON.stringify(agenda)],
       );
       return row(result.rows[0]);
@@ -281,7 +301,8 @@ export function createPostgresMeetingStore(pool: Pool): MeetingStore {
     async get(id) {
       await ensureMeetingsSchema(pool);
       const result = await pool.query(
-        `select id, workspace_id, owner_user_id, title, kind, status, scheduled_for, agenda, created_at, ended_at
+        `select id, workspace_id, owner_user_id, title, kind, status, scheduled_for, agenda, created_at, ended_at,
+                  minutes_text, minutes_todos, minutes_archived_at
            from meetings where id = $1`,
         [id],
       );
@@ -294,10 +315,36 @@ export function createPostgresMeetingStore(pool: Pool): MeetingStore {
         [id, endedAt],
       );
     },
+    async saveMinutes(id, archive) {
+      await ensureMeetingsSchema(pool);
+      await pool.query(
+        `update meetings
+            set minutes_text = $2, minutes_todos = $3::jsonb, minutes_archived_at = now()
+          where id = $1`,
+        [id, archive.minutes, JSON.stringify(archive.todos)],
+      );
+    },
+    async setTodoDone(id, taskId, done) {
+      await ensureMeetingsSchema(pool);
+      const current = await pool.query<{ minutes_todos: ArchivedMeetingTodo[] | null }>(
+        'select minutes_todos from meetings where id = $1',
+        [id],
+      );
+      const todos = current.rows[0]?.minutes_todos;
+      if (todos === null || todos === undefined) return undefined;
+      const next = todos.map((todo) => (todo.id === taskId ? { ...todo, done } : todo));
+      if (!next.some((todo) => todo.id === taskId)) return undefined;
+      await pool.query('update meetings set minutes_todos = $2::jsonb where id = $1', [
+        id,
+        JSON.stringify(next),
+      ]);
+      return next;
+    },
     async list(workspaceId) {
       await ensureMeetingsSchema(pool);
       const result = await pool.query(
-        `select id, workspace_id, owner_user_id, title, kind, status, scheduled_for, agenda, created_at, ended_at
+        `select id, workspace_id, owner_user_id, title, kind, status, scheduled_for, agenda, created_at, ended_at,
+                  minutes_text, minutes_todos, minutes_archived_at
            from meetings where workspace_id = $1 order by created_at desc`,
         [workspaceId],
       );
@@ -334,6 +381,22 @@ export function createMemoryMeetingStore(): MeetingStore & { rows: Map<string, M
       const meeting = rows.get(id);
       if (meeting === undefined) return;
       rows.set(id, { ...meeting, status: 'ended', endedAt });
+    },
+    async saveMinutes(id, archive) {
+      const meeting = rows.get(id);
+      if (meeting === undefined) return;
+      rows.set(id, {
+        ...meeting,
+        minutes: { minutes: archive.minutes, todos: archive.todos.map((todo) => ({ ...todo })), archivedAt: new Date().toISOString() },
+      });
+    },
+    async setTodoDone(id, taskId, done) {
+      const meeting = rows.get(id);
+      if (meeting?.minutes === undefined || meeting.minutes === null) return undefined;
+      if (!meeting.minutes.todos.some((todo) => todo.id === taskId)) return undefined;
+      const todos = meeting.minutes.todos.map((todo) => (todo.id === taskId ? { ...todo, done } : todo));
+      rows.set(id, { ...meeting, minutes: { ...meeting.minutes, todos } });
+      return todos.map((todo) => ({ ...todo }));
     },
     async list(workspaceId) {
       return [...rows.values()]

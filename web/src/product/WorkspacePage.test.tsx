@@ -91,6 +91,13 @@ describe('WorkspacePage', () => {
               scheduledFor: '2999-01-01T02:00:00.000Z',
               ownerName: 'Ada Lovelace',
             },
+            {
+              id: 'mtg-0',
+              title: 'Last week’s planning',
+              status: 'ended',
+              scheduledFor: '2026-11-10T02:00:00.000Z',
+              ownerName: 'Ada Lovelace',
+            },
           ],
           counts: { meetings: 1, todos: 2, records: 3 },
         }),
@@ -107,6 +114,11 @@ describe('WorkspacePage', () => {
     ).toBe('/m/mtg-1');
     expect(screen.getAllByRole('button', { name: 'Connect' }).length).toBeGreaterThan(0);
     expect(screen.getByRole('button', { name: 'Disconnect' })).toBeTruthy();
+    expect(screen.getByText('Past meetings')).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Last week’s planning' }).getAttribute('href')).toBe(
+      '/workspaces/ws-1/meetings/mtg-0',
+    );
+    expect(screen.queryByRole('link', { name: 'Scheduled sync' })).toBeNull();
   });
 
   it('shows the sample workspace as read-only with built-in tools', async () => {

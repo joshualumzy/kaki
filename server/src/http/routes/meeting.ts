@@ -151,6 +151,7 @@ export async function handleLivekitToken(call: RouteCall): Promise<void> {
   // The joiner's Google photo, when they have an account. Looked up before the admission queue
   // so no extra await can land between the seat claim and the holder it records.
   let joinerPhotoUrl: string | undefined;
+  let joinerEmail: string | undefined;
   if (
     context.auth !== undefined &&
     (principal.kind === 'host' || principal.kind === 'user') &&
@@ -158,6 +159,7 @@ export async function handleLivekitToken(call: RouteCall): Promise<void> {
   ) {
     const user = await context.auth.store.findUserById(principal.userId);
     joinerPhotoUrl = user?.picture ?? undefined;
+    joinerEmail = user?.email;
   }
   try {
     await context.admit(async () => {
@@ -515,6 +517,7 @@ export async function handleLivekitToken(call: RouteCall): Promise<void> {
         name: participantName,
         seat: seatId,
         ...(joinerPhotoUrl === undefined ? {} : { photoUrl: joinerPhotoUrl }),
+        ...(joinerEmail === undefined ? {} : { email: joinerEmail }),
       });
       context.runnerStateChanged();
       context.meetingStateChanged();

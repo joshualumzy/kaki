@@ -139,6 +139,97 @@ export async function handleWorkspaces(call: RouteCall): Promise<void> {
     return;
   }
 
+  const historyMatch = /^\/api\/workspaces\/([^/]+)\/meetings(?:\/([^/]+)(?:\/minutes|\/todos\/([^/]+))?)?$/.exec(path);
+  if (historyMatch !== null) {
+    const historyWorkspaceId = decodeURIComponent(historyMatch[1] ?? '');
+    const meetingId = historyMatch[2] === undefined ? undefined : decodeURIComponent(historyMatch[2]);
+    const todoId = historyMatch[3] === undefined ? undefined : decodeURIComponent(historyMatch[3]);
+    const meetings = context.meetings;
+    if (meetings === undefined) {
+      sendJson(response, 500, { error: 'Meeting storage is unavailable.' });
+      return;
+    }
+    if (historyWorkspaceId === SAMPLE_WORKSPACE_ID) {
+      sendJson(response, 403, { error: "The sample workspace's meetings are built in" });
+      return;
+    }
+    const membership = await store.getMembership({ workspaceId: historyWorkspaceId, userId: principal.userId });
+    if (membership === undefined) {
+      sendJson(response, 404, { error: 'Workspace not found' });
+      return;
+    }
+
+    if (method === 'GET' && meetingId === undefined) {
+      const rows = await meetings.list(historyWorkspaceId);
+      sendJson(
+        response,
+        200,
+        rows
+          .filter((row) => row.status === 'ended')
+          .map((row) => ({
+            id: row.id,
+            title: row.title,
+            date: row.endedAt ?? row.createdAt,
+            status: row.status,
+          })),
+      );
+      return;
+    }
+
+    if (meetingId === undefined) {
+      sendJson(response, 404, { error: 'Not found' });
+      return;
+    }
+    const meeting = await meetings.get(meetingId);
+    if (meeting === undefined || meeting.workspaceId !== historyWorkspaceId) {
+      sendJson(response, 404, { error: 'Meeting not found' });
+      return;
+    }
+    if (meeting.status !== 'ended') {
+      sendJson(response, 409, { error: 'This meeting has not ended yet.' });
+      return;
+    }
+    const canEdit = meeting.ownerUserId === principal.userId || membership === 'admin';
+
+    if (method === 'GET' && todoId === undefined && path.endsWith('/minutes')) {
+      sendJson(response, 200, {
+        id: meeting.id,
+        title: meeting.title,
+        date: meeting.endedAt ?? meeting.createdAt,
+        minutes: meeting.minutes?.minutes ?? null,
+        todos: meeting.minutes?.todos ?? [],
+        canEdit,
+      });
+      return;
+    }
+
+    if (method === 'POST' && todoId !== undefined) {
+      if (!canEdit) {
+        sendJson(response, 403, { error: 'Only the meeting owner or a workspace admin can tick a to-do.' });
+        return;
+      }
+      const body = await readJsonBody(request, MAX_BODY_BYTES);
+      if (!body.ok) {
+        sendJson(response, body.status, { error: body.error });
+        return;
+      }
+      if (!isObject(body.value) || typeof body.value.done !== 'boolean') {
+        sendJson(response, 400, { error: 'Send { "done": true or false }.' });
+        return;
+      }
+      const todos = await meetings.setTodoDone?.(meetingId, todoId, body.value.done);
+      if (todos === undefined) {
+        sendJson(response, 404, { error: 'That to-do is not in this meeting’s minutes.' });
+        return;
+      }
+      sendJson(response, 200, { todos });
+      return;
+    }
+
+    sendJson(response, 404, { error: 'Not found' });
+    return;
+  }
+
   const toolsMatch = /^\/api\/workspaces\/([^/]+)\/tools(?:\/([^/]+))?(?:\/(test))?$/.exec(path);
   if (toolsMatch !== null) {
     const toolStore = context.workspaceTools;

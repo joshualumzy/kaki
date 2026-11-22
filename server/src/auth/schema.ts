@@ -138,6 +138,10 @@ export async function ensureMeetingsSchema(pool: Pool): Promise<void> {
     )
   `);
   await pool.query('alter table meetings add column if not exists status text');
+  // Kaki's own copy of an ended meeting's minutes, kept apart from any connected tool.
+  await pool.query('alter table meetings add column if not exists minutes_text text');
+  await pool.query('alter table meetings add column if not exists minutes_todos jsonb');
+  await pool.query('alter table meetings add column if not exists minutes_archived_at timestamptz');
   await pool.query('alter table meetings add column if not exists agenda jsonb');
   // Step-2 rows had no status; an open meeting is the truthful default for them.
   await pool.query("update meetings set status = 'open' where status is null");

@@ -233,6 +233,7 @@ export function createMeetingSession(deps: MeetingSessionDeps): MeetingSession {
       seat: holder.seat,
       ...(holder.displayName === undefined ? {} : { displayName: holder.displayName }),
       ...(holder.photoUrl === undefined ? {} : { photoUrl: holder.photoUrl }),
+      ...(holder.email === undefined ? {} : { email: holder.email }),
     }));
   }
 
@@ -448,11 +449,13 @@ export function createMeetingSession(deps: MeetingSessionDeps): MeetingSession {
       );
       const displayName = holder.displayName?.trim() || holder.name.trim();
       const photoUrl = holder.photoUrl?.trim();
+      const email = holder.email?.trim().toLowerCase();
       holders.push({
         name,
         seat: holder.seat,
         ...(displayName === name ? {} : { displayName }),
         ...(photoUrl === undefined || photoUrl === '' ? {} : { photoUrl }),
+        ...(email === undefined || email === '' ? {} : { email }),
       });
     },
     pruneHolders() {

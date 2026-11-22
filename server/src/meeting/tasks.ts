@@ -329,8 +329,17 @@ export function createTaskStore({
       case 'CLAIM_TASK': {
         const task = requireTask(command.taskId);
         requireAssignee(task, sender);
-        if (command.mode === 'ACTION_AGENT' && task.actionKind === undefined) {
-          throw new CommandError('This task has no action to run; do it manually');
+        if (command.mode === 'ACTION_AGENT') {
+          // A cached judgement that is not ready means no connected tool fits: the model decided
+          // from the to-do's meaning, so there is no button to run and no kind to guess.
+          if (task.fit !== undefined && task.fit.status !== 'ready') {
+            throw new CommandError(
+              'Kaki found no connected tool for this to-do. Accept it and do it yourself.',
+            );
+          }
+          if (task.actionKind === undefined) {
+            throw new CommandError('This task has no action to run; do it manually');
+          }
         }
         transition(command.taskId, 'CLAIMED', { mode: command.mode });
         return;

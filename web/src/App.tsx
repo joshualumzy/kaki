@@ -12,6 +12,7 @@ import { NewMeetingPage } from './product/NewMeetingPage';
 import { RealMeetingRoom } from './product/RealMeetingRoom';
 import { SignInPage } from './product/SignInPage';
 import { WorkspacePage } from './product/WorkspacePage';
+import { MeetingHistoryPage } from './product/MeetingHistoryPage';
 import './product/product.css';
 
 /** Load the scenario the current page needs: the practice pack on practice routes. */
@@ -44,6 +45,7 @@ export function App() {
         <Route path="/signin" element={<SignInPage />} />
         <Route path="/new" element={<NewMeetingPage />} />
         <Route path="/workspaces/:id" element={<WorkspacePage />} />
+        <Route path="/workspaces/:id/meetings/:meetingId" element={<MeetingHistoryPage />} />
         <Route path="/m/:id/room" element={<RealMeetingRoom />} />
         <Route path="/m/:id" element={<JoinPage />} />
         <Route

@@ -40,6 +40,7 @@ import type { IdleTracker } from '../core/idle';
 import type { KakiModule } from '../core/modules';
 import type { WorkspaceTools } from '../workspace/tools';
 import type { MeetingPersistence } from '../persist/persistence';
+import type { ArchivedMeetingTodo } from './types';
 import type { MeetingCodeSource } from './meetingCode';
 import { assertReadableSavedMeeting, assertReadableSavedSetup } from '../persist/state';
 import { createRejoinGuard, createRoomPoll, rejoinGraceMsFromEnv, roomPollIntervalMs, REJOIN_POLL_MS } from './rejoin';
@@ -132,6 +133,8 @@ export interface MeetingInstanceDeps {
   runnerPresence?: RunnerPresence;
   /** Record that this meeting's row is over; the legacy practice instance has no row. */
   onEnded?: (endedAt: string) => Promise<void>;
+  /** Keep Kaki's own copy of the minutes with the meeting row; absent for the sample practice meeting. */
+  onMinutes?: (archive: { minutes: string; todos: ArchivedMeetingTodo[] }) => Promise<void>;
 }
 
 /** Create one meeting: its session, hub, rooms, tasks, routes and modules. */
@@ -169,6 +172,7 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
     ownerName,
     runnerPresence,
     onEnded,
+    onMinutes,
   } = deps;
   const runnerKind: 'real' | 'practice' = legacy ? 'practice' : 'real';
   let lastActivity = Date.now();
@@ -1604,6 +1608,16 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
         },
         packFree,
         meetingDetails: () => session.snapshot(),
+        ...(onMinutes === undefined
+          ? {}
+          : {
+              archiveMinutes: async (input) => {
+                await onMinutes({
+                  minutes: input.minutes,
+                  todos: input.todos.map((todo) => ({ ...todo, done: false })),
+                });
+              },
+            }),
       });
       if (typeof stop === 'function') cleanups.push(stop);
     } catch (error) {
