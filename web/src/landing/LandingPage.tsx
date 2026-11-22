@@ -78,7 +78,7 @@ export function LandingPage() {
             type="text"
             value={code}
             onChange={(event) => setCode(event.target.value.toUpperCase())}
-            placeholder="ABCD"
+            placeholder="K7M2Q9"
             maxLength={8}
             autoCapitalize="characters"
             autoComplete="off"
