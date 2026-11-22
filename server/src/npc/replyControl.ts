@@ -14,9 +14,11 @@ type ReactionEmoji = typeof REACTION_EMOJIS[number];
 
 /** The control an ordinary reply starts with: open. */
 export const OPEN_REPLY_CONTROL: ReplyControl = { state: 'open' };
-const CONTROL_HEADER = /^KAKI_CONTROL(?:\s+|$)/u;
+// The model writes KAKI_CONTROL, but it has also written "KAKI CONTROL" (a space) and tabs.
+// Every separator spelling names the same hidden header, so no variant may reach speech or the transcript.
+const CONTROL_HEADER = /^KAKI[\s_-]*CONTROL(?:\s+|$)/u;
 
-/** True when the trimmed line begins with the control header. */
+/** True when the trimmed line begins with the control header, whatever separator the model used. */
 export function isReplyControlLine(line: string): boolean {
   return CONTROL_HEADER.test(line.trimStart());
 }
@@ -24,7 +26,11 @@ export function isReplyControlLine(line: string): boolean {
 /** True when the line is a prefix of the control header, so a partial first line is not spoken. */
 export function couldBeReplyControlLine(line: string): boolean {
   const head = line.trimStart();
-  return 'KAKI_CONTROL'.startsWith(head) || isReplyControlLine(head);
+  if ('KAKI_CONTROL'.startsWith(head) || isReplyControlLine(head)) return true;
+  const partial = /^KAKI[\s_-]*([A-Za-z]*)$/u.exec(head);
+  if (partial === null) return false;
+  const next = (partial[1] ?? '').toUpperCase();
+  return next.length === 0 || 'CONTROL'.startsWith(next);
 }
 
 /** Only a valid first line can change topic state. Every other line is speech. */

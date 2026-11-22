@@ -683,6 +683,28 @@ describe('turn planner', () => {
     expect(first).toMatchObject({ kind: 'Speak', speaker: 'Ada', purpose: 'brief', factIds: ['0:0'] });
   });
 
+  it('groups two consecutive facts both known by the same colleague into one briefing step', () => {
+    const state = make({
+      facts: [
+        { id: '0:0', text: 'The fridge log shows a three hour overnight gap.', knownBy: ['Ada'] },
+        { id: '0:1', text: 'The shop has only 30 large trays.', knownBy: ['Ada'] },
+      ],
+      catches: [],
+    });
+    const handover = heard(state, { id: 'sam-1', speaker: 'Sam', text: 'Ada, what happened?' });
+    expect(next(state.view(1), { kind: 'heard', line: handover })).toMatchObject({
+      kind: 'Speak', speaker: 'Ada', purpose: 'brief', factIds: ['0:0', '0:1'],
+    });
+
+    const brief = heard(state, {
+      id: 'ada-1', speaker: 'Ada', factIds: ['0:0', '0:1'],
+      text: 'The fridge was off for three hours overnight and we only have 30 large trays.',
+    }, 2);
+    expect(next(state.view(2), { kind: 'heard', line: brief })).toMatchObject({
+      kind: 'Speak', speaker: 'Sam', purpose: 'invite',
+    });
+  });
+
   it('stops re-asking a colleague who never answers, so the repeat cap can move the meeting on', () => {
     const state = make();
     heard(state, { id: 'josh-1', speaker: 'Josh', text: 'Start with the morning shift.' });

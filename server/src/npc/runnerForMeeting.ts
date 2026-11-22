@@ -299,7 +299,9 @@ const initialMeeting = await runnerClient.fetchMeetingState().catch((error: unkn
 });
 const runner = await startNpcRunner({
   scenario,
-  roomName,
+  // A practice meeting's room follows its identity (the legacy meeting rotates it on reset); only a
+  // real meeting's room is fixed for the life of its runner.
+  ...(kind === 'real' ? { roomName } : {}),
   livekitUrl: process.env.LIVEKIT_URL || 'ws://127.0.0.1:7880',
   stream: streamWithFault,
   ...(fallbackStreamWithFault === undefined ? {} : { fallbackStream: fallbackStreamWithFault }),

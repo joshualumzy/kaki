@@ -478,6 +478,41 @@ describe('server-owned start preparation', () => {
     }
   });
 
+  it('follows a practice meeting to its new room even when it was opened with the old room name', async () => {
+    rooms.length = 0;
+    published.length = 0;
+    const scenario = await loadScenario('kopitiam');
+    const transcript: string[] = [];
+    const runner = await startNpcRunner({
+      scenario,
+      roomName: 'kaki-demo-kopitiam-pinned',
+      initialMeeting: runnerSnapshot(scenario, { meetingId: 'meeting-1' }),
+      livekitUrl: 'ws://offline.invalid',
+      stream: async function* () {},
+      synthesize: async () => new Int16Array(),
+      postTranscript: (_speaker, text) => transcript.push(text),
+      postTranscriptUpdate: () => undefined,
+      responseDelayMs: 0,
+      speakerGapMs: 0,
+      sentenceGapMs: 0,
+    });
+    try {
+      const roomsBeforeMove = rooms.length;
+      runner.reconcileMeeting(runnerSnapshot(scenario, { meetingId: 'meeting-2', version: 2 }));
+      expect(runner.meetingId()).toBe('meeting-2');
+      // The new identity gets a new room; the old pinned room must not keep the runner silent.
+      await vi.waitFor(() => expect(rooms.length).toBeGreaterThan(roomsBeforeMove));
+
+      const participant = { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'operations_director' };
+      for (const room of rooms.slice(roomsBeforeMove)) room.emit('participantConnected', participant);
+      await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
+      await runner.markStarted({ meetingId: 'meeting-2' });
+      await vi.waitFor(() => expect(transcript.some((line) => line.startsWith('Welcome to'))).toBe(true));
+    } finally {
+      await runner.stop();
+    }
+  });
+
   it('lets a new visitor session start after the server resets the meeting', async () => {
     rooms.length = 0;
     published.length = 0;
@@ -1050,6 +1085,49 @@ describe('an ended meeting on reconnect', () => {
 
       await vi.waitFor(() => expect(transcript.filter((line) => line.startsWith('Welcome to'))).toHaveLength(2));
       expect(log.some((line) => line.includes('live again'))).toBe(true);
+    } finally {
+      await runner.stop();
+    }
+  });
+
+  it('starts a new same-id practice meeting fresh even when the old end was never seen', async () => {
+    rooms.length = 0;
+    const scenario = await loadScenario('kopitiam');
+    const transcript: string[] = [];
+    const log: string[] = [];
+    const runner = await startNpcRunner({
+      scenario,
+      livekitUrl: 'ws://offline.invalid',
+      stream: async function* () {},
+      synthesize: async () => new Int16Array(),
+      postTranscript: (_speaker, text) => transcript.push(text),
+      postTranscriptUpdate: () => undefined,
+      log: (line) => log.push(line),
+      responseDelayMs: 0,
+      speakerGapMs: 0,
+      sentenceGapMs: 0,
+    });
+    try {
+      const participant = { identity: 'visitor-1', name: 'Daniel', metadata: 'operations_director' };
+      rooms[0]!.emit('participantConnected', participant);
+      await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
+      await runner.markStarted({ meetingId: 'meeting-1' });
+      await vi.waitFor(() => expect(transcript.filter((line) => line.startsWith('Welcome to'))).toHaveLength(1));
+
+      // The next practice meeting starts under the same id, but this runner never saw the old meeting
+      // end or its reset: the prepare is the first sign of the new meeting.
+      await runner.prepareMeeting({
+        meetingId: 'meeting-1',
+        attempt: 'attempt-2',
+        snapshot: runnerSnapshot(scenario, { meetingId: 'meeting-1', phase: 'starting', started: false, version: 4 }),
+      });
+      await runner.markStarted({ meetingId: 'meeting-1' });
+      runner.reconcileMeeting(
+        runnerSnapshot(scenario, { meetingId: 'meeting-1', phase: 'running', started: true, version: 5 }),
+      );
+
+      await vi.waitFor(() => expect(transcript.filter((line) => line.startsWith('Welcome to'))).toHaveLength(2));
+      expect(log.some((line) => line.includes('already ran'))).toBe(true);
     } finally {
       await runner.stop();
     }

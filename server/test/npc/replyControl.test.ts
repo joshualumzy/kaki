@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseReplyControl } from '../../src/npc/replyControl';
+import { couldBeReplyControlLine, isReplyControlLine, parseReplyControl } from '../../src/npc/replyControl';
 
 const base = { state: 'open' };
 const parse = (fields: Record<string, unknown>, logs: string[]) =>
@@ -28,5 +28,25 @@ describe('reply control optional fields', () => {
     expect(control).toEqual(base);
     expect(logs).toHaveLength(3);
     expect(logs.every((line) => line.startsWith('[control]'))).toBe(true);
+  });
+});
+
+describe('reply control header spelling', () => {
+  it.each([
+    'KAKI_CONTROL {"state":"open"}',
+    'KAKI CONTROL {"state":"open"}',
+    'KAKI\tCONTROL {"state":"open"}',
+    'KAKI-CONTROL {"state":"open"}',
+    '  KAKI  CONTROL {"state":"open"}',
+  ])('treats %j as a hidden control line', (line) => {
+    expect(isReplyControlLine(line)).toBe(true);
+    expect(parseReplyControl(line)).toEqual({ state: 'open' });
+  });
+
+  it('treats a partial spelling across chunks as a possible control line', () => {
+    for (const partial of ['K', 'KAKI', 'KAKI ', 'KAKI C', 'KAKI CON', 'KAKI_CONT', 'KAKI-CON']) {
+      expect(couldBeReplyControlLine(partial)).toBe(true);
+    }
+    expect(couldBeReplyControlLine('Kaki, can you hear me?')).toBe(false);
   });
 });
