@@ -381,7 +381,8 @@ export async function createApp({
   rejoinPollMs,
   emptyRoomPauseMs,
   admissionReservationMs = ADMISSION_RESERVATION_MS,
-  startAckTimeoutMs = 6_000,
+  // A real meeting's runner needs a few seconds to open the room, longer when several open at once.
+  startAckTimeoutMs = 20_000,
   serviceToken = process.env.KAKI_SERVICE_TOKEN?.trim(),
   meetingCode: meetingCodeOption,
   speechRecognition = 'server',
