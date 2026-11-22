@@ -463,7 +463,7 @@ export function MeetingPanel({
                 </span>
                 {(() => {
                   const owner = task.assignee ?? task.suggestedAssignee;
-                  const seat = viewer.seatName?.trim().toLowerCase();
+                  const seat = (role?.id ?? viewer.seatName)?.trim().toLowerCase();
                   const offersAction =
                     task.fit?.status === 'ready' || (task.fit === undefined && task.actionKind !== undefined);
                   if (!offersAction || seat === undefined || owner === undefined || seat === owner.trim().toLowerCase()) {

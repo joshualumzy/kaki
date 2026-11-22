@@ -44,10 +44,12 @@ export function MeetingHistoryPage() {
   const [copyNote, setCopyNote] = useState<string | null>(null);
   const [savingTodo, setSavingTodo] = useState<string | null>(null);
   const [todoError, setTodoError] = useState<string | null>(null);
+  const [minutesAttempts, setMinutesAttempts] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
     setMinutes(null);
+    setMinutesAttempts(0);
     setError(null);
     setNotFound(false);
     Promise.all([listWorkspaces(), getWorkspace(id), getMeetingMinutes(id, meetingId)])
@@ -73,6 +75,21 @@ export function MeetingHistoryPage() {
       cancelled = true;
     };
   }, [id, meetingId]);
+
+  // Kaki keeps its copy of the minutes a moment after the meeting ends. A page opened in that
+  // window would otherwise keep saying "still being prepared" until someone reloaded by hand.
+  useEffect(() => {
+    if (minutes === null || minutes.minutes !== null || minutesAttempts >= 15) return;
+    const timer = window.setTimeout(() => {
+      getMeetingMinutes(id, meetingId)
+        .then((next) => {
+          setMinutes(next);
+          setMinutesAttempts((count) => count + 1);
+        })
+        .catch(() => setMinutesAttempts((count) => count + 1));
+    }, 2_000);
+    return () => window.clearTimeout(timer);
+  }, [id, meetingId, minutes, minutesAttempts]);
 
   if (auth.status === 'loading') {
     return (

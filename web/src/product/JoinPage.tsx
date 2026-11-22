@@ -68,7 +68,9 @@ export function JoinPage() {
     try {
       const joined = await joinMeeting(id, asName === undefined ? undefined : asName.trim());
       storeRealJoinName(id, joined.name);
-      navigate(`/m/${encodeURIComponent(id)}/room`, { replace: true });
+      // Keep the invite page in history: browser Back then returns to a real page instead of the
+      // blank tab a new visitor started from.
+      navigate(`/m/${encodeURIComponent(id)}/room`);
     } catch (joinFailure) {
       setJoinError(
         joinFailure instanceof Error ? joinFailure.message : 'Could not join this meeting.',

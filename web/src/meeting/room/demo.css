@@ -77,7 +77,7 @@ select.kd-field { appearance: none; cursor: pointer; background-image: linear-gr
 .kd-tile[data-state="thinking"] .kd-state { color: var(--color-host); animation: kd-blink 1s infinite; }
 .kd-caption { position: absolute; left: 12px; right: 12px; bottom: 12px; padding: 9px 13px; border-radius: 14px; background: color-mix(in srgb, var(--color-surface) 90%, transparent); backdrop-filter: blur(10px); border: 1px solid var(--color-border); color: var(--color-text); font-size: 14px; font-weight: 500; line-height: 1.4; pointer-events: none; z-index: 3; animation: kd-word 260ms ease both; }
 .kd-stage-col { display: flex; flex-direction: column; height: 100%; position: relative; }
-.kd-grid-wrap { flex: 1; padding: 10px; min-height: 0; }
+.kd-grid-wrap { position: relative; flex: 1; padding: 10px; min-height: 0; }
 .kd-stage .lk-grid-layout { gap: 12px; padding: 0; }
 .kd-stage .lk-participant-metadata-item { background: var(--color-surface); color: var(--color-text); border: 1px solid var(--color-border); border-radius: 999px; font-size: 12px; font-weight: 600; }
 .kd-stage .lk-participant-placeholder { background: transparent; }

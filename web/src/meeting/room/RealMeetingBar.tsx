@@ -245,8 +245,11 @@ export function RealMeetingBar({
               className="kd-chip"
               data-tone="danger"
               onClick={() => {
-                send({ type: 'END_MEETING' });
+                const sent = send({ type: 'END_MEETING' });
                 setConfirmEnd(false);
+                if (!sent) {
+                  setProblem("Couldn't end the meeting: the room is reconnecting. Try again in a moment.");
+                }
               }}
             >
               End the meeting

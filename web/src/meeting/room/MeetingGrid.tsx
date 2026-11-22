@@ -383,6 +383,7 @@ export function MeetingGrid({
           <GridLayout tracks={gridTracks} style={{ height: '100%' }}>
             <CaptionedTile />
           </GridLayout>
+          {real && meetingId !== undefined ? <RealWaitingOverlay meetingId={meetingId} /> : null}
         </div>
         {voiceNote !== null && (
           <div className="kd-caption-note" role="status" aria-live="polite">
@@ -463,7 +464,6 @@ export function MeetingGrid({
         )}
         <RoomAudioRenderer />
       </div>
-      {real && meetingId !== undefined ? <RealWaitingOverlay meetingId={meetingId} /> : null}
     </StageContext.Provider>
   );
 }

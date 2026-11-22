@@ -96,6 +96,9 @@ export function SignInPage() {
         <p className="signin-line">
           Kaki writes the minutes and to-dos so your workspace can just talk.
         </p>
+        {search.get('next') === null ? null : (
+          <p className="product-hint">Sign in to open the page you were going to.</p>
+        )}
         {error !== null && error !== '' && (
           <p className="product-error" role="alert">
             {error}

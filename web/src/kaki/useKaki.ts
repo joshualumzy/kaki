@@ -364,6 +364,17 @@ export function useKaki(audience: KakiAudience): UseKakiResult {
           return;
         }
 
+        if (parsed.type === 'SCENARIO_CHANGED') {
+          // The people in a real meeting are its roles: a new seat must reload the scenario so the
+          // page can show that person and accept their lines instead of dropping them as unknown.
+          // The read-only lifecycle feed never sees this event, so every screen, seat and
+          // participant socket follows it; the provider collapses the repeat reloads into one.
+          if (meetingId.current === undefined || meetingId.current === parsed.payload.meetingId) {
+            invalidateScenario();
+          }
+          return;
+        }
+
         if (parsed.type === 'COMMAND_REJECTED') {
           setRejections((previous) => [...previous, parsed.payload].slice(-5));
           return;

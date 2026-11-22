@@ -11,6 +11,11 @@ export function RealRoomBanners() {
   const offTheRecord = meetingState?.offTheRecord ?? null;
   return (
     <div className="kd-real-banners">
+      {meetingState?.phase === 'ended' ? (
+        <div className="kd-real-banner" data-tone="warning" role="status">
+          The meeting has ended. The notes are kept for the owner and can be read from the workspace.
+        </div>
+      ) : null}
       {offTheRecord === null ? null : (
         <div className="kd-real-banner" data-tone="off-record" role="status">
           <span>

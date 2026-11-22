@@ -211,6 +211,7 @@ export function ActiveRoleCards({
                   send={send}
                   rejection={rejection}
                   viewer={viewer}
+                  viewerRoleId={role}
                   avatar={avatarFor(item)}
                 />
               );
@@ -250,6 +251,7 @@ export function ActiveRoleCards({
                   send={send}
                   rejection={rejection}
                   viewer={viewer}
+                  viewerRoleId={role}
                   avatar={avatarFor(item)}
                 />
               </div>
@@ -271,6 +273,7 @@ function TaskCard(props: {
   send: (command: KakiCommand) => void;
   rejection: KakiRejection | null;
   viewer?: { name: string; seatName?: string };
+  viewerRoleId?: string;
   avatar?: { name: string; photoUrl?: string | null };
   id?: string;
 }) {
@@ -305,6 +308,7 @@ function TaskCardBody({
   send,
   rejection,
   viewer,
+  viewerRoleId,
   avatar,
   id,
 }: {
@@ -313,6 +317,7 @@ function TaskCardBody({
   send: (command: KakiCommand) => void;
   rejection: KakiRejection | null;
   viewer?: { name: string; seatName?: string };
+  viewerRoleId?: string;
   avatar?: { name: string; photoUrl?: string | null };
   id?: string;
 }) {
@@ -349,7 +354,8 @@ function TaskCardBody({
   }
 
   const owner = task.assignee ?? task.suggestedAssignee;
-  const viewerSeat = viewer?.seatName?.trim().toLowerCase();
+  // A real person's seat id is their role; a display name never identifies a role.
+  const viewerSeat = (viewerRoleId ?? viewer?.seatName)?.trim().toLowerCase();
   const viewerIsNotOwner =
     viewerSeat !== undefined && owner !== undefined && viewerSeat !== owner.trim().toLowerCase();
   const fit = task.fit;
