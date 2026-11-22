@@ -576,6 +576,16 @@ describe('fragments with no word to say', () => {
     expect(parse(['Ada: Right,<br> let us start.\n'])).toEqual([{ speaker: 'Ada', text: 'Right, let us start.' }]);
   });
 
+  it('keeps consonant-only words such as acronyms and "Hmm"', () => {
+    expect(parse(['Ada: GST?\nBao: HDB.\nAda: CPF.\nBao: MOM.\nAda: Hmm.\n'])).toEqual([
+      { speaker: 'Ada', text: 'GST?' },
+      { speaker: 'Bao', text: 'HDB.' },
+      { speaker: 'Ada', text: 'CPF.' },
+      { speaker: 'Bao', text: 'MOM.' },
+      { speaker: 'Ada', text: 'Hmm.' },
+    ]);
+  });
+
   it('keeps short real lines and numbers', () => {
     expect(parse(['Ada: Yes.\nBao: 8.\nAda: OK.\n'])).toEqual([
       { speaker: 'Ada', text: 'Yes.' },

@@ -107,7 +107,9 @@ describe('startNpcRunner task dispatch to the visitor', () => {
       runner.announce("Daniel, I've sent you a task: Send the note. Accept or decline it on your phone.", done);
       await new Promise((resolve) => setTimeout(resolve, 50));
 
-      expect(done).toHaveBeenCalledWith(true);
+      // No decision is committed here, so the card claim is refused and reported as not delivered.
+      expect(done).toHaveBeenCalledTimes(1);
+      expect(done).toHaveBeenCalledWith(false);
       const after = transcript.slice(spokenBefore).join(' ');
       expect(after).not.toMatch(/on your (?:screen|phone)|follow-up|Send the note/i);
     } finally {

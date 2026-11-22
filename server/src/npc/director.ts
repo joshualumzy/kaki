@@ -304,13 +304,18 @@ export function cleanSpoken(text: string): string {
     .trim();
 }
 
+/** Tag names left behind when the model leaks HTML (",br"): letters, but nothing a voice would say as a line. */
+const MARKUP_WORDS = new Set(['br', 'hr', 'p', 'b', 'i', 'u', 'em', 'li', 'ul', 'ol', 'td', 'tr', 'th', 'div', 'span']);
+
 /**
- * True when a line has at least one word a voice can say: a number, a non-Latin word, or a Latin word of two or
- * more letters with a vowel. Fragments such as ",br" or "-" are not lines.
+ * True when a line has at least one word a voice can say: a number, a non-Latin word, or a Latin word of two or more
+ * letters that is not a leaked tag name. Consonant-only words ("GST", "HDB", "Hmm") count. Fragments such as ",br" or
+ * "-" are not lines.
  */
 export function hasSpeakableWord(text: string): boolean {
   return text.split(/[^\p{L}\p{N}']+/u).some((word) =>
-    /\p{N}/u.test(word) || /[^\u0000-\u024F']/u.test(word) || (word.length >= 2 && /[aeiouy]/i.test(word)));
+    /\p{N}/u.test(word) || /[^\u0000-\u024F']/u.test(word) ||
+    (word.replace(/'/g, '').length >= 2 && !MARKUP_WORDS.has(word.toLowerCase())));
 }
 
 /** Phrases that only appear when the model talks about its instructions instead of speaking as a character. */

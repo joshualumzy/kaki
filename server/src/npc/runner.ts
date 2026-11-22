@@ -1545,7 +1545,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     if (isTaskDispatch) {
       // Kaki's pop-up on the visitor's screen points at the follow-up; Sam is a colleague, not Kaki, so he says nothing.
       log(`${hostName} stays quiet on the card cue: Kaki's pop-up shows the follow-up`);
-      conversation?.markCardShown({ onDone: () => onDone?.(true) });
+      conversation?.markCardShown({ onDone: (claimed) => onDone?.(claimed) });
       return;
     }
     const timeoutMatch =

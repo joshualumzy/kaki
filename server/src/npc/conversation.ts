@@ -519,6 +519,8 @@ interface Turn {
   nudgeNote?: ChatMessage;
   /** Wakes the playback loop when a held turn carries on or is discarded. */
   heldWake?: () => void;
+  /** Resolves a planned step's `done` once the step is over (`finishPlannedStep`). */
+  release?: () => void;
   aborted: boolean;
   finalized: boolean;
   done: Promise<void>;
@@ -1207,6 +1209,10 @@ export class NpcConversation<Clip> {
   humanText(text: string): string | undefined {
     this.humanRecognizing(false);
     const heard = text.trim();
+    // One stop belongs to one recognised line, accepted or not: a stop left behind by a rejected line (often the AI's
+    // own echo) would make the next line look older than the topic, and it would be shown but never answered.
+    const endedAt = this.humanSpeechEndedAt;
+    this.humanSpeechEndedAt = undefined;
     if (this.closed || this.concluded || heard.length === 0) return undefined;
     if (this.paused) {
       this.ports.log?.(`ignored "${heard}": the meeting is paused`);
@@ -1223,9 +1229,6 @@ export class NpcConversation<Clip> {
     const accepted = decision.text ?? heard;
     // The recogniser can finish a line just after the agenda moved on. Said whole before this topic opened, it was
     // about the last topic: it is shown, but it is not this topic's first guest line, so the opening carries on.
-    const endedAt = this.humanSpeechEndedAt;
-    // One stop belongs to one recognised line; a later line the voice detector missed must not reuse it.
-    this.humanSpeechEndedAt = undefined;
     if (!this.humanTalking && endedAt !== undefined && endedAt < this.topicOpenedAt) {
       const topic = this.currentItem()?.title ?? 'this topic';
       this.ports.log?.(`[topic] "${accepted}" was said before "${topic}" opened: shown, but not answered as a line on it`);
@@ -2939,6 +2942,10 @@ export class NpcConversation<Clip> {
       // Re-asking a confirmation or offer whose answer could not be read keeps that gate live (#68).
       ...(decision.gateReask === true ? { gateReask: true } : {}),
     };
+    // `done` settles when the step is over, so a line waiting for the floor (or `settled()`) really waits for it.
+    turn.done = new Promise<void>((resolve) => {
+      turn.release = resolve;
+    });
     // One voice at a time: a line already playing (a scripted cue, or the previous step) finishes first (#66).
     await this.waitForFloor(abort.signal);
     if (abort.signal.aborted || this.closed) return { reason: 'cancelled while another line was playing' };
@@ -3182,6 +3189,7 @@ export class NpcConversation<Clip> {
     this.finalize(turn);
     this.gate.setAiAudible(false);
     this.ports.emitState(this.idleState());
+    turn.release?.();
   }
 
   private openingMessages(

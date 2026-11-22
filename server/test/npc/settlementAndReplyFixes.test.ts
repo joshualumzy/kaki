@@ -633,6 +633,64 @@ describe('turn-taking (#66, #67, #68)', () => {
   });
 });
 
+describe('PR #69 review fixes', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it('waits for a planned reply that holds the floor instead of cutting it off', async () => {
+    const h = harness({
+      readings: [reading({ kind: 'question', addressee: 'Ada' })],
+      replies: ['Ada: The eggs are the problem.'],
+    });
+    h.conversation.humanTyped('Ada, what went wrong?');
+    for (let i = 0; i < 20; i += 1) await flush();
+    const answer = h.playing.find((entry) => entry.text.includes('eggs'));
+    expect(answer?.finished).toBe(false);
+
+    // The planned step's `done` must still be pending while its line plays.
+    const held = (h.conversation as unknown as { turn?: { done: Promise<void> } }).turn;
+    expect(held).toBeDefined();
+    const PENDING = Symbol('pending');
+    expect(await Promise.race([held!.done, Promise.resolve(PENDING)])).toBe(PENDING);
+
+    let floorFree = false;
+    void (h.conversation as unknown as { waitForFloor(signal: AbortSignal): Promise<void> })
+      .waitForFloor(new AbortController().signal)
+      .then(() => { floorFree = true; });
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(floorFree).toBe(false);
+
+    answer!.finish();
+    for (let i = 0; i < 20; i += 1) await flush();
+    expect(floorFree).toBe(true);
+    expect(h.logs).not.toContainEqual(expect.stringContaining('another line took the floor'));
+    h.conversation.close();
+  });
+
+  it('forgets the speech stop of a line the gate rejected, so the next line on a new topic is answered', async () => {
+    const h = harness();
+    h.conversation.humanSpeech(true);
+    await vi.advanceTimersByTimeAsync(1_000);
+    h.conversation.humanSpeech(false);
+    // The recognised words are rejected (as the AI's own echo would be).
+    const gate = (h.conversation as unknown as { gate: { check(text: string): unknown } }).gate;
+    const check = vi.spyOn(gate, 'check').mockReturnValueOnce({ ok: false, reason: 'echo' });
+    expect(h.conversation.humanText('Quick note before we go on.')).toBeUndefined();
+    check.mockRestore();
+
+    await vi.advanceTimersByTimeAsync(50);
+    h.conversation.agendaMoved('Delivery app commission squeeze');
+    await flush();
+    // A later line with no voice stop of its own (typed in the browser, or missed by the voice detector).
+    h.conversation.humanText('Raise the app price.');
+    for (let i = 0; i < 20; i += 1) await flush();
+
+    expect(h.logs).not.toContainEqual(expect.stringContaining('was said before'));
+    expect(h.readerInputs.some((input) => JSON.stringify(input).includes('Raise the app price'))).toBe(true);
+    h.conversation.close();
+  });
+});
+
 describe('topic time follows the agenda', () => {
   beforeEach(() => vi.useFakeTimers());
 
