@@ -92,6 +92,8 @@ interface HotMeetingData {
   session?: Session;
   pane?: 'meeting' | 'kaki';
   started?: boolean;
+  /** The meeting the kept session belongs to, so a reload into another meeting never reuses it. */
+  meetingId?: string;
 }
 const hotData = (import.meta as unknown as { hot?: { data: HotMeetingData } }).hot?.data;
 
@@ -114,6 +116,7 @@ export default function Meeting({
   initialCode,
   meetingId,
   practiceMeetingId,
+  onNewPractice,
 }: {
   variant?: MeetingVariant;
   initialCode?: string;
@@ -121,6 +124,8 @@ export default function Meeting({
   meetingId?: string;
   /** This visitor's own practice meeting, resolved from their cookie before the room mounts. */
   practiceMeetingId?: string;
+  /** Asks the practice page for a fresh practice meeting, without reloading the page. */
+  onNewPractice?: () => void;
 }) {
   const scenario = useScenario();
   const practice = variant === 'practice';
@@ -135,11 +140,13 @@ export default function Meeting({
   // The same seats the server offers: the setup's person seats when it names them, else every
   // human seat and the host's chair when a person can take it.
   const roles = useMemo(() => joinSeatRoles(scenario), [scenario]);
-  const [session, setSession] = useState<Session | undefined>(() => hotData?.session);
+  // A hot update keeps the session for the same meeting, but never carries one into another meeting.
+  const hotSession = hotData !== undefined && hotData.meetingId === apiMeetingId ? hotData.session : undefined;
+  const [session, setSession] = useState<Session | undefined>(() => hotSession);
   // A reload must not throw the person back to the name/seat form: remember the join this tab used
   // and ask the server for a fresh token for the same name and seat.
   const initialStored = useRef<StoredJoin | undefined>(
-    hotData?.session === undefined ? readStoredJoin(joinVariant) : undefined,
+    hotSession === undefined ? readStoredJoin(joinVariant) : undefined,
   );
   const [restore, setRestore] = useState<StoredJoin | undefined>(initialStored.current);
   const [rejoinState, setRejoinState] = useState<'idle' | 'reconnecting' | 'failed'>(
@@ -155,6 +162,8 @@ export default function Meeting({
   const activeSession = useRef<Session | undefined>(undefined);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>();
+  // The server says this visitor's practice is gone (ended or unloaded), so a fresh one is the way on.
+  const [practiceRestart, setPracticeRestart] = useState<{ problem: string } | undefined>();
   const [needsCode, setNeedsCode] = useState(false);
   const [pane, setPane] = useState<'meeting' | 'kaki'>(() => hotData?.pane ?? 'meeting');
   const [kakiBadgeCount, setKakiBadgeCount] = useState(0);
@@ -166,8 +175,9 @@ export default function Meeting({
       hotData.session = session;
       hotData.pane = pane;
       hotData.started = started;
+      hotData.meetingId = apiMeetingId;
     }
-  }, [session, pane, started]);
+  }, [session, pane, started, apiMeetingId]);
 
   useEffect(() => {
     activeSession.current = session;
@@ -309,6 +319,21 @@ export default function Meeting({
         }
         lastProblem =
           plainServerText(body.message) ?? plainServerText(body.error) ?? COULD_NOT_JOIN;
+        // This visit is tied to one practice meeting. Once it has ended (409) or been unloaded
+        // (404), rejoining can never work: offer a fresh practice instead of a dead end.
+        if (practice && (body.error === 'practice-ended' || body.error === 'meeting-not-found')) {
+          clearStoredJoin(joinVariant);
+          setRestore(undefined);
+          setRejoinState('idle');
+          setRejoinProblem(undefined);
+          setRejoinDeadline(undefined);
+          setPracticeRestart({
+            problem:
+              plainServerText(body.message) ??
+              'This practice meeting has ended. Start a new practice.',
+          });
+          return;
+        }
         const canTryAnotherSeat =
           realJoin &&
           seats.length > 1 &&
@@ -388,6 +413,16 @@ export default function Meeting({
     autoRejoinAttempted.current = true;
     void join(restore.name, restore.role, restore.media, restore.meetingCode, { reconnecting: true });
   }, [restore]);
+
+  if (practiceRestart !== undefined) {
+    return (
+      <PracticeRestartCard
+        meetingTitle={scenario.meetingTitle}
+        problem={practiceRestart.problem}
+        onNewPractice={onNewPractice}
+      />
+    );
+  }
 
   if (left && leftSession !== undefined) {
     return (
@@ -624,6 +659,7 @@ export default function Meeting({
         started={!needsStart}
         practice={practice}
         real={real}
+        {...(onNewPractice === undefined ? {} : { onNewPractice })}
         onWingmanBadgeChange={setWingmanBadgeCount}
         viewer={{
           name: session.name,
@@ -681,6 +717,36 @@ function LiveConnectionNotice() {
   return (
     <div className="kd-reconnect-banner" role="status">
       Reconnecting…
+    </div>
+  );
+}
+
+/** The way out of a practice whose meeting has ended or been unloaded, without a page reload. */
+function PracticeRestartCard({
+  meetingTitle,
+  problem,
+  onNewPractice,
+}: {
+  meetingTitle: string;
+  problem: string;
+  onNewPractice?: () => void;
+}) {
+  return (
+    <div className="kd-join" role="region" aria-label="Practice meeting ended">
+      <div className="kd-card">
+        <div className="kd-live">
+          <span className="kd-dot" />
+          Practice meeting
+        </div>
+        <h1 className="kd-title">Your practice meeting is over</h1>
+        <p className="kd-sub">{meetingTitle}</p>
+        <p className="kd-hint" role="status">
+          {problem}
+        </p>
+        <button type="button" className="kd-go" onClick={onNewPractice} disabled={onNewPractice === undefined}>
+          Start a new practice
+        </button>
+      </div>
     </div>
   );
 }

@@ -396,7 +396,10 @@ export async function handleLivekitToken(call: RouteCall): Promise<void> {
       // even if the person's name was one of its holders.
       const decisionPhase = context.session.restoredWithoutMeeting() ? 'ended' : phase;
       if (context.perVisitorPractice && wantsPractice && decisionPhase === 'ended') {
-        sendJson(response, 409, { error: 'This practice meeting has ended. Start a new practice.' });
+        sendJson(response, 409, {
+          error: 'practice-ended',
+          message: 'This practice meeting has ended. Start a new practice.',
+        });
         return;
       }
       const holders = context.session.holders();

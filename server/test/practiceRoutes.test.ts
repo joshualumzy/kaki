@@ -162,6 +162,25 @@ describe('POST /api/practice', () => {
     expect(next.status).toBe(200);
     const nextId = ((await next.json()) as { meetingId: string }).meetingId;
     expect(nextId).not.toBe(first.meetingId);
+    // The reply replaces the ended practice's cookie with one naming the new meeting.
+    const nextCookie = cookieFrom(next);
+    expect(nextCookie).toContain(`kaki_practice=${nextId}.`);
+    expect(nextCookie).not.toBe(first.cookie);
+    expect(app.registry.findPractice(nextId)).toBeDefined();
+  });
+
+  it('gives a fresh practice when the cookie names a practice that has been unloaded', async () => {
+    const { app, port } = await appWith();
+    const first = await startPractice(port);
+    await app.registry.unload(first.meetingId);
+    expect(app.registry.findPractice(first.meetingId)).toBeUndefined();
+
+    const next = await post(port, '/api/practice', undefined, first.cookie);
+    expect(next.status).toBe(200);
+    const nextId = ((await next.json()) as { meetingId: string }).meetingId;
+    expect(nextId).not.toBe(first.meetingId);
+    expect(cookieFrom(next)).toContain(`kaki_practice=${nextId}.`);
+    expect(app.registry.findPractice(nextId)).toBeDefined();
   });
 
   it('runs a practice instance with the practice pack on its own prefixed room, and never a real one', async () => {

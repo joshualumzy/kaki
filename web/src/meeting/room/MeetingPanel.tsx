@@ -46,6 +46,7 @@ export function MeetingPanel({
   sharedAudience = 'screen',
   practice = false,
   real = false,
+  onNewPractice,
   onWingmanBadgeChange,
 }: {
   viewer: TranscriptViewer;
@@ -57,6 +58,8 @@ export function MeetingPanel({
   practice?: boolean;
   /** A real meeting's End lives in the room bar only, and an empty agenda has nothing to advance. */
   real?: boolean;
+  /** Asks the practice page for a fresh practice meeting once this one is over. */
+  onNewPractice?: () => void;
   /** Reports the quiet Wingman note count so the room can show it on the Wingman button. */
   onWingmanBadgeChange?(count: number): void;
 }) {
@@ -411,16 +414,29 @@ export function MeetingPanel({
                 </button>
               </>
             )}
-            <button
-              type="button"
-              className="kd-chip"
-              onClick={() => {
-                clearAllStoredJoins();
-                window.location.reload();
-              }}
-            >
-              Start new meeting / Switch role
-            </button>
+            {practice && onNewPractice !== undefined ? (
+              <button
+                type="button"
+                className="kd-chip"
+                onClick={() => {
+                  clearAllStoredJoins();
+                  onNewPractice();
+                }}
+              >
+                Start a new practice
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="kd-chip"
+                onClick={() => {
+                  clearAllStoredJoins();
+                  window.location.reload();
+                }}
+              >
+                Start new meeting / Switch role
+              </button>
+            )}
           </div>
           {minutesCopyNote === null ? null : (
             <p className="task-meta" role="status">{minutesCopyNote}</p>

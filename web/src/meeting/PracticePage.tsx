@@ -56,8 +56,11 @@ export function PracticePage() {
     };
   }, [attempt]);
 
-  const retry = useCallback(() => {
+  // Used both to retry a failed start and to replace an ended practice: a fresh POST gets the
+  // visitor a new meeting (and cookie) from the server, then the room mounts it without a reload.
+  const startNewPractice = useCallback(() => {
     request.current = undefined;
+    setResolved(undefined);
     setAttempt((value) => value + 1);
   }, []);
 
@@ -67,7 +70,12 @@ export function PracticePage() {
       <div style={{ display: 'contents' }} data-practice-meeting-id={resolved.meetingId}>
         <MeetingScopeProvider meetingId={resolved.meetingId}>
           <ScenarioProvider view="practice" meetingId={resolved.meetingId}>
-            <Meeting variant="practice" practiceMeetingId={resolved.meetingId} />
+            <Meeting
+              key={resolved.meetingId}
+              variant="practice"
+              practiceMeetingId={resolved.meetingId}
+              onNewPractice={startNewPractice}
+            />
           </ScenarioProvider>
         </MeetingScopeProvider>
       </div>
@@ -89,7 +97,7 @@ export function PracticePage() {
             <p role="alert" className="kd-alert">
               {problem}
             </p>
-            <button type="button" className="kd-go" onClick={retry} disabled={busy}>
+            <button type="button" className="kd-go" onClick={startNewPractice} disabled={busy}>
               Retry
             </button>
           </>

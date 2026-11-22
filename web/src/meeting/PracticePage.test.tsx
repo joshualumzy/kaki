@@ -1,5 +1,5 @@
 /** @vitest-environment jsdom */
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -16,8 +16,15 @@ vi.mock('../kaki', () => ({
 }));
 
 vi.mock('./room/Meeting', () => ({
-  default: ({ practiceMeetingId }: { practiceMeetingId?: string }) => (
-    <div data-testid="practice-room">{practiceMeetingId}</div>
+  default: ({ practiceMeetingId, onNewPractice }: { practiceMeetingId?: string; onNewPractice?: () => void }) => (
+    <div>
+      <div data-testid="practice-room">{practiceMeetingId}</div>
+      {onNewPractice === undefined ? null : (
+        <button type="button" onClick={onNewPractice}>
+          Start a new practice
+        </button>
+      )}
+    </div>
   ),
 }));
 
@@ -52,6 +59,26 @@ describe('PracticePage', () => {
     expect(await screen.findByTestId('practice-room')).toHaveProperty('textContent', 'practice-1');
     expect(mocks.meetingId).toBe('practice-1');
     expect(fetchMock).toHaveBeenCalledWith('/api/practice', { method: 'POST' });
+  });
+
+  it('opens a fresh practice from the room once the old one has ended, without a page load', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(reply(200, { meetingId: 'practice-1' }))
+      .mockResolvedValueOnce(reply(200, { meetingId: 'practice-2' }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<PracticePage />);
+
+    expect(await screen.findByTestId('practice-room')).toHaveProperty('textContent', 'practice-1');
+    fireEvent.click(screen.getByRole('button', { name: 'Start a new practice' }));
+
+    await waitFor(() =>
+      expect(screen.getByTestId('practice-room')).toHaveProperty('textContent', 'practice-2'),
+    );
+    expect(mocks.meetingId).toBe('practice-2');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenLastCalledWith('/api/practice', { method: 'POST' });
   });
 
   it('shows the plain practice-full sentence with a Retry that asks again', async () => {

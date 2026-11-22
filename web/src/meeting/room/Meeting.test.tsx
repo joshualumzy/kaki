@@ -301,6 +301,50 @@ describe('Meeting rejoin', () => {
     expect(window.sessionStorage.getItem(storedKey)).toBeNull();
   });
 
+  it('offers a new practice when a rejoin finds this visitor’s practice has ended', async () => {
+    window.sessionStorage.setItem(
+      'kaki.join.practice.practice-1',
+      JSON.stringify({
+        name: 'Ana',
+        role: 'operations_director',
+        media: { microphone: false, camera: false },
+      }),
+    );
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: false,
+      status: 409,
+      json: async () => ({
+        error: 'practice-ended',
+        message: 'This practice meeting has ended. Start a new practice.',
+      }),
+    })));
+    const onNewPractice = vi.fn();
+
+    render(<Meeting practiceMeetingId="practice-1" onNewPractice={onNewPractice} />);
+
+    const button = await screen.findByRole('button', { name: 'Start a new practice' });
+    expect(screen.queryByRole('region', { name: 'Reconnecting to the meeting' })).toBeNull();
+    expect(window.sessionStorage.getItem('kaki.join.practice.practice-1')).toBeNull();
+    fireEvent.click(button);
+    expect(onNewPractice).toHaveBeenCalledTimes(1);
+  });
+
+  it('offers a new practice when the practice meeting has been unloaded', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: false,
+      status: 404,
+      json: async () => ({ error: 'meeting-not-found' }),
+    })));
+    const onNewPractice = vi.fn();
+
+    render(<Meeting practiceMeetingId="practice-1" onNewPractice={onNewPractice} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Join now' }));
+
+    const button = await screen.findByRole('button', { name: 'Start a new practice' });
+    fireEvent.click(button);
+    expect(onNewPractice).toHaveBeenCalledTimes(1);
+  });
+
   it('lets the person rejoin by hand after the automatic attempt fails', async () => {
     rememberSeat();
     let refuse = true;
