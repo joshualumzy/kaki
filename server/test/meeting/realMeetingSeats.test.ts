@@ -87,7 +87,7 @@ afterEach(async () => {
   for (const app of apps.splice(0)) await app.close();
 });
 
-async function build(): Promise<{ app: KakiApp; base: string; store: AuthStore }> {
+async function build(): Promise<{ app: KakiApp; base: string; store: AuthStore; meetingCode: ReturnType<typeof createMeetingCodeSource> }> {
   const store = createMemoryAuthStore();
   const meetingCode = createMeetingCodeSource();
   const auth = createAuth({ store, meetingCode });
@@ -101,7 +101,7 @@ async function build(): Promise<{ app: KakiApp; base: string; store: AuthStore }
     roomRoster: async () => [],
   });
   apps.push(app);
-  return { app, base: `http://127.0.0.1:${portOf(app)}`, store };
+  return { app, base: `http://127.0.0.1:${portOf(app)}`, store, meetingCode };
 }
 
 describe('real meeting seats', () => {
@@ -308,5 +308,41 @@ describe('real meeting seats', () => {
     expect(practice.roles.map((role) => role.id)).toEqual(['chef', 'cashier']);
     expect(practice.roles.map((role) => role.label)).toEqual(['Chef', 'Cashier']);
     expect(practice.agenda.map((item) => item.title)).toEqual(['Prep']);
+  });
+
+  it('keeps a real meeting’s guest and signed-in seats when the practice meeting’s code changes', async () => {
+    const { app, base, store, meetingCode } = await build();
+    const owner = await signIn(store, 'Ada');
+    const member = await signIn(store, 'Ben');
+    const meeting = await app.registry.create({
+      workspaceId: 'workspace-1',
+      ownerUserId: owner.userId,
+      title: 'Weekly planning',
+    });
+    const joined = await request(base, `/api/meetings/${meeting.id}/join`, {
+      method: 'POST',
+      body: { name: 'Sam' },
+    });
+    const guestCookie = cookiePair(setCookies(joined), 'kaki_session');
+    if (guestCookie === undefined) throw new Error('the guest got no cookie');
+    const guest = await seat(base, meeting.id, guestCookie, 'Sam');
+    const signed = await seat(base, meeting.id, member.cookie, 'Ben');
+    expect(guest.status).toBe(200);
+    expect(signed.status).toBe(200);
+
+    // A practice meeting starting or ending changes the one global code.
+    meetingCode.rotate();
+
+    const guestMe = await request(base, '/api/auth/me', { cookie: guest.cookie });
+    expect(guestMe.status).toBe(200);
+    expect(await guestMe.json()).toMatchObject({ kind: 'participant', role: guest.seat });
+    const guestAgain = await seat(base, meeting.id, guest.cookie, 'Sam');
+    expect(guestAgain.status).toBe(200);
+    expect(guestAgain.seat).toBe(guest.seat);
+
+    const signedMe = await request(base, '/api/auth/me', { cookie: signed.cookie });
+    expect(signedMe.status).toBe(200);
+    expect(await signedMe.json()).toMatchObject({ kind: 'user', user: { id: member.userId } });
+    expect((await request(base, '/api/workspaces', { cookie: signed.cookie })).status).toBe(200);
   });
 });
