@@ -1,6 +1,8 @@
 import { useState, type FormEvent } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { useMe } from '../auth/useMe';
+import { SERVER_TROUBLE } from '../net/plainFailure';
+import { findMeetingByCode } from '../product/api';
 import { Button, Card } from '../ui';
 import './landing.css';
 
@@ -10,20 +12,25 @@ export function LandingPage() {
   const auth = useMe(reloadKey);
   const navigate = useNavigate();
   const [code, setCode] = useState('');
-
-  const ownerDestination =
-    auth.status === 'ready' && auth.me.authEnabled && auth.me.kind !== 'host'
-      ? '/login?return=/setup'
-      : '/setup';
+  const [looking, setLooking] = useState(false);
+  const [codeProblem, setCodeProblem] = useState<string | undefined>(undefined);
 
   const signedIn =
     auth.status === 'ready' && auth.me.authEnabled && auth.me.kind === 'user';
 
-  function enterCode(event: FormEvent<HTMLFormElement>): void {
+  async function enterCode(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     const trimmed = code.trim().toUpperCase();
-    if (trimmed === '') return;
-    navigate(`/join?code=${encodeURIComponent(trimmed)}`);
+    if (trimmed === '' || looking) return;
+    setLooking(true);
+    setCodeProblem(undefined);
+    try {
+      const id = await findMeetingByCode(trimmed);
+      navigate(`/m/${encodeURIComponent(id)}?code=${encodeURIComponent(trimmed)}`);
+    } catch (error) {
+      setCodeProblem(error instanceof Error ? error.message : SERVER_TROUBLE);
+      setLooking(false);
+    }
   }
 
   if (signedIn) return <Navigate to="/new" replace />;
@@ -63,7 +70,7 @@ export function LandingPage() {
           {auth.status === 'loading' ? (
             <p className="landing-hint" role="status">Checking sign-in…</p>
           ) : (
-            <Link className="landing-go" to={ownerDestination}>
+            <Link className="landing-go" to="/signin?next=/new">
               Run a team meeting
             </Link>
           )}
@@ -79,7 +86,7 @@ export function LandingPage() {
         </section>
       </div>
 
-      <form className="landing-invite" onSubmit={enterCode} aria-label="Enter a meeting code">
+      <form className="landing-invite" onSubmit={(event) => void enterCode(event)} aria-label="Enter a meeting code">
         <label htmlFor="invite-code">Got an invite? Enter the meeting code</label>
         <div className="landing-invite-row">
           <input
@@ -93,10 +100,15 @@ export function LandingPage() {
             autoCapitalize="characters"
             autoComplete="off"
           />
-          <button type="submit" className="landing-code-go" disabled={code.trim() === ''}>
+          <button type="submit" className="landing-code-go" disabled={code.trim() === '' || looking}>
             Join
           </button>
         </div>
+        {codeProblem === undefined ? null : (
+          <p className="connection-banner" role="alert">
+            {codeProblem}
+          </p>
+        )}
       </form>
     </main>
   );

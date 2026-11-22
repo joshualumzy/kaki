@@ -7,9 +7,11 @@ import { LandingPage } from './LandingPage';
 
 const mocks = vi.hoisted(() => ({
   state: { status: 'ready', me: { authEnabled: false } } as MeState,
+  find: vi.fn(),
 }));
 
 vi.mock('../auth/useMe', () => ({ useMe: () => mocks.state }));
+vi.mock('../product/api', () => ({ findMeetingByCode: mocks.find }));
 
 function LocationProbe() {
   const location = useLocation();
@@ -21,7 +23,7 @@ function renderPage(): void {
     <MemoryRouter initialEntries={['/']}>
       <Routes>
         <Route path="/" element={<LandingPage />} />
-        <Route path="/join" element={<LocationProbe />} />
+        <Route path="/m/:id" element={<LocationProbe />} />
       </Routes>
     </MemoryRouter>,
   );
@@ -33,16 +35,11 @@ afterEach(() => {
 });
 
 describe('LandingPage', () => {
-  it('sends the owner to setup when sign-in is off', () => {
-    renderPage();
-    expect(screen.getByRole('link', { name: 'Run a team meeting' }).getAttribute('href')).toBe('/setup');
-  });
-
-  it('sends a signed-out visitor through sign-in, back to setup', () => {
+  it('sends a signed-out visitor through Google sign-in, then to a new meeting', () => {
     mocks.state = { status: 'ready', me: { authEnabled: true, kind: null } };
     renderPage();
     expect(screen.getByRole('link', { name: 'Run a team meeting' }).getAttribute('href')).toBe(
-      '/login?return=/setup',
+      '/signin?next=/new',
     );
   });
 
@@ -58,13 +55,25 @@ describe('LandingPage', () => {
     expect(input.placeholder).toHaveLength(6);
   });
 
-  it('takes an invite code to the participant join page', () => {
+  it('takes an invite code to that meeting\'s join page', async () => {
+    mocks.find.mockResolvedValue('mtg-1');
     renderPage();
     fireEvent.change(screen.getByLabelText('Got an invite? Enter the meeting code'), {
       target: { value: 'k7qx' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Join' }));
-    expect(screen.getByTestId('location').textContent).toBe('/join?code=K7QX');
+    expect((await screen.findByTestId('location')).textContent).toBe('/m/mtg-1?code=K7QX');
+    expect(mocks.find).toHaveBeenCalledWith('K7QX');
+  });
+
+  it('says plainly when no meeting has that code', async () => {
+    mocks.find.mockRejectedValue(new Error('We couldn\'t find a meeting with that code.'));
+    renderPage();
+    fireEvent.change(screen.getByLabelText('Got an invite? Enter the meeting code'), {
+      target: { value: 'zzzzzz' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Join' }));
+    expect((await screen.findByRole('alert')).textContent).toContain("couldn't find a meeting");
   });
 
   it('shows a plain sign-in error with a retry, never a bare spinner', () => {

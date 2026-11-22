@@ -92,6 +92,8 @@ export interface MeetingInstance {
   lastActivityAt(): number;
   /** How many people are connected right now. */
   connectedPeople(): number;
+  /** The code people type to join this meeting right now. */
+  meetingCode(): string;
   /** Stop modules, close the hub and room poll, and save the meeting. */
   dispose(): Promise<void>;
 }
@@ -1898,6 +1900,7 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
     },
     lastActivityAt: () => lastActivity,
     connectedPeople: () => people,
+    meetingCode: () => meetingCode.value,
     async dispose() {
       if (disposed) return;
       disposed = true;

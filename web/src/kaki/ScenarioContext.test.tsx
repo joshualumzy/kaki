@@ -113,7 +113,7 @@ describe('ScenarioProvider', () => {
     expect(screen.getByText('Could not load the scenario')).toBeTruthy();
     expect(screen.getByRole('alert').textContent).toBe("That didn't work. Try again.");
     expect(screen.getByRole('button', { name: 'Try again' })).toBeTruthy();
-    expect(screen.getByRole('link', { name: 'Go to setup' }).getAttribute('href')).toBe('/setup');
+    expect(screen.getByRole('link', { name: 'Go to Kaki' }).getAttribute('href')).toBe('/');
 
     await advance(10_000);
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -166,7 +166,9 @@ describe('ScenarioProvider', () => {
     );
     await flush();
 
-    expect(screen.getByText('Could not load the scenario')).toBeTruthy();
+    expect(screen.getByText("Couldn't open the meeting")).toBeTruthy();
+    expect(screen.queryByText('Could not load the scenario')).toBeNull();
+    expect(screen.getByRole('link', { name: 'Go to Kaki' }).getAttribute('href')).toBe('/');
     expect(screen.getByRole('alert').textContent).toBe(
       'Kaki is running as many meetings as it can right now. Try again in a few minutes.',
     );

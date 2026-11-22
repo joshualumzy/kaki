@@ -15,7 +15,7 @@ import type { MeetingCodeSource } from '../meeting/meetingCode';
 import type { RejoinGuard } from '../meeting/rejoin';
 import type { MeetingSession } from '../meeting/session';
 import type { TaskStore } from '../meeting/tasks';
-import type { MeetingStore } from '../meeting/registry';
+import type { MeetingRegistry, MeetingStore } from '../meeting/registry';
 import type { RoomRoster, SeatReservations } from '../services/livekit';
 import type { LlmClient } from '../services/llm';
 import type {
@@ -63,6 +63,8 @@ export interface RequestContext {
   }) => Promise<void>;
   /** Guest-join attempts per client address, owned by the app. */
   guestJoinAttempts?: AttemptLimiter;
+  /** The meeting registry, for the server-wide lookup of a meeting by its code. */
+  registry?: Pick<MeetingRegistry, 'findByCode'>;
   /**
    * The meeting a session must belong to, when this is not the legacy meeting. A phone session
    * for meeting A resolves to nobody on meeting B's routes.

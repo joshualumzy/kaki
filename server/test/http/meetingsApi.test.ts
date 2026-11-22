@@ -317,4 +317,27 @@ describe('meetings API', () => {
       })).status,
     ).toBe(400);
   });
+
+  it('finds an open meeting by its code, and answers 404 plainly for a wrong or ended one', async () => {
+    const { base, store, meetings } = await buildApp();
+    const ada = await signIn(store, 'Ada');
+    const team = await store.createWorkspace({ name: 'Kitchen team', createdBy: ada.user.id });
+    const meeting = await createMeeting(base, ada.cookie, team.workspace.id, 'Weekly planning');
+
+    const instance = await apps[apps.length - 1]!.registry.get(meeting.id);
+    const code = instance!.meetingCode();
+
+    const found = await request(base, `/api/meetings/by-code/${code.toLowerCase()}`);
+    expect(found.status).toBe(200);
+    expect(await found.json()).toEqual({ id: meeting.id });
+
+    const wrong = await request(base, '/api/meetings/by-code/NOPE22');
+    expect(wrong.status).toBe(404);
+    expect(((await wrong.json()) as { error: string }).error).toBe(
+      "We couldn't find a meeting with that code. Check it, or open the invite link.",
+    );
+
+    await meetings.markEnded?.(meeting.id, new Date().toISOString());
+    expect((await request(base, `/api/meetings/by-code/${code}`)).status).toBe(404);
+  });
 });

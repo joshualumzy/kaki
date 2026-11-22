@@ -221,14 +221,13 @@ export function ScenarioProvider({
   if (state.status === 'error') {
     return (
       <main className="page">
-        <Card title="Could not load the scenario">
+        <Card title={meetingId === undefined ? 'Could not load the scenario' : "Couldn't open the meeting"}>
           <p className="connection-banner" role="alert">
             {state.message}
           </p>
           <div className="setup-tool-actions">
             <Button onClick={start}>Try again</Button>
-            {/* A signed-in owner can always fix the plan from setup, even when the meeting scenario is unreadable. */}
-            <a href="/setup">Go to setup</a>
+            <a href="/">Go to Kaki</a>
           </div>
         </Card>
       </main>

@@ -38,7 +38,7 @@ import { handleAuthRoutes } from './http/routes/auth';
 import { handleIdle } from './http/routes/idle';
 import { handleHealth } from './http/routes/meeting';
 import { handleAgendaFromCalendar, handleTellKaki } from './http/routes/agenda';
-import { handleCreateMeeting, handleMeetingInfo, handleMeetingJoin } from './http/routes/meetings';
+import { handleCreateMeeting, handleMeetingByCode, handleMeetingInfo, handleMeetingJoin } from './http/routes/meetings';
 import { handleWorkspaces } from './http/routes/workspaces';
 import { createMeetingInstance, type MeetingInstance } from './meeting/instance';
 import {
@@ -118,6 +118,8 @@ export interface CreateAppOptions {
   persistence?: MeetingPersistence;
   /** The saved state of any other meeting, loaded when that meeting first opens. */
   persistenceFor?: (id: string) => Promise<MeetingPersistence | undefined>;
+  /** Finds the meeting whose saved state holds a code; absent means only loaded meetings can be found by code. */
+  findSavedIdByCode?: (code: string) => Promise<string | undefined>;
   /** The meetings table; absent uses an in-memory store (tests, and a database-less server). */
   meetings?: MeetingStore;
   /** The model server-wide helpers use; defaults to the one built from the environment. */
@@ -205,6 +207,7 @@ function buildServerRouteTable({ auth }: { auth: Auth | undefined }): RoutedRout
     { method: 'POST', path: '/api/meetings', access: 'user', handle: handleCreateMeeting },
     { method: 'POST', path: '/api/tell-kaki', access: 'user', handle: handleTellKaki },
     { method: 'POST', path: '/api/agenda/from-calendar', access: 'user', handle: handleAgendaFromCalendar },
+    { method: 'GET', path: '/api/meetings/by-code/:code', access: 'public', handle: handleMeetingByCode },
     { method: 'GET', path: '/api/meetings/:id/info', access: 'public', handle: handleMeetingInfo },
     { method: 'POST', path: '/api/meetings/:id/join', access: 'public', handle: handleMeetingJoin },
   );
@@ -371,6 +374,7 @@ export async function createApp({
   meetingPause,
   persistence,
   persistenceFor,
+  findSavedIdByCode,
   meetings = createMemoryMeetingStore(),
   llm: llmOption,
   meetingModules,
@@ -555,6 +559,7 @@ export async function createApp({
     store: meetings,
     buildInstance: buildRowInstance,
     ...(persistenceFor === undefined ? {} : { persistenceFor }),
+    ...(findSavedIdByCode === undefined ? {} : { findSavedIdByCode }),
     ...(maxOpenMeetings === undefined ? {} : { maxOpen: maxOpenMeetings }),
     ...(meetingUnloadMs === undefined ? {} : { unloadMs: meetingUnloadMs }),
     ...(meetingSweepMs === undefined ? {} : { sweepMs: meetingSweepMs }),
@@ -576,6 +581,7 @@ export async function createApp({
     toolSource,
     indexWorkspaceTool,
     guestJoinAttempts,
+    registry,
     serviceToken,
     routes: serverRoutes,
     idle,

@@ -438,6 +438,14 @@ export async function getMeetingInfo(id: string): Promise<MeetingInfo> {
   };
 }
 
+/** The id of the open or scheduled meeting this code belongs to; the server's plain sentence when none does. */
+export async function findMeetingByCode(code: string): Promise<string> {
+  const response = await request(`/api/meetings/by-code/${encodeURIComponent(code)}`, {});
+  const body = await readJson(response);
+  if (typeof body?.id !== 'string') throw new ProductApiError(SERVER_TROUBLE, 502);
+  return body.id;
+}
+
 export async function joinMeeting(id: string, name?: string): Promise<{ name: string }> {
   const response = await request(
     `/api/meetings/${encodeURIComponent(id)}/join`,
