@@ -269,6 +269,15 @@ export function MeetingPanel({
     [visibleTasks, minutesTask],
   );
 
+  // A real meeting waiting for its owner says so on the stage overlay alone.
+  const emptyStateText = real
+    ? meetingState?.waitingForOwner === true
+      ? ''
+      : 'Nothing has been said yet. The notes begin with the first thing said.'
+    : started
+      ? `🎙️ ${facilitatorName} (Host) is opening the meeting — listen in, Kaki will cue you when it’s your turn.`
+      : 'The meeting has not started yet. The agenda clock begins with the first thing said.';
+
   return (
     <div className="page kd-host kd-meeting-panel">
       {!connected && <p className="connection-banner">Reconnecting…</p>}
@@ -420,15 +429,7 @@ export function MeetingPanel({
       {record === undefined ? (
         <>
           {isHost && <HostCueCard scenario={scenario} agendaIndex={0} started={false} canAdvance={canControlMeeting} />}
-          <p className="empty-state">
-            {real
-              ? meetingState?.waitingForOwner === true
-                ? `Waiting for ${meetingState.ownerName?.trim() || 'the owner'} to start.`
-                : 'Nothing has been said yet. The notes begin with the first thing said.'
-              : started
-              ? `🎙️ ${facilitatorName} (Host) is opening the meeting — listen in, Kaki will cue you when it’s your turn.`
-              : 'The meeting has not started yet. The agenda clock begins with the first thing said.'}
-          </p>
+          {emptyStateText !== '' && <p className="empty-state">{emptyStateText}</p>}
         </>
       ) : (
         <>

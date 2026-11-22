@@ -17,7 +17,7 @@ export function HostBrief({ scenario, practice }: { scenario: Scenario; practice
               {scenario.attendees.map((attendee) => {
                 const label = roleLabel(scenario, attendee.role);
                 return (
-                  <li key={attendee.name}>
+                  <li key={attendee.role}>
                     {attendee.name}
                     {label.trim().toLowerCase() === attendee.name.trim().toLowerCase() ? '' : ` · ${label}`}
                   </li>

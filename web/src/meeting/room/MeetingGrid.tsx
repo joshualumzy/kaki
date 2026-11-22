@@ -72,8 +72,8 @@ export function MeetingGrid({
   const participants = useParticipants().filter((participant) => !isKakiListener(participant.identity));
   // A real meeting lists everyone the server seated, even before their LiveKit connection arrives.
   const pendingPeople = useMemo(
-    () => (real ? peopleNotInRoom(meetingState?.participants ?? [], participants) : []),
-    [real, meetingState?.participants, participants],
+    () => (real && meetingState?.phase !== 'ended' ? peopleNotInRoom(meetingState?.participants ?? [], participants) : []),
+    [real, meetingState?.phase, meetingState?.participants, participants],
   );
   const tracks = visibleStageTracks(
     useTracks(
