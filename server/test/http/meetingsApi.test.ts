@@ -402,7 +402,7 @@ describe('meetings API', () => {
     ).toBe(403);
   });
 
-  it('caps how many real meetings one owner keeps open at once, and frees a slot when one ends', async () => {
+  it('caps how many real meetings one owner keeps open at once, and frees a slot when one is unloaded', async () => {
     const { base, store } = await buildApp();
     const ada = await signIn(store, 'Ada');
     const team = await store.createWorkspace({ name: 'Team', createdBy: ada.user.id });

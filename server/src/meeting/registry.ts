@@ -68,6 +68,11 @@ export interface MeetingRegistry {
   findByCode(code: string): Promise<string | undefined>;
   /** Save and dispose one meeting; its row and saved state stay. */
   unload(id: string): Promise<void>;
+  /**
+   * A loaded meeting has ended: keep its instance for the room and minutes people may still be
+   * using, but stop counting it against its owner's open-meeting cap.
+   */
+  noteEnded(id: string): void;
   /** Every open meeting, for a runner connecting (or reconnecting) to the control channel. */
   openMeetings(): OpenMeeting[];
   close(): Promise<void>;
@@ -136,7 +141,11 @@ export function createMeetingRegistry(deps: MeetingRegistryDeps): MeetingRegistr
   const now = deps.now ?? Date.now;
   const log = deps.log ?? ((message: string) => console.log(message));
   const loaded = new Map<string, MeetingInstance>();
-  /** The owner of each loaded real meeting, so the per-owner cap counts instances, not rows. */
+  /**
+   * The owner of each loaded real meeting that still holds an open slot. An ended meeting keeps
+   * its instance (for its room and minutes) but is removed here, so it never counts against the
+   * per-owner cap; loading an already-ended one never adds it.
+   */
   const owners = new Map<string, string>();
   /** Loads in flight per owner, so two simultaneous opens cannot both slip under the cap. */
   const loadingOwners = new Map<string, number>();
@@ -211,9 +220,12 @@ export function createMeetingRegistry(deps: MeetingRegistryDeps): MeetingRegistr
       throw new MeetingBusyError();
     }
     const ownerUserId = row.ownerUserId;
-    if (ownerUserId !== null) {
+    // An ended meeting can still be opened for its room and minutes, but it holds no open slot:
+    // viewing it never takes one, and ending it frees the owner's.
+    const slotOwner = ownerUserId !== null && row.status !== 'ended' ? ownerUserId : undefined;
+    if (slotOwner !== undefined) {
       const alreadyOpen =
-        openForOwner(ownerUserId) + (loadingOwners.get(ownerUserId) ?? 0);
+        openForOwner(slotOwner) + (loadingOwners.get(slotOwner) ?? 0);
       if (alreadyOpen >= maxOpenPerUser) {
         log(
           `kaki meetings: refusing to open ${id}: its owner already has ${alreadyOpen} meetings open`,
@@ -222,22 +234,22 @@ export function createMeetingRegistry(deps: MeetingRegistryDeps): MeetingRegistr
           `You already have ${alreadyOpen} meeting${alreadyOpen === 1 ? '' : 's'} open. End one to start another.`,
         );
       }
-      loadingOwners.set(ownerUserId, (loadingOwners.get(ownerUserId) ?? 0) + 1);
+      loadingOwners.set(slotOwner, (loadingOwners.get(slotOwner) ?? 0) + 1);
     }
     try {
       const persistence = await deps.persistenceFor?.(id);
       if (persistence !== undefined) persistences.set(id, persistence);
       const instance = await deps.buildInstance(row, persistence);
       loaded.set(id, instance);
-      if (ownerUserId !== null) owners.set(id, ownerUserId);
+      if (slotOwner !== undefined) owners.set(id, slotOwner);
       deps.onOpened?.(openMeeting(instance));
       deps.onWorkspaceOpened?.(instance.workspaceId);
       return instance;
     } finally {
-      if (ownerUserId !== null) {
-        const next = (loadingOwners.get(ownerUserId) ?? 1) - 1;
-        if (next <= 0) loadingOwners.delete(ownerUserId);
-        else loadingOwners.set(ownerUserId, next);
+      if (slotOwner !== undefined) {
+        const next = (loadingOwners.get(slotOwner) ?? 1) - 1;
+        if (next <= 0) loadingOwners.delete(slotOwner);
+        else loadingOwners.set(slotOwner, next);
       }
     }
   }
@@ -314,6 +326,10 @@ export function createMeetingRegistry(deps: MeetingRegistryDeps): MeetingRegistr
       const instance = loaded.get(id);
       if (instance === undefined) return;
       await closeInstance(instance);
+    },
+
+    noteEnded(id) {
+      owners.delete(id);
     },
 
     openMeetings() {

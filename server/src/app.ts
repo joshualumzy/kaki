@@ -561,6 +561,9 @@ export async function createApp({
       ...(owner === undefined ? {} : { ownerName: owner.name ?? owner.email }),
       runnerPresence: runnerControl.presence,
       onEnded: async (endedAt: string) => {
+        // Ending frees the owner's open slot at once; the instance stays loaded for anyone still
+        // in the room and for its minutes. The row still records that the meeting is over.
+        registry.noteEnded(row.id);
         await meetings.markEnded?.(row.id, endedAt);
       },
       onMinutes: async (archive) => {

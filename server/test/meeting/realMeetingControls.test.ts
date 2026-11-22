@@ -459,6 +459,59 @@ describe('real meeting controls', () => {
     expect(row?.endedAt).not.toBeNull();
   });
 
+  it("frees the owner's open slot as soon as a meeting ends, so the next opens without an unload", async () => {
+    const built = await buildApp();
+    const owner = await signIn(built.store, 'Ada');
+    const first = await createAndOpen(built, owner);
+    await createAndOpen(built, owner); // the owner's second slot
+    const third = await built.app.registry.create({
+      workspaceId: 'workspace-1',
+      ownerUserId: owner.user.id,
+      title: 'Third',
+    });
+
+    // At the cap, the join the web client makes fails first with the plain message its join page
+    // shows. A refused WebSocket upgrade cannot carry a body the browser can read, so it is not
+    // the message the person ever sees.
+    const refused = await request(built.base, `/api/meetings/${third.id}/livekit/token`, {
+      method: 'POST',
+      cookie: owner.cookie,
+      body: { participantName: 'Ada', participantRole: 'chef' },
+    });
+    expect(refused.status).toBe(503);
+    expect(await refused.json()).toEqual({
+      error: 'busy',
+      message: 'You already have 2 meetings open. End one to start another.',
+    });
+
+    // End the first through the real path: start it, then the shared screen sends END.
+    const joined = await join(built, first, owner.cookie, 'Ada', 'chef');
+    expect(joined.response.status).toBe(200);
+    expect(
+      (await request(built.base, `/api/meetings/${first}/meeting/start`, {
+        method: 'POST',
+        cookie: joined.cookie,
+      })).status,
+    ).toBe(200);
+    const screen = await connect(built.port, first, { audience: 'screen' }, joined.cookie);
+    sockets.push(screen);
+    screen.ws.send(JSON.stringify({ type: 'END_MEETING' }));
+    await waitFor(
+      () => screen.messages.find((event) => event.type === 'MEETING_STATE' && event.payload.phase === 'ended'),
+      'the first meeting to end',
+    );
+    await vi.waitFor(async () => {
+      expect((await built.meetings.get(first))?.status).toBe('ended');
+    });
+
+    // Its slot is free at once: no unload, no idle sweep, the third opens straight away.
+    const opened = await request(built.base, `/api/meetings/${third.id}/meeting/open`, {
+      method: 'POST',
+      cookie: joined.cookie,
+    });
+    expect(opened.status).toBe(200);
+  });
+
   it('persists off-the-record spans with the meeting and restores them after a restart', async () => {
     const store = createMemoryAuthStore();
     const meetingCode = createMeetingCodeSource('K7M2Q9');
