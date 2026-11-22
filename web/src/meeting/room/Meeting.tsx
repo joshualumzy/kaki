@@ -642,7 +642,7 @@ export default function Meeting({
   );
 
   return real && realMeetingId !== undefined ? (
-    <RealRoomStateProvider role={session.role} isHost={isHost}>
+    <RealRoomStateProvider role={session.role} isHost={isHost} meetingId={realMeetingId}>
       {roomView}
     </RealRoomStateProvider>
   ) : (

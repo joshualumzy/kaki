@@ -8,6 +8,7 @@ export interface RealRoomValue {
   send(command: KakiCommand): boolean;
   role: string;
   isHost: boolean;
+  meetingId: string;
 }
 
 const RealRoomContext = createContext<RealRoomValue | null>(null);
@@ -16,15 +17,17 @@ const RealRoomContext = createContext<RealRoomValue | null>(null);
 export function RealRoomStateProvider({
   role,
   isHost,
+  meetingId,
   children,
 }: {
   role: string;
   isHost: boolean;
+  meetingId: string;
   children: ReactNode;
 }) {
   const { meetingState, send } = useKaki(isHost ? { kind: 'screen' } : { kind: 'participant' });
   return (
-    <RealRoomContext.Provider value={{ meetingState, send, role, isHost }}>
+    <RealRoomContext.Provider value={{ meetingState, send, role, isHost, meetingId }}>
       {children}
     </RealRoomContext.Provider>
   );

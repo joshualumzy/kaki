@@ -31,6 +31,7 @@ export function RealMeetingBar({
 
   if (meeting === null) return null;
   const { meetingState, send, isHost } = meeting;
+  const ended = meetingState?.phase === 'ended';
   const offTheRecord = meetingState?.offTheRecord !== null && meetingState?.offTheRecord !== undefined;
   const people = meetingState?.participants ?? [];
   const shownNames = distinctDisplayNames(people);
@@ -98,51 +99,55 @@ export function RealMeetingBar({
         </p>
       )}
       <div className="kd-real-bar-row">
-        <button
-          type="button"
-          className="kd-bar-btn"
-          data-on={isMicrophoneEnabled}
-          aria-pressed={isMicrophoneEnabled}
-          onClick={() => void toggleMicrophone()}
-        >
-          {isMicrophoneEnabled ? 'Mic on' : 'Mic off'}
-        </button>
-        <button
-          type="button"
-          className="kd-bar-btn"
-          data-on={isCameraEnabled}
-          aria-pressed={isCameraEnabled}
-          onClick={() => void toggleCamera()}
-        >
-          {isCameraEnabled ? 'Camera on' : 'Camera off'}
-        </button>
-        <button
-          type="button"
-          className="kd-bar-btn"
-          data-on={typeOpen}
-          aria-expanded={typeOpen}
-          onClick={() => setTypeOpen((open) => !open)}
-        >
-          Type
-        </button>
-        <button
-          type="button"
-          className="kd-bar-btn"
-          data-on={offTheRecord}
-          aria-pressed={offTheRecord}
-          onClick={() => send({ type: 'SET_OFF_THE_RECORD', on: !offTheRecord })}
-        >
-          {offTheRecord ? 'Back on the record' : 'Off the record'}
-        </button>
-        <button
-          type="button"
-          className="kd-bar-btn"
-          data-on={inviteOpen}
-          aria-expanded={inviteOpen}
-          onClick={() => setInviteOpen((open) => !open)}
-        >
-          Invite
-        </button>
+        {ended ? null : (
+          <>
+            <button
+              type="button"
+              className="kd-bar-btn"
+              data-on={isMicrophoneEnabled}
+              aria-pressed={isMicrophoneEnabled}
+              onClick={() => void toggleMicrophone()}
+            >
+              {isMicrophoneEnabled ? 'Mic on' : 'Mic off'}
+            </button>
+            <button
+              type="button"
+              className="kd-bar-btn"
+              data-on={isCameraEnabled}
+              aria-pressed={isCameraEnabled}
+              onClick={() => void toggleCamera()}
+            >
+              {isCameraEnabled ? 'Camera on' : 'Camera off'}
+            </button>
+            <button
+              type="button"
+              className="kd-bar-btn"
+              data-on={typeOpen}
+              aria-expanded={typeOpen}
+              onClick={() => setTypeOpen((open) => !open)}
+            >
+              Type
+            </button>
+            <button
+              type="button"
+              className="kd-bar-btn"
+              data-on={offTheRecord}
+              aria-pressed={offTheRecord}
+              onClick={() => send({ type: 'SET_OFF_THE_RECORD', on: !offTheRecord })}
+            >
+              {offTheRecord ? 'Back on the record' : 'Off the record'}
+            </button>
+            <button
+              type="button"
+              className="kd-bar-btn"
+              data-on={inviteOpen}
+              aria-expanded={inviteOpen}
+              onClick={() => setInviteOpen((open) => !open)}
+            >
+              Invite
+            </button>
+          </>
+        )}
         <button
           type="button"
           className="kd-bar-btn"
@@ -156,7 +161,7 @@ export function RealMeetingBar({
         <button type="button" className="kd-bar-btn" data-tone="leave" onClick={leave}>
           Leave
         </button>
-        {isHost ? (
+        {isHost && !ended ? (
           <button
             type="button"
             className="kd-bar-btn"
@@ -168,7 +173,7 @@ export function RealMeetingBar({
         ) : null}
       </div>
 
-      {typeOpen ? (
+      {typeOpen && !ended ? (
         <form
           className="kd-real-type"
           onSubmit={(event) => {
@@ -189,7 +194,7 @@ export function RealMeetingBar({
         </form>
       ) : null}
 
-      {inviteOpen ? (
+      {inviteOpen && !ended ? (
         <div className="kd-real-pop" role="dialog" aria-label="Invite people">
           <p className="kd-label">Invite link</p>
           <p className="kd-real-link">
@@ -233,7 +238,7 @@ export function RealMeetingBar({
         </div>
       ) : null}
 
-      {confirmEnd && isHost ? (
+      {confirmEnd && isHost && !ended ? (
         <div className="kd-real-pop" role="dialog" aria-label="End the meeting for everyone">
           <p className="kd-label">End for everyone?</p>
           <p className="kd-hint">

@@ -27,7 +27,9 @@ vi.mock('./realRoom', () => ({
   }),
 }));
 
-import { RealRoomBanners, RealWaitingOverlay } from './RealRoomOverlays';
+vi.mock('../../product/api', () => ({ getMeetingInfo: vi.fn(async () => ({ historyWorkspaceId: null })) }));
+
+import { RealEndedPanel, RealRoomBanners, RealWaitingOverlay } from './RealRoomOverlays';
 
 beforeEach(() => {
   mocks.send.mockReset();
@@ -108,5 +110,17 @@ describe('real meeting notices', () => {
     mocks.meetingState.waitingForOwner = false;
     const { container } = render(<RealWaitingOverlay meetingId="mtg-1" />);
     expect(container.firstChild).toBeNull();
+  });
+});
+
+describe('ended real meeting', () => {
+  it('thanks a guest and says the owner keeps the notes', async () => {
+    mocks.meetingState.phase = 'ended';
+    render(<RealEndedPanel meetingId="mtg-1" />);
+
+    expect(screen.getByText('Meeting ended')).toBeTruthy();
+    await waitFor(() => expect(screen.getByText(/Thanks for joining. The notes are kept by Ada/)).toBeTruthy());
+    expect(screen.queryByText(/Syncing/)).toBeNull();
+    mocks.meetingState.phase = 'lobby';
   });
 });

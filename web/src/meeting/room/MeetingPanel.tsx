@@ -7,6 +7,8 @@ import {
   type Task,
 } from '@kaki/shared';
 import { useKaki, useScenario } from '../../kaki';
+import { RealEndedPanel } from './RealRoomOverlays';
+import { useRealRoom } from './realRoom';
 import { clearAllStoredJoins } from './rejoinSession';
 import { Avatar, artifactLinkText, resolveArtifactUrl, taskStatusText } from '../../ui';
 import { MeetingRecordCard, isRecord, type RecordEvent } from './MeetingRecordCard';
@@ -58,6 +60,7 @@ export function MeetingPanel({
   onWingmanBadgeChange?(count: number): void;
 }) {
   const scenario = useScenario();
+  const realRoom = useRealRoom();
   /** Practice meetings have AI colleagues; a team meeting is people only, so its briefing must stay silent. */
   const hasAiColleagues = (scenario.npcs ?? []).length > 0;
   // The same socket as the shared screen: it is the one allowed to send host commands, so a host here
@@ -307,7 +310,8 @@ export function MeetingPanel({
           )}
         </div>
       )}
-      {meetingEnded && (
+      {real && <RealEndedPanel meetingId={realRoom?.meetingId ?? ''} />}
+      {meetingEnded && !real && (
         <section id="minutes" className="kd-role kd-topic-card" aria-label="End-of-meeting minutes">
           <p className="kd-role-eyebrow">
             {minutesPublished

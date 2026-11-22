@@ -120,4 +120,16 @@ describe('real meeting bar', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Leave' }));
     expect(mocks.disconnect).toHaveBeenCalled();
   });
+
+  it('offers only People and Leave once the meeting has ended', () => {
+    mocks.isHost = true;
+    mocks.meetingState.phase = 'ended';
+    renderBar();
+
+    expect(screen.getByRole('button', { name: /Leave/ })).toBeTruthy();
+    for (const label of ['Mic', 'Camera', 'Type', 'Off the record', 'Invite', 'End for everyone']) {
+      expect(screen.queryByRole('button', { name: new RegExp(`^${label}`) })).toBeNull();
+    }
+    mocks.meetingState.phase = 'running';
+  });
 });

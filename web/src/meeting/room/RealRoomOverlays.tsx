@@ -1,4 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { getMeetingInfo } from '../../product/api';
 import { fetchWithTimeout } from '../../net/withTimeout';
 import { meetingApiPath } from '../../kaki';
 import { useRealRoom } from './realRoom';
@@ -11,11 +13,6 @@ export function RealRoomBanners() {
   const offTheRecord = meetingState?.offTheRecord ?? null;
   return (
     <div className="kd-real-banners">
-      {meetingState?.phase === 'ended' ? (
-        <div className="kd-real-banner" data-tone="warning" role="status">
-          The meeting has ended. The notes are kept for the owner and can be read from the workspace.
-        </div>
-      ) : null}
       {offTheRecord === null ? null : (
         <div className="kd-real-banner" data-tone="off-record" role="status">
           <span>
@@ -97,5 +94,53 @@ export function RealWaitingOverlay({ meetingId }: { meetingId: string }) {
         )}
       </div>
     </div>
+  );
+}
+
+/** The one panel a real meeting shows after it ends: where the minutes are, or a thank-you. */
+export function RealEndedPanel({ meetingId }: { meetingId: string }) {
+  const room = useRealRoom();
+  if (room?.meetingState?.phase !== 'ended') return null;
+  return <EndedPanelBody meetingId={meetingId} ownerName={room.meetingState.ownerName?.trim() ?? ''} />;
+}
+
+function EndedPanelBody({ meetingId, ownerName }: { meetingId: string; ownerName: string }) {
+  const [workspaceId, setWorkspaceId] = useState<string | null | undefined>(undefined);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    getMeetingInfo(meetingId)
+      .then((info) => {
+        if (!cancelled) setWorkspaceId(info.historyWorkspaceId);
+      })
+      .catch(() => {
+        if (!cancelled) setFailed(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [meetingId]);
+  return (
+    <section className="kd-role kd-topic-card" aria-label="Meeting ended">
+      <p className="kd-role-eyebrow">Meeting ended</p>
+      {typeof workspaceId === 'string' ? (
+        <Link
+          className="artifact-link"
+          to={`/workspaces/${encodeURIComponent(workspaceId)}/meetings/${encodeURIComponent(meetingId)}`}
+        >
+          Read the meeting notes
+        </Link>
+      ) : workspaceId === null ? (
+        <p>
+          Thanks for joining. The notes are kept by {ownerName === '' ? 'the owner' : ownerName}.
+        </p>
+      ) : failed ? (
+        <p role="alert" className="kd-alert">
+          Could not check where the notes are kept. Reload this page to try again.
+        </p>
+      ) : (
+        <p className="kd-hint">Checking where the notes are kept…</p>
+      )}
+    </section>
   );
 }
