@@ -18,8 +18,10 @@ import {
   isKakiListener,
   KAKI_LISTENER_IDENTITY,
   CONTROL_TOPIC,
+  FAKE_STT_TOPIC,
   NPC_STATE_TOPIC,
   parseControlMessage,
+  parseFakeSpeechMessage,
   sameRunnerEpoch,
   SPEECH_STATUS_TOPIC,
   STT_TOPIC,
@@ -165,6 +167,11 @@ interface RunnerOptions {
   sentenceGapMs?: number;
   /** Recognise the person's speech on the server, from their echo-cancelled microphone track; without it, the browser's recognition is used. */
   recognizer?: Recognizer;
+  /**
+   * Dev and test only (`KAKI_FAKE_STT=1`): accept scripted lines on {@link FAKE_STT_TOPIC} as if the recogniser
+   * had heard them. Never on in production; see `fakeSttFromEnv`.
+   */
+  fakeSpeech?: boolean;
   /** Receives each stretch of audio sent to the recogniser, to save it for listening. */
   debugAudio?(samples: Int16Array): void;
   vad?: Partial<VadOptions>;
@@ -1177,6 +1184,64 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     log('the room is back on the record; speech recognition resumes');
   }
 
+  /**
+   * Words the recogniser heard from one person: the conversation hears them, then the app server's one
+   * human-line writer records them in speech order. The dev-only fake recogniser enters here too, so a
+   * scripted line behaves exactly like real speech from this point on.
+   */
+  function acceptRecognisedText(identity: string, text: string, timing: SpeechTiming): void {
+    if (offTheRecord) {
+      speechLines.settle(timing);
+      return;
+    }
+    if (!meetingOpen()) {
+      log(`ignored "${text}": the meeting has not started`);
+      speechLines.settle(timing);
+      return;
+    }
+    log(`recognised "${text}"`);
+    // With the server-side recogniser the browser has no final line to send, so the
+    // accepted words are forwarded through the app server's one human-line writer.
+    const accepted = conversation === undefined ? text : conversation.humanText(text);
+    if (accepted === undefined) {
+      speechLines.settle(timing);
+      noteSpeechSuccess(identity);
+      return;
+    }
+    const seat = humans.get(identity)?.role;
+    const meetingId = meeting.meetingId();
+    if (seat === undefined || meetingId === undefined) {
+      speechLines.settle(timing);
+      noteSpeechSuccess(identity);
+      return;
+    }
+    noteSpeechSuccess(identity);
+    speechLines.settle(timing, {
+      meetingId,
+      participantIdentity: identity,
+      seat,
+      text: accepted,
+      source: 'speech',
+      clientLineId: randomUUID(),
+    });
+  }
+
+  let fakeSpeechCount = 0;
+
+  /** A line from the dev-only fake recogniser, said by `identity` as if their microphone had carried it. */
+  function acceptFakeSpeech(identity: string, text: string): void {
+    if (!humans.has(identity)) {
+      log(`ignored fake speech for ${identity}: nobody with that identity is in the room`);
+      return;
+    }
+    fakeSpeechCount += 1;
+    const now = Date.now();
+    const start = { id: `fake-speech-${fakeSpeechCount}`, startedAt: now };
+    speechLines.begin(start);
+    log(`fake speech from ${identity}`);
+    acceptRecognisedText(identity, text, { ...start, endedAt: now });
+  }
+
   async function listenTo(track: RemoteTrack, identity: string): Promise<void> {
     const key = track.sid ?? identity;
     if (listeningTracks.has(key)) return;
@@ -1208,42 +1273,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
             onSpeechDiscarded: (timing) => {
               speechLines.settle(timing);
             },
-            onText: (text, timing) => {
-              if (offTheRecord) {
-                speechLines.settle(timing);
-                return;
-              }
-              if (!meetingOpen()) {
-                log(`ignored "${text}": the meeting has not started`);
-                speechLines.settle(timing);
-                return;
-              }
-              log(`recognised "${text}"`);
-              // With the server-side recogniser the browser has no final line to send, so the
-              // accepted words are forwarded through the app server's one human-line writer.
-              const accepted = conversation === undefined ? text : conversation.humanText(text);
-              if (accepted === undefined) {
-                speechLines.settle(timing);
-                noteSpeechSuccess(identity);
-                return;
-              }
-              const seat = humans.get(identity)?.role;
-              const meetingId = meeting.meetingId();
-              if (seat === undefined || meetingId === undefined) {
-                speechLines.settle(timing);
-                noteSpeechSuccess(identity);
-                return;
-              }
-              noteSpeechSuccess(identity);
-              speechLines.settle(timing, {
-                meetingId,
-                participantIdentity: identity,
-                seat,
-                text: accepted,
-                source: 'speech',
-                clientLineId: randomUUID(),
-              });
-            },
+            onText: (text, timing) => acceptRecognisedText(identity, text, timing),
           });
     if (recorder !== undefined) recorders.set(identity, recorder);
     const vad: EnergyVad = new EnergyVad(
@@ -1410,6 +1440,23 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     void listenTo(track, participant.identity);
   });
   room.on(RoomEvent.DataReceived, (payload, participant, _kind, topic) => {
+    if (topic === FAKE_STT_TOPIC) {
+      // Only the LiveKit server (an API-key holder) sends without a participant; a browser cannot forge this.
+      if (options.fakeSpeech !== true || participant !== undefined) {
+        log('ignored a fake-speech message: the fake recogniser is off or the sender is a participant');
+        return;
+      }
+      let message: ReturnType<typeof parseFakeSpeechMessage>;
+      try {
+        message = parseFakeSpeechMessage(JSON.parse(new TextDecoder().decode(payload)));
+      } catch {
+        message = undefined;
+      }
+      if (message === undefined) log('ignored a malformed fake-speech message');
+      else if (endedTerminal) log(`ignored fake speech from ${message.identity}: the meeting has ended`);
+      else acceptFakeSpeech(message.identity, message.text);
+      return;
+    }
     if (topic === CONTROL_TOPIC && participant !== undefined && !isKakiListener(participant.identity) && !meeting.castNames().has(participant.identity)) {
       let message: ReturnType<typeof parseControlMessage>;
       try {
