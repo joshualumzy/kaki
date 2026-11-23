@@ -112,8 +112,6 @@ Tasks are still drafted and can be reviewed, including the end-of-meeting minute
 (approved or retried) is refused before anything is sent and marked failed with a clear message, and AI attendees stop
 auto-approving or retrying drafts. Unset it to run for real.
 
-To rehearse with real writes to the local mock tools, run `npm run playtest:live -- --act` on a stack started **without** `KAKI_DRAFT_ONLY`; the robot then accepts and approves its own cards.
-
 ## Tuning
 
 If an AI cuts itself off, raise `NPC_VAD_LEAK_MARGIN` or `NPC_VAD_GUARDED_MIN_LEVEL`. If cutting in feels sluggish, lower

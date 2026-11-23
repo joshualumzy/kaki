@@ -299,12 +299,10 @@ The repository is a TypeScript workspace with three packages: `shared/`, `server
 
 Input is checked on both sides. The product checks the meeting title, agenda and tools before a write, and the setup parser checks a plan before it is used. Commands from a socket are validated against the scenario before the hub accepts them. The action connectors reject a draft that adds details its source does not support.
 
-Web tests sit next to their components. The server, shared and seed tests live in their own test folders (`server/test/`, `shared/test/`, `docker/seed/`), and the playtest helpers are tested in `scripts/`. `npm test` runs the Vitest suite for all of them, including unit tests and integration tests that drive the HTTP and WebSocket API. `npm run typecheck` checks the whole workspace.
+Web tests sit next to their components. The server, shared and seed tests live in their own test folders (`server/test/`, `shared/test/`, `docker/seed/`), and the script helpers are tested in `scripts/`. `npm test` runs the Vitest suite for all of them, including unit tests and integration tests that drive the HTTP and WebSocket API. `npm run typecheck` checks the whole workspace.
 
 Playwright drives the real app in installed Google Chrome:
 
-- `npm run playtest:live` runs one visitor through the practice meeting with the AI colleagues.
-- `npm run playtest:ai` lets a language model play the visitor in one of nine styles, then a second model judges the meeting.
 - The click-through journeys in `scripts/clickthrough/` drive the real product: the sign-in page, a signed-in workspace tool test, a start-now meeting with a guest, off the record, End and the minutes, a scheduled meeting, the sample workspace, the practice page and a phone layout. Each run writes screenshots and a findings report to `.live-logs/clickthrough/`.
 
 `npm run eval:notetaker -- --ami` measures the notetaker on real, unscripted recorded meetings from the AMI Meeting Corpus. It replays each transcript, and a model judge pairs what the notetaker found with the corpus's own summary of follow-up actions and open problems. Two of the six meetings (`--holdout`) were kept out of all tuning, to check that changes hold for meetings the notetaker was not adjusted on. Results from 22 Nov 2026, before and after making the open-question handling general (two runs per meeting, both measured the same day):
@@ -374,7 +372,6 @@ npm run seed:verify       # Run the automated health and content checks against 
 npm run index:knowledge   # Embed and index seeded company records into pgvector
 npm run knowledge:check   # Verify live pgvector search and role-filtered facts
 npm run npc               # Run the AI runner against a local stack
-npm run playtest:live     # One visitor through the practice meeting
 npm run typecheck         # Type-check all workspaces
 npm test                  # Run the full Vitest suite
 ```
@@ -508,7 +505,7 @@ No code was copied from other projects, tutorials or repositories. We wrote the 
 │   └── src/ui/             # Shared buttons, cards, labels and artifact links
 ├── scenarios/kopitiam/     # Nanyang Kopi & Toast scenario, seed data and replay fixtures
 ├── docker/                 # Docker Compose stack and idempotent multi-service seed scripts
-├── scripts/                # Local and cloud launchers, preflight, playtests and click-through journeys
+├── scripts/                # Local and cloud launchers, preflight, dialogue playtest and click-through journeys
 ├── wake/                   # Always-on waking page and its start/status API (Azure Static Web Apps)
 ├── deploy/idle/            # VM idle check that switches the cloud VM off when nobody uses it
 └── docs/                   # Live demo guide, testing guide, screenshots and STePS poster
