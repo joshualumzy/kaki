@@ -160,7 +160,7 @@ In a practice meeting, one person sits with four AI colleagues who speak in thei
 
 ## Front-end features
 
-The web app is one React and Vite application. The product pages are `/signin` (Google sign-in), `/new` (new meeting), `/workspaces/:id` (workspace and tools), `/workspaces/:id/meetings/:meetingId` (meeting history), `/m/:id` (guest join) and `/m/:id/room` (real meeting room) (`web/src/product/`, `web/src/App.tsx`). The practice pages still work: `/practice` open the practice meeting. `/` is the landing page: it leads to Google sign-in and a new meeting, to the practice meeting, or to a real meeting's join page when someone types its meeting code. Any other path redirects to `/`.
+The web app is one React and Vite application. The product pages are `/signin` (Google sign-in), `/new` (new meeting), `/workspaces/:id` (workspace and tools), `/workspaces/:id/meetings/:meetingId` (meeting history), `/m/:id` (guest join) and `/m/:id/room` (real meeting room) (`web/src/product/`, `web/src/App.tsx`). The practice pages still work: `/practice` opens the practice meeting. `/` is the landing page: it leads to Google sign-in and a new meeting, to the practice meeting, or to a real meeting's join page when someone types its meeting code. Any other path redirects to `/`.
 
 The design uses shared colour and type tokens in `web/src/ui/tokens.css` and shared components in `web/src/ui` (`Button`, `Card`, `StatusPill`). The meeting stage takes the most space, private cards sit in the dock beside it, and on a narrow screen the stage stacks above the dock.
 
@@ -172,7 +172,7 @@ Screen map:
 - `/workspaces/:id` lists the workspace's meetings and tools. An admin can connect, test and disconnect tools.
 - `/workspaces/:id/meetings/:meetingId` shows the minutes and to-dos of an ended meeting, with Copy and Download.
 - `/m/:id` is the guest join page, and `/m/:id/room` is the real meeting room.
-- `/practice` open this visitor's own practice meeting. Any other path redirects to `/`.
+- `/practice` opens this visitor's own practice meeting. Any other path redirects to `/`.
 
 ### Plan the meeting (front end)
 
@@ -204,7 +204,7 @@ Screen map:
 
 ### Practise alone
 
-- `/practice` open a meeting where AI colleagues fill the other seats. The visitor takes part by speaking, and the AI stops when interrupted. `web/src/meeting/room/Meeting.tsx`
+- `/practice` opens a meeting where AI colleagues fill the other seats. The visitor takes part by speaking, and the AI stops when interrupted. `web/src/meeting/room/Meeting.tsx`
 
 ## Back-end features
 

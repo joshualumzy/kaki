@@ -417,7 +417,7 @@ export function createTaskStore({
         if (!isTask(task, active())) {
           const id = String((task as unknown as { id?: unknown }).id);
           throw new Error(
-            `Saved task "${id}" does not belong to this scenario. Run \`npm run meeting:reset\` to discard it.`,
+            `Saved task "${id}" does not belong to this scenario. Run \`npm run meeting:reset -- <meetingId>\` to discard it.`,
           );
         }
         const next: Task = wasBeingWorkedOn(task)

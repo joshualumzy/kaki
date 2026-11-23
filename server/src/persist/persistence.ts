@@ -173,7 +173,7 @@ export function createMeetingPersistence({
     } catch (error) {
       log(
         'kaki persist: could not clear the saved meeting; it will be restored on next start. ' +
-          'Run npm run meeting:reset to discard it.',
+          'Run npm run meeting:reset -- <meetingId> to discard it.',
       );
       rejectClear(head, error);
       return;

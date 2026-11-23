@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { itemMode, resolveAgendaPick, shuffleAgendaForRole, codeProblem, normalizeMeetingCode, aiCast, hostRole, seatProblem, humanSeatCapacity, humanSeatCount, parseControlMessage, demoRoomName, humanAttendeeForRole, humanRoles, joinSeatRoles, isHumanParticipant, isKakiListener, KAKI_LISTENER_IDENTITY } from '../src/practice';
+import { itemMode, resolveAgendaPick, shuffleAgendaForRole, codeProblem, normalizeMeetingCode, aiCast, hostRole, seatProblem, humanSeatCapacity, humanSeatCount, demoRoomName, humanAttendeeForRole, humanRoles, joinSeatRoles, isHumanParticipant, isKakiListener, KAKI_LISTENER_IDENTITY } from '../src/practice';
 import type { Scenario } from '../src/scenarioTypes';
 import { testScenario } from './fixtures';
 
@@ -9,9 +9,6 @@ const withAi: Scenario = {
 };
 
 describe('demo meeting helpers', () => {
-  it('refuses the removed decision lock control', () => {
-    expect(parseControlMessage({ kind: 'lock' })).toBeUndefined();
-  });
   it('names the room after the scenario and the meeting identity', () => {
     expect(demoRoomName(testScenario, 'meeting-1')).toBe('kaki-demo-test-kitchen-meeting-1');
   });
@@ -71,38 +68,6 @@ describe('demo meeting helpers', () => {
       roles: testScenario.roles.map((role) => (role.id === 'chef' ? { ...role, facilitator: true } : role)),
     };
     expect(humanRoles(scenario).map((role) => role.id)).toEqual(['cashier']);
-  });
-
-  it('reads only a Start control message from the wire, and refuses the removed ones', () => {
-    expect(parseControlMessage({ kind: 'start' })).toEqual({ kind: 'start' });
-    expect(parseControlMessage({ kind: 'start', requestId: 'req-1', session: 'visitor-1' })).toEqual({
-      kind: 'start',
-      requestId: 'req-1',
-      session: 'visitor-1',
-    });
-    // Only a start with neither field is the legacy message; a partial or malformed pair is refused.
-    expect(parseControlMessage({ kind: 'start', requestId: '' })).toBeUndefined();
-    expect(parseControlMessage({ kind: 'start', session: 'visitor-1' })).toBeUndefined();
-    expect(parseControlMessage({ kind: 'start', requestId: 'req-1' })).toBeUndefined();
-    expect(parseControlMessage({ kind: 'start', requestId: '', session: 'visitor-1' })).toBeUndefined();
-    expect(parseControlMessage({ kind: 'start', requestId: 'req-1', session: '' })).toBeUndefined();
-    expect(parseControlMessage({ kind: 'start', requestId: 1, session: 'visitor-1' })).toBeUndefined();
-    expect(parseControlMessage({ kind: 'start', requestId: 'req-1', session: 1 })).toBeUndefined();
-    expect(parseControlMessage({ kind: 'start', requestId: '   ', session: 'visitor-1' })).toBeUndefined();
-    for (const bad of [
-      null,
-      'start',
-      3,
-      {},
-      { kind: 'text', text: 'hello' },
-      { kind: 'typing' },
-      { kind: 'stop' },
-      { kind: 'resume' },
-      { kind: 'lock' },
-      { kind: 'jump' },
-    ]) {
-      expect(parseControlMessage(bad)).toBeUndefined();
-    }
   });
 
   it('offers the host seat only when the facilitator role has a playable character', () => {

@@ -19,7 +19,6 @@ const JOURNEY = 'k';
 const LIVE_ROUTES = [
   /^\/$/,
   /^\/practice$/,
-  /^\/practice$/,
   /^\/signin$/,
   /^\/new$/,
   /^\/workspaces\/[^/]+$/,

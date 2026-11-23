@@ -25,6 +25,8 @@ interface Race {
   start(): Promise<Response>;
   /** Make the next seat claim wait for this gate, and say when it has reached it. */
   holdClaim(): { reached: Promise<void>; release(): void };
+  /** Hold the second request after it resolves its principal, before it claims a seat. */
+  holdSecondPrincipal(): { reached: Promise<void>; release(): void };
   /** Reset the meeting just after the next seat claim succeeds. */
   resetAfterClaim(): void;
 }
@@ -34,8 +36,21 @@ async function setupRace(): Promise<Race> {
   let gate: Promise<void> | undefined;
   let reachingClaim: (() => void) | undefined;
   let afterClaimReset: (() => void) | undefined;
+  let principals = 0;
+  let principalGate: Promise<void> | undefined;
+  let reachingSecondPrincipal: (() => void) | undefined;
   const auth: Auth = {
     ...baseAuth,
+    async resolvePrincipal(request, meetingId) {
+      const principal = await baseAuth.resolvePrincipal(request, meetingId);
+      principals += 1;
+      if (principals === 2 && principalGate !== undefined) {
+        reachingSecondPrincipal?.();
+        reachingSecondPrincipal = undefined;
+        await principalGate;
+      }
+      return principal;
+    },
     async enterSeat(request, response, role, meetingId) {
       if (gate !== undefined) {
         reachingClaim?.();
@@ -89,6 +104,13 @@ async function setupRace(): Promise<Race> {
       reachingClaim = reached.resolve;
       return { reached: reached.promise, release: wait.resolve };
     },
+    holdSecondPrincipal() {
+      const wait = deferred();
+      const reached = deferred();
+      principalGate = wait.promise;
+      reachingSecondPrincipal = reached.resolve;
+      return { reached: reached.promise, release: wait.resolve };
+    },
     resetAfterClaim() {
       afterClaimReset = () => app.session.reset();
     },
@@ -96,6 +118,24 @@ async function setupRace(): Promise<Race> {
 }
 
 describe('a real meeting joins and starts across a reset', () => {
+  it('lets only one of two simultaneous joins take the same seat', async () => {
+    const race = await setupRace();
+    const claim = race.holdClaim();
+    const principal = race.holdSecondPrincipal();
+
+    const first = race.join();
+    await claim.reached;
+    // Both requests have resolved the same valid session before either seat claim settles.
+    const second = race.join();
+    await principal.reached;
+    principal.release();
+    claim.release();
+
+    const responses = await Promise.all([first, second]);
+    expect(responses.map((response) => response.status).sort()).toEqual([200, 409]);
+    expect(race.app.session.holders()).toHaveLength(1);
+  });
+
   it('refuses an admission whose meeting changed while its seat was being claimed', async () => {
     const race = await setupRace();
     const claim = race.holdClaim();

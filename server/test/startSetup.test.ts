@@ -2035,7 +2035,7 @@ describe('Start applies the validated setup', () => {
     const app = await startBootApp(meetings, persistence);
 
     await expect(app.registry.get(row.id)).rejects.toThrow(
-      /Saved meeting is unreadable \(its clock points at an agenda item that is not saved\)\. Run `npm run meeting:reset` to discard it\./,
+      /Saved meeting is unreadable \(its clock points at an agenda item that is not saved\)\. Run `npm run meeting:reset -- <meetingId>` to discard it\./,
     );
   });
 

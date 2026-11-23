@@ -1,4 +1,4 @@
-import { CONTROL_TOPIC, defaultMeetingSetup, FAKE_STT_TOPIC, KAKI_LISTENER_IDENTITY, meetingScenarioFromSetup, SPEECH_STATUS_TOPIC, STT_TOPIC } from '@kaki/shared';
+import { defaultMeetingSetup, FAKE_STT_TOPIC, KAKI_LISTENER_IDENTITY, meetingScenarioFromSetup, SPEECH_STATUS_TOPIC, STT_TOPIC } from '@kaki/shared';
 import { describe, expect, it, vi } from 'vitest';
 import { loadScenario } from '../../src/core/loadScenario';
 import { openingLine } from '../../src/host/opening';
@@ -482,42 +482,6 @@ describe('server-owned start preparation', () => {
       await runner.markStarted({ meetingId: 'meeting-1' });
       await new Promise((resolve) => setTimeout(resolve, 20));
       expect(transcript.some((line) => line.startsWith('Welcome to'))).toBe(false);
-    } finally {
-      await runner.stop();
-    }
-  });
-
-  it('ignores a browser LiveKit Start and waits for the server', async () => {
-    rooms.length = 0;
-    const scenario = await loadScenario('kopitiam');
-    const transcript: string[] = [];
-    const log: string[] = [];
-    const runner = await startNpcRunner({
-      scenario,
-      livekitUrl: 'ws://offline.invalid',
-      stream: async function* () {},
-      synthesize: async () => new Int16Array(),
-      postTranscript: (_speaker, text) => transcript.push(text),
-      postTranscriptUpdate: () => undefined,
-      log: (line) => log.push(line),
-      responseDelayMs: 0,
-    });
-    try {
-      const participant = { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'operations_director' };
-      rooms[0]!.emit('participantConnected', participant);
-      await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
-
-      rooms[0]!.emit(
-        'dataReceived',
-        new TextEncoder().encode(JSON.stringify({ kind: 'start' })),
-        participant,
-        undefined,
-        CONTROL_TOPIC,
-      );
-      await vi.waitFor(() => expect(log.some((line) => line.includes('ignored a LiveKit Start'))).toBe(true));
-      await new Promise((resolve) => setTimeout(resolve, 20));
-      expect(transcript.some((line) => line.startsWith('Welcome to'))).toBe(false);
-      expect(runner.meetingId()).toBeUndefined();
     } finally {
       await runner.stop();
     }

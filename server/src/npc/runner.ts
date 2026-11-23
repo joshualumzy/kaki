@@ -17,10 +17,8 @@ import {
   humanAttendeeForRole,
   isKakiListener,
   KAKI_LISTENER_IDENTITY,
-  CONTROL_TOPIC,
   FAKE_STT_TOPIC,
   NPC_STATE_TOPIC,
-  parseControlMessage,
   parseFakeSpeechMessage,
   sameRunnerEpoch,
   SPEECH_STATUS_TOPIC,
@@ -1233,24 +1231,6 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
       if (message === undefined) log('ignored a malformed fake-speech message');
       else if (endedTerminal) log(`ignored fake speech from ${message.identity}: the meeting has ended`);
       else acceptFakeSpeech(message.identity, message.text);
-      return;
-    }
-    if (topic === CONTROL_TOPIC && participant !== undefined && !isKakiListener(participant.identity) && !meeting.castNames().has(participant.identity)) {
-      let message: ReturnType<typeof parseControlMessage>;
-      try {
-        message = parseControlMessage(JSON.parse(new TextDecoder().decode(payload)));
-      } catch {
-        message = undefined;
-      }
-      if (message === undefined) {
-        log('ignored a control message: text, typing, Stop and Resume are no longer accepted');
-      } else if (endedTerminal) {
-        log(`ignored ${message.kind} from ${participant.identity}: the meeting has ended`);
-      } else {
-        // The server owns Start now: it prepares the cast, commits the meeting and announces
-        // MEETING_STARTED. A browser Start that still arrives here must not open anything.
-        log(`ignored a LiveKit Start from ${participant.identity}: the meeting starts on the server`);
-      }
       return;
     }
     if (topic !== STT_TOPIC || participant === undefined || isKakiListener(participant.identity) || meeting.castNames().has(participant.identity)) return;

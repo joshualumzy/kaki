@@ -25,7 +25,7 @@ first-chunk and between-chunk deadlines; `KAKI_LLM_TIMEOUT_MS` stays the whole-r
 
 Besides the practice demo, the same server runs the real product: Google sign-in, personal workspaces, the read-only sample
 workspace Nanyang Kopi, and real meetings with any number of people and no AI colleagues. Guests join by invite link without an
-account. Real meetings are opened from the workspace page; `/practice` work as above, with no sign-in.
+account. Real meetings are opened from the workspace page; `/practice` works as above, with no sign-in.
 
 Sign-in mode is on when `KAKI_AUTH=1`. Set these keys in `.env` (names only here; see `.env.example`):
 
@@ -74,7 +74,7 @@ Sign-in mode refuses the dev routes. Approved posts are signed "Posted by Kaki f
 | LiveKit wiring, who is in the room, the start gate | `server/src/npc/runner.ts`, `main.ts` |
 | Join form, start prompt, stage, captions, meeting controls | `web/src/meeting/room/` |
 
-Data topics (`shared/src/practice.ts`): `kaki.npc-state` (what the AI attendees are doing) and `kaki.control` (an old Start message the runner logs and ignores). Start is a server call.
+Data topics (`shared/src/practice.ts`): `kaki.npc-state` (what the AI attendees are doing). Start is a server call.
 
 ## How interruption works
 

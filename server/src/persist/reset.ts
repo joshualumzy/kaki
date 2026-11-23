@@ -1,5 +1,5 @@
 // Discard the saved meeting so the server starts with a clean screen next time.
-// Run with: npm run meeting:reset
+// Run with: npm run meeting:reset -- <meetingId>
 import '../env';
 import { Pool } from 'pg';
 import { ensureMeetingStateSchema } from './postgres';
@@ -14,7 +14,7 @@ const connectionString = process.env.POSTGRES_URL?.trim();
 if (connectionString === undefined || connectionString === '') {
   throw new Error(
     'kaki persist: POSTGRES_URL is not set. Set it in the shell, in the repo .env, or in docker/.env ' +
-      '(npm run seed writes it there), then run npm run meeting:reset.',
+      '(npm run seed writes it there), then run npm run meeting:reset -- <meetingId>.',
   );
 }
 

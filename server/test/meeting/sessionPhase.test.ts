@@ -174,6 +174,32 @@ describe('Start lifecycle', () => {
     expect(await getScenario(app)).toEqual(before);
   });
 
+  it('refuses a token join while the meeting is starting', async () => {
+    const app = await createPracticeTestApp({
+      speechRecognition: 'browser',
+      scenario: freshScenario(),
+      roomRoster: async () => [],
+      rejoinGraceMs: 60_000,
+      rejoinPollMs: 60_000,
+    });
+    apps.push(app);
+    const service = await connectHeldService(app);
+    expect((await joinPractice(app, 'Guest', 'chef')).status).toBe(200);
+
+    const starting = startPractice(app);
+    await waitFor(() => (service.prepares.length === 1 ? true : undefined), 'the runner prepare');
+
+    const refused = await joinPractice(app, 'Late', 'cashier');
+    expect(refused.status).toBe(409);
+    expect(await refused.json()).toEqual({
+      error: 'The meeting is starting; try again in a moment.',
+      retryable: true,
+    });
+
+    service.reply('ready');
+    expect((await starting).status).toBe(200);
+  });
+
   it('blames the reset, not the runner, when the meeting resets while Start is in flight', async () => {
     const app = await createPracticeTestApp({
       speechRecognition: 'browser',

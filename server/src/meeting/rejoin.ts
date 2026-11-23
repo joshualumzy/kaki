@@ -69,26 +69,6 @@ export function admission({ phase, holders, present, name, seat, graceActive, ab
   return isHolder(holders, name, seat) ? 'resume' : 'reset';
 }
 
-/**
- * How long the meeting still keeps this seat for a holder who left, or undefined when the seat is
- * not held through the rejoin grace (nobody left it, or the grace is not open).
- */
-export function departedSeatGraceMs({
-  seat,
-  holders,
-  graceActive,
-  graceMs,
-}: {
-  seat: string;
-  holders: readonly SeatHolder[];
-  graceActive: boolean;
-  graceMs: number;
-}): number | undefined {
-  if (!graceActive) return undefined;
-  const wanted = seat.trim().toLowerCase();
-  return holders.some((holder) => holder.seat.trim().toLowerCase() === wanted) ? graceMs : undefined;
-}
-
 interface RejoinGuardOptions {
   /** How long the meeting survives an empty room; 0 resets as soon as someone joins an empty room. */
   graceMs: number;

@@ -465,7 +465,7 @@ describe('meeting persistence across a restart', () => {
 
     expect(() => assertCompatibleSavedMeeting(saved)).toThrow(
       `Saved meeting is from an older format (v${MEETING_STATE_SCHEMA_VERSION - 1}, need v${MEETING_STATE_SCHEMA_VERSION}). ` +
-        'Run `npm run meeting:reset` to discard it.',
+        'Run `npm run meeting:reset -- <meetingId>` to discard it.',
     );
   });
 
@@ -555,7 +555,7 @@ describe('meeting persistence across a restart', () => {
     const row = await meetings.create({ workspaceId: 'workspace-1', ownerUserId: 'test-owner', title: 'Test meeting' });
     const app = await bootApp(persistence, { meetings });
     await expect(app.registry.get(row.id)).rejects.toThrow(
-      /Saved meeting is unreadable \(.*\)\. Run `npm run meeting:reset` to discard it\./,
+      /Saved meeting is unreadable \(.*\)\. Run `npm run meeting:reset -- <meetingId>` to discard it\./,
     );
     await persistence.close();
   });
@@ -745,7 +745,7 @@ describe('meeting persistence across a restart', () => {
     const row = await meetings.create({ workspaceId: 'workspace-1', ownerUserId: 'test-owner', title: 'Test meeting' });
     const app = await bootApp(persistence, { meetings });
     await expect(app.registry.get(row.id)).rejects.toThrow(
-      /its draft setup is invalid at agenda\[0\]\.minutes: .*Run `npm run meeting:reset` to discard it\./,
+      /its draft setup is invalid at agenda\[0\]\.minutes: .*Run `npm run meeting:reset -- <meetingId>` to discard it\./,
     );
     await persistence.close();
   });

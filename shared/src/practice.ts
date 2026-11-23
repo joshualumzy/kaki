@@ -9,9 +9,6 @@ export const NPC_STATE_TOPIC = 'kaki.npc-state';
 /** LiveKit data topic on which the runner reports each person's microphone and recognition state. */
 export const SPEECH_STATUS_TOPIC = 'kaki.speech-status';
 
-/** LiveKit data topic for the browser's old control messages; only Start remains. */
-export const CONTROL_TOPIC = 'kaki.control';
-
 /**
  * LiveKit data topic for the dev-only fake speech recogniser (`KAKI_FAKE_STT=1`). Only the LiveKit
  * server can send on it (a browser's message has a sender and is refused): scripted runs use it to
@@ -37,36 +34,6 @@ export function parseFakeSpeechMessage(raw: unknown): FakeSpeechMessage | undefi
 
 /** Longest line the dev-only fake recogniser accepts. */
 export const MAX_FAKE_SPEECH_LENGTH = 500;
-
-/**
- * What a browser may still send on {@link CONTROL_TOPIC}. Text, typing, Stop and Resume are gone:
- * speaking is the only way into a meeting. Start is kept only so the runner can log and ignore it,
- * because the server owns Start.
- */
-export type ControlMessage = {
-  /**
-   * The person has read their briefing and starts the meeting: until then the AI attendees stay silent.
-   * `requestId` and `session` let a retry be acknowledged once and only for the visitor who asked.
-   */
-  kind: 'start';
-  requestId?: string;
-  session?: string;
-};
-
-/** A control message from the wire, or `undefined` when it is not a valid one. */
-export function parseControlMessage(raw: unknown): ControlMessage | undefined {
-  if (typeof raw !== 'object' || raw === null) return undefined;
-  const message = raw as { kind?: unknown; requestId?: unknown; session?: unknown };
-  if (message.kind !== 'start') return undefined;
-  if (message.requestId === undefined && message.session === undefined) {
-    return { kind: 'start' };
-  }
-  if (typeof message.requestId === 'string' && message.requestId.trim().length > 0 &&
-      typeof message.session === 'string' && message.session.trim().length > 0) {
-    return { kind: 'start', requestId: message.requestId, session: message.session };
-  }
-  return undefined;
-}
 
 /** What the AI attendees are doing, sent on {@link NPC_STATE_TOPIC}. */
 export type NpcStateMessage =
@@ -286,24 +253,6 @@ export function seatProblem(
     return `The meeting is full (${cap} ${cap === 1 ? 'person' : 'people'} at most).${why} Try again when someone leaves.`;
   }
   return undefined;
-}
-
-/** How long a seat kept for a departed person stays held, in words the join form can show. */
-export function rejoinGraceDuration(graceMs: number): string {
-  if (graceMs < 60_000) {
-    const seconds = Math.max(1, Math.round(graceMs / 1_000));
-    return `${seconds} second${seconds === 1 ? '' : 's'}`;
-  }
-  const minutes = Math.max(1, Math.round(graceMs / 60_000));
-  return `${minutes} minute${minutes === 1 ? '' : 's'}`;
-}
-
-/** Why a seat is not free although its holder has left: the rejoin grace keeps it for them. */
-export function seatKeptForDepartedMessage(graceMs: number): string {
-  return (
-    `That seat is being kept for someone who just left. ` +
-    `It frees within about ${rejoinGraceDuration(graceMs)}, or pick another seat.`
-  );
 }
 
 /** Case, spaces and dashes do not matter when a code is typed. */
