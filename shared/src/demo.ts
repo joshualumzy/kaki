@@ -12,6 +12,29 @@ export const SPEECH_STATUS_TOPIC = 'kaki.speech-status';
 /** LiveKit data topic on which the browser sends what the person types, and "typing" and "stop" signals. */
 export const CONTROL_TOPIC = 'kaki.control';
 
+/**
+ * LiveKit data topic for the dev-only fake speech recogniser (`KAKI_FAKE_STT=1`). Only the LiveKit
+ * server can send on it (a browser's message has a sender and is refused): scripted runs use it to
+ * "say" a line as a person, and the runner treats it exactly like a line its recogniser heard.
+ */
+export const FAKE_STT_TOPIC = 'kaki.fake-stt';
+
+/** What a script sends on {@link FAKE_STT_TOPIC}: the words, and whose microphone they came from. */
+export interface FakeSpeechMessage {
+  /** The LiveKit identity of the person who "said" it. */
+  identity: string;
+  text: string;
+}
+
+/** A fake-speech message from the wire, or `undefined` when it is not a valid one. */
+export function parseFakeSpeechMessage(raw: unknown): FakeSpeechMessage | undefined {
+  if (typeof raw !== 'object' || raw === null) return undefined;
+  const { identity, text } = raw as { identity?: unknown; text?: unknown };
+  if (typeof identity !== 'string' || identity.trim() === '' || typeof text !== 'string') return undefined;
+  const trimmed = text.trim().slice(0, MAX_TYPED_LENGTH);
+  return trimmed === '' ? undefined : { identity: identity.trim(), text: trimmed };
+}
+
 /** Longest typed message the AI attendees accept. */
 export const MAX_TYPED_LENGTH = 500;
 
@@ -20,7 +43,6 @@ export type ControlMessage =
   | { kind: 'text'; text: string }
   /** Keys are being pressed: a short sound in the microphone is probably the keyboard, not speech. */
   | { kind: 'typing' }
-  | { kind: 'lock' }
   /** The person wants the AI attendees to pause or stop talking now. */
   | { kind: 'stop' }
   /** The person wants the AI attendees to resume after being paused. */
@@ -35,7 +57,7 @@ export type ControlMessage =
 export function parseControlMessage(raw: unknown): ControlMessage | undefined {
   if (typeof raw !== 'object' || raw === null) return undefined;
   const message = raw as { kind?: unknown; text?: unknown; requestId?: unknown; session?: unknown };
-  if (message.kind === 'typing' || message.kind === 'stop' || message.kind === 'resume' || message.kind === 'lock') {
+  if (message.kind === 'typing' || message.kind === 'stop' || message.kind === 'resume') {
     return { kind: message.kind };
   }
   if (message.kind === 'start') {

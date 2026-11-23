@@ -72,7 +72,7 @@ Sign-in mode refuses the dev routes. Approved posts are signed "Posted by Kaki f
 | Server-side speech recognition (Azure) of only the stretches the detector marks as the visitor talking | `azureStt.ts`, `utterance.ts` |
 | Instant-stop playback into LiveKit; Azure text-to-speech | `playback.ts`, `azureTts.ts` |
 | LiveKit wiring, who is in the room, the start gate | `server/src/npc/runner.ts`, `main.ts` |
-| Join form, start prompt, stage, captions, type bar | `web/src/meeting/room/` |
+| Join form, start prompt, stage, captions, meeting controls | `web/src/meeting/room/` |
 
 Data topics (`shared/src/demo.ts`): `kaki.npc-state` (what the AI attendees are doing) and `kaki.control` (typed text, "typing", Stop, Resume and Lock). Start is a server call.
 

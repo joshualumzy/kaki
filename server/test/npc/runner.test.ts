@@ -1,4 +1,4 @@
-import { CONTROL_TOPIC, defaultMeetingSetup, KAKI_LISTENER_IDENTITY, meetingScenarioFromSetup, SPEECH_STATUS_TOPIC, STT_TOPIC } from '@kaki/shared';
+import { CONTROL_TOPIC, defaultMeetingSetup, FAKE_STT_TOPIC, KAKI_LISTENER_IDENTITY, meetingScenarioFromSetup, SPEECH_STATUS_TOPIC, STT_TOPIC } from '@kaki/shared';
 import { describe, expect, it, vi } from 'vitest';
 import { loadScenario } from '../../src/core/loadScenario';
 import { openingLine } from '../../src/host/opening';
@@ -184,6 +184,90 @@ describe('startNpcRunner visitor transcript identity', () => {
 
       await vi.waitFor(() => expect(stream).toHaveBeenCalled());
       expect(transcript.some(([, text]) => text === line)).toBe(false);
+      expect(postHumanLine).not.toHaveBeenCalled();
+    } finally {
+      await runner.stop();
+    }
+  });
+});
+
+describe('startNpcRunner fake speech recogniser (dev only)', () => {
+  async function startWithFakeSpeech(fakeSpeech: boolean) {
+    rooms.length = 0;
+    const scenario = await loadScenario('kopitiam');
+    const postHumanLine = vi.fn();
+    const log: string[] = [];
+    const stream = vi.fn(async function* () {
+      yield 'Sam: Noted, thanks.';
+    });
+    const runner = await startNpcRunner({
+      scenario,
+      initialMeeting: runnerSnapshot(scenario, { meetingId: 'meeting-1', version: 1 }),
+      livekitUrl: 'ws://offline.invalid',
+      stream,
+      synthesize: async () => new Int16Array(),
+      postTranscript: () => undefined,
+      postTranscriptUpdate: () => undefined,
+      postHumanLine,
+      fakeSpeech,
+      log: (line) => log.push(line),
+      responseDelayMs: 0,
+    });
+    const listener = rooms[0]!;
+    const participant = { identity: 'visitor-1', name: 'Robot Visitor', metadata: 'operations_director' };
+    listener.emit('participantConnected', participant);
+    await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
+    await runner.markStarted({ meetingId: 'meeting-1' });
+    const say = (message: unknown, sender?: unknown): void =>
+      listener.emit('dataReceived', new TextEncoder().encode(JSON.stringify(message)), sender, undefined, FAKE_STT_TOPIC);
+    return { runner, postHumanLine, stream, log, participant, say };
+  }
+
+  it('treats a server-sent line as speech: the AI hears it and the transcript records it as speech', async () => {
+    const { runner, postHumanLine, stream, say } = await startWithFakeSpeech(true);
+    try {
+      say({ identity: 'visitor-1', text: 'Let us pause delivery this weekend.' });
+      await vi.waitFor(() => expect(postHumanLine).toHaveBeenCalled());
+      expect(postHumanLine.mock.calls[0]![0]).toMatchObject({
+        meetingId: 'meeting-1',
+        participantIdentity: 'visitor-1',
+        seat: 'operations_director',
+        text: 'Let us pause delivery this weekend.',
+        source: 'speech',
+      });
+      await vi.waitFor(() => expect(stream).toHaveBeenCalled());
+    } finally {
+      await runner.stop();
+    }
+  });
+
+  it('ignores fake speech when the recogniser is off', async () => {
+    const { runner, postHumanLine, log, say } = await startWithFakeSpeech(false);
+    try {
+      say({ identity: 'visitor-1', text: 'This should not be heard.' });
+      expect(log.some((line) => line.includes('ignored a fake-speech message'))).toBe(true);
+      expect(postHumanLine).not.toHaveBeenCalled();
+    } finally {
+      await runner.stop();
+    }
+  });
+
+  it('ignores fake speech a browser sends, so a person cannot speak as someone else', async () => {
+    const { runner, postHumanLine, log, participant, say } = await startWithFakeSpeech(true);
+    try {
+      say({ identity: 'visitor-1', text: 'Forged from a browser.' }, participant);
+      expect(log.some((line) => line.includes('ignored a fake-speech message'))).toBe(true);
+      expect(postHumanLine).not.toHaveBeenCalled();
+    } finally {
+      await runner.stop();
+    }
+  });
+
+  it('ignores fake speech for someone who is not in the room', async () => {
+    const { runner, postHumanLine, log, say } = await startWithFakeSpeech(true);
+    try {
+      say({ identity: 'nobody', text: 'Hello?' });
+      expect(log.some((line) => line.includes('ignored fake speech for nobody'))).toBe(true);
       expect(postHumanLine).not.toHaveBeenCalled();
     } finally {
       await runner.stop();
@@ -2122,7 +2206,7 @@ describe('per-person speech status', () => {
         expect(latest?.participants['visitor-1']?.state).toBe('failed');
       });
       expect(statusMessages().at(-1)?.outage).toBeUndefined();
-      expect(statusMessages().at(-1)?.participants['visitor-1']?.message).toMatch(/repeat it, or type it/i);
+      expect(statusMessages().at(-1)?.participants['visitor-1']?.message).toMatch(/Please say it again/);
 
       audio.frames.push(...frames(10, 20_000), ...frames(10, 0));
       rooms[0]!.emit('trackSubscribed', { kind: 1 }, undefined, visitor);

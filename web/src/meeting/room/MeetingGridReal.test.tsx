@@ -6,7 +6,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   meetingState: undefined as MeetingStateSnapshot | undefined,
   events: [] as KakiEvent[],
-  typeBarRendered: false,
 }));
 
 vi.mock('@livekit/components-react', () => ({
@@ -53,12 +52,6 @@ vi.mock('./realRoom', () => ({
   }),
 }));
 
-vi.mock('./TypeBar', () => ({
-  ConnectedTypeBar: () => {
-    mocks.typeBarRendered = true;
-    return null;
-  },
-}));
 vi.mock('./RealMeetingBar', () => ({
   RealMeetingBar: () => <div data-testid="real-bar" />,
 }));
@@ -85,7 +78,6 @@ function state(overrides: Partial<MeetingStateSnapshot> = {}): MeetingStateSnaps
 beforeEach(() => {
   mocks.events = [];
   mocks.meetingState = state();
-  mocks.typeBarRendered = false;
 });
 
 afterEach(cleanup);
@@ -95,7 +87,6 @@ describe('real meeting stage', () => {
     render(<MeetingGrid role="chef" real meetingId="mtg-1" />);
 
     expect(screen.getByTestId('real-bar')).toBeTruthy();
-    expect(mocks.typeBarRendered).toBe(false);
     expect(screen.queryByText(/Your turn/)).toBeNull();
     expect(screen.queryByText(/Need an idea/)).toBeNull();
     expect(screen.queryByText('Mic muted')).toBeNull();

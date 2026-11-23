@@ -1,4 +1,7 @@
 import type { Page } from 'playwright';
+// First: the fake speaker reads the LiveKit keys from the repo's .env.
+import '../../server/src/env';
+import { createFakeSpeaker } from '../../server/src/npc/fakeStt';
 import { BASE, launch, Run, guestPerson } from './lib';
 
 const JOURNEY = 'd';
@@ -31,19 +34,19 @@ async function main(): Promise<void> {
         run.finding('DEAD-END', '/practice with no account', `practice asks for sign-in in this stack mode: "${body.slice(0, 200)}"`, shot);
         return;
       }
-      await page.getByRole('button', { name: /Join to type|Join with mic/ }).waitFor({ timeout: 20_000 });
+      await page.getByRole('button', { name: /Join with mic/ }).waitFor({ timeout: 20_000 });
       run.pass(`Practice opens for a visitor with no account and a Join form (${shot}).`);
     });
 
     await step(run, page, 'join practice', async () => {
       const nameBox = page.locator('#join-name');
       await nameBox.fill(`Practice Guest ${suffix}`);
-      const join = page.getByRole('button', { name: /Join to type|Join with mic/ });
+      const join = page.getByRole('button', { name: /Join with mic/ });
       await join.click();
       const startedWaiting = Date.now();
       const outcome = await Promise.race([
-        page.getByText('Before the meeting starts').waitFor({ timeout: 90_000 }).then(() => 'briefing' as const),
-        page.getByLabel('Type to the meeting').waitFor({ timeout: 90_000 }).then(() => 'running' as const),
+        page.getByRole('button', { name: /Next: How to play/ }).waitFor({ timeout: 90_000 }).then(() => 'briefing' as const),
+        page.locator('.kd-meeting[data-needs-start="false"]').waitFor({ timeout: 90_000 }).then(() => 'running' as const),
       ]).catch(() => 'none' as const);
       const waited = Date.now() - startedWaiting;
       const shot = await run.shot(page, 'practice-joined');
@@ -72,24 +75,24 @@ async function main(): Promise<void> {
       }
       const start = page.getByRole('button', { name: 'Start the meeting' });
       if (await start.isVisible().catch(() => false)) await start.click();
-      await page.getByLabel('Type to the meeting').waitFor({ timeout: 60_000 });
+      await page.locator('.kd-meeting[data-needs-start="false"]').waitFor({ timeout: 60_000 });
       const shot = await run.shot(page, 'practice-started');
-      run.pass(`The practice meeting starts and shows a type box (${shot}).`);
+      run.pass(`The practice meeting starts (${shot}).`);
     });
 
-    await step(run, page, 'type through practice', async () => {
+    await step(run, page, 'speak through practice', async () => {
       const lines = [
         `Welcome everyone, let's start with the kopitiam launch. (${suffix})`,
         'I think the new menu should launch next week, and we need the supplier order confirmed.',
         'Sam, can you check the supplier and the stock before Friday?',
       ];
+      // Practice is speech only: the guest speaks through the dev-only fake recogniser (runner on KAKI_FAKE_STT=1).
+      const speaker = createFakeSpeaker();
       for (const [index, line] of lines.entries()) {
-        const box = page.getByLabel('Type to the meeting');
-        await box.fill(line);
-        await box.press('Enter');
+        await speaker.say(`Practice Guest ${suffix}`, line);
         await page.waitForTimeout(index === lines.length - 1 ? 20_000 : 12_000);
-        const shot = await run.shot(page, `practice-typed-${index + 1}`);
-        run.pass(`Practice accepted typed line ${index + 1} (${shot}).`);
+        const shot = await run.shot(page, `practice-spoken-${index + 1}`);
+        run.pass(`Practice heard spoken line ${index + 1} (${shot}).`);
       }
       const body = (await page.locator('body').innerText()).replace(/\s+/g, ' ');
       if (/Arjun|Mei|Daniel|Sam/.test(body)) {
@@ -126,17 +129,17 @@ async function main(): Promise<void> {
       await page.goto(`${BASE}/practice`);
       await page.waitForTimeout(8_000);
       const joinShot = await run.shot(page, 'practice-reopen-join');
-      const join = page.getByRole('button', { name: /Join to type|Join with mic/ });
+      const join = page.getByRole('button', { name: /Join with mic/ });
       if (!(await join.isVisible().catch(() => false))) {
         const rejoin = page.getByRole('button', { name: 'Rejoin', exact: true });
         if (await rejoin.isVisible().catch(() => false)) {
           await rejoin.click();
-          await page.getByText('Before the meeting starts').waitFor({ timeout: 60_000 }).catch(() => undefined);
+          await page.getByRole('button', { name: /Next: How to play/ }).waitFor({ timeout: 60_000 }).catch(() => undefined);
           const shot = await run.shot(page, 'practice-rejoined-from-left');
           run.pass(`After leaving, /practice offered Rejoin and got back in (${shot}).`);
           return;
         }
-        if (await page.getByLabel('Type to the meeting').isVisible().catch(() => false)) {
+        if (await page.locator('.kd-meeting[data-needs-start="false"]').isVisible().catch(() => false)) {
           const shot = await run.shot(page, 'practice-reopened-running');
           run.pass(`After leaving, /practice returned to the running practice meeting (${shot}).`);
           return;
@@ -148,7 +151,7 @@ async function main(): Promise<void> {
       const nameBox = page.locator('#join-name');
       await nameBox.fill(`Practice Guest ${suffix}`);
       await join.click();
-      await page.getByText('Before the meeting starts').waitFor({ timeout: 90_000 });
+      await page.getByRole('button', { name: /Next: How to play/ }).waitFor({ timeout: 90_000 });
       const shot = await run.shot(page, 'practice-reopened');
       run.pass(`Coming back to /practice starts a fresh practice meeting with a briefing (${joinShot}, ${shot}).`);
     });

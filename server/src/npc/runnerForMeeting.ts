@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { encodeWav } from './wav';
 import { createAzureStt } from './azureStt';
 import { createAzureTts } from './azureTts';
+import { fakeSttFromEnv } from './fakeStt';
 import { buildSttPhrases } from './sttPhrases';
 import { DEFAULT_BARGE_IN_MS, DEFAULT_SENTENCE_GAP_MS, DEFAULT_SPEAKER_GAP_MS } from './conversation';
 import { startNpcRunner, type NpcRunner } from './runner';
@@ -148,6 +149,9 @@ const synthesize = faultySynthesize(
 // Server-side recognition: it hears the echo-cancelled microphone track, so it does not pick up the
 // AI's own voice, and it can lean towards the names and words of this meeting.
 const sttMode = process.env.NPC_STT || 'azure';
+// Dev and test only: scripted runs "speak" through this instead of a microphone (refused in production).
+const fakeSpeech = fakeSttFromEnv();
+if (fakeSpeech) log('[fake-stt] KAKI_FAKE_STT=1: scripted lines are accepted as speech');
 if (sttMode !== 'azure') throw new Error(`NPC_STT must be "azure"; browser speech recognition was removed, got "${sttMode}"`);
 const recognizer = createAzureStt(requireEnv('AZURE_SPEECH_KEY', azureHint), requireEnv('AZURE_SPEECH_REGION', azureHint), {
   locale: process.env.NPC_STT_LOCALE || 'en-SG',
@@ -313,6 +317,7 @@ const runner = await startNpcRunner({
   postHumanLine,
   responseDelayMs: numberEnv('NPC_RESPONSE_DELAY_MS', 950),
   recognizer,
+  fakeSpeech,
   debugAudio: debugAudioDir === undefined ? undefined : debugAudio,
   speakerGapMs: numberEnv('NPC_SPEAKER_GAP_MS', DEFAULT_SPEAKER_GAP_MS),
   sentenceGapMs: numberEnv('NPC_SENTENCE_GAP_MS', DEFAULT_SENTENCE_GAP_MS),

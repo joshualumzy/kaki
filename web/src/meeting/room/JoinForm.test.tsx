@@ -112,13 +112,13 @@ describe('JoinForm', () => {
     const camera = screen.getByLabelText('Camera');
     expect(mic.getAttribute('aria-pressed')).toBe('false');
     expect(camera.getAttribute('aria-pressed')).toBe('false');
-    expect(button.textContent).toBe('Join to type');
+    expect(button.textContent).toBe('Join with mic off');
 
     fireEvent.change(name, { target: { value: 'Josh' } });
     fireEvent.click(mic);
     expect(button.textContent).toBe('Join with mic');
     fireEvent.click(mic);
-    expect(button.textContent).toBe('Join to type');
+    expect(button.textContent).toBe('Join with mic off');
     fireEvent.click(button);
     expect(onJoin).toHaveBeenCalledWith('Josh', 'operations_director', { microphone: false, camera: false });
   });

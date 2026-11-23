@@ -16,7 +16,7 @@ These drive the real app in installed Google Chrome through Playwright, against 
 
 | Command | What it checks |
 | --- | --- |
-| `npm run playtest:live` | One visitor in the practice meeting with the AI colleagues, from joining to the end of the agenda. |
+| `npm run playtest:live` | One visitor in the practice meeting with the AI colleagues, from joining to the end of the agenda. The robot speaks through the fake recogniser, so start the AI runner with `KAKI_FAKE_STT=1`. |
 | `npm run playtest:ai` | A language model plays the visitor in one of nine styles (hesitant, terse, off-topic, interrupter, silent and others), then a second model judges the meeting for natural talk, contradictions and made-up facts. |
 | `npm run playtest:dialogue` | The conversation engine on its own, without a browser, across every agenda item. |
 | `npm run eval:notetaker` | Runs a recorded meeting through the notetaker and compares the decisions, tasks and open questions it finds with the expected list. |

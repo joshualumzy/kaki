@@ -11,7 +11,6 @@ const mocks = vi.hoisted(() => ({
   roleNotes: [] as WingmanNotePayload[],
   screenTasks: new Map<string, Task>(),
   latestRecord: null as KakiEvent | null,
-  typeBarProps: [] as Array<{ paused?: boolean; pauseRejection?: unknown }>,
 }));
 
 vi.mock('@livekit/components-react', () => ({
@@ -58,12 +57,6 @@ vi.mock('../../kaki', async () => {
     },
   };
 });
-vi.mock('./TypeBar', () => ({
-  ConnectedTypeBar: (props: { paused?: boolean; pauseRejection?: unknown }) => {
-    mocks.typeBarProps.push(props);
-    return null;
-  },
-}));
 vi.mock('./Orb', () => ({ Orb: () => null, orbPalette: () => ['--c'] }));
 
 type RecordEvent = Extract<KakiEvent, { type: 'MEETING_RECORD_UPDATED' }>;
@@ -104,7 +97,6 @@ function line(
 beforeEach(() => {
   mocks.screenTasks.clear();
   mocks.latestRecord = null;
-  mocks.typeBarProps.splice(0, mocks.typeBarProps.length);
   mocks.roleEvents.splice(0, mocks.roleEvents.length);
   mocks.roleNotes.splice(0, mocks.roleNotes.length);
   mocks.screenEvents.splice(0, mocks.screenEvents.length,
@@ -150,10 +142,10 @@ describe('MeetingGrid starter ideas', () => {
   it('offers tabling the topic without a fixed-time follow-up after the visitor has spoken', () => {
     render(<MeetingGrid role="chef" />);
     fireEvent.click(screen.getByRole('button', { name: /Need an idea/ }));
-    expect(screen.getByRole('button', { name: /Table topic/ })).toBeTruthy();
-    expect(screen.queryByRole('button', { name: /10 AM/ })).toBeNull();
-    expect(screen.getByRole('button', { name: /what's still open on this one\?/i })).toBeTruthy();
-    expect(screen.queryByRole('button', { name: /lock in both parts/i })).toBeNull();
+    expect(screen.getByText(/table it for now/)).toBeTruthy();
+    expect(screen.queryByText(/10 AM/)).toBeNull();
+    expect(screen.getByText(/what's still open on this one\?/i)).toBeTruthy();
+    expect(screen.queryByText(/lock in both parts/i)).toBeNull();
   });
 
   it('shows the turn region when a colleague has briefed on a later topic and the AI is idle', () => {
@@ -175,7 +167,7 @@ describe('MeetingGrid starter ideas', () => {
     );
     render(<MeetingGrid role="chef" />);
     fireEvent.click(screen.getByRole('button', { name: /Need an idea/ }));
-    expect(screen.getByRole('button', { name: /Table topic/ })).toBeTruthy();
+    expect(screen.getByText(/table it for now/)).toBeTruthy();
   });
 
   it('offers the Table topic chip on topic 2 after the topic record has left the event window', () => {
@@ -186,7 +178,7 @@ describe('MeetingGrid starter ideas', () => {
     );
     render(<MeetingGrid role="chef" />);
     fireEvent.click(screen.getByRole('button', { name: /Need an idea/ }));
-    expect(screen.getByRole('button', { name: /Table topic/ })).toBeTruthy();
+    expect(screen.getByText(/table it for now/)).toBeTruthy();
   });
 
   it('does not offer the Table topic chip before the viewer speaks on the current topic', () => {
@@ -197,7 +189,7 @@ describe('MeetingGrid starter ideas', () => {
     );
     render(<MeetingGrid role="chef" />);
     fireEvent.click(screen.getByRole('button', { name: /Need an idea/ }));
-    expect(screen.queryByRole('button', { name: /Table topic/ })).toBeNull();
+    expect(screen.queryByText(/table it for now/)).toBeNull();
   });
 
   it('counts a renamed seat by its speakerRole even when its name matches an AI attendee', () => {
@@ -207,7 +199,7 @@ describe('MeetingGrid starter ideas', () => {
     );
     render(<MeetingGrid role="chef" />);
     fireEvent.click(screen.getByRole('button', { name: /Need an idea/ }));
-    expect(screen.getByRole('button', { name: /Table topic/ })).toBeTruthy();
+    expect(screen.getByText(/table it for now/)).toBeTruthy();
   });
 
   it('offers only the current agenda item\'s open questions as quick replies', () => {
@@ -222,8 +214,8 @@ describe('MeetingGrid starter ideas', () => {
     render(<MeetingGrid role="chef" />);
     fireEvent.click(screen.getByRole('button', { name: /Need an idea/ }));
 
-    expect(screen.getByRole('button', { name: /How much stock do we need for the rush\?/ })).toBeTruthy();
-    expect(screen.queryByRole('button', { name: /What happened to the old regulars\?/ })).toBeNull();
+    expect(screen.getByText(/How much stock do we need for the rush\?/)).toBeTruthy();
+    expect(screen.queryByText(/What happened to the old regulars\?/)).toBeNull();
   });
 
   it('shows an asked-you note in the middle of the stage and hides it on Close', () => {
@@ -349,28 +341,24 @@ describe('phone stage ordering and settled topic', () => {
   });
 });
 
-describe('pause button state', () => {
-  it('follows the latest server record, including an empty-room pause', () => {
-    mocks.screenEvents = [
-      record(0, [], { paused: true, pauseKind: 'empty-room' }),
-      line('Sam', 'Take a minute.'),
-    ];
-    const view = render(<MeetingGrid role="chef" />);
-    expect(mocks.typeBarProps.at(-1)?.paused).toBe(true);
-
-    mocks.screenEvents = [
-      record(0),
-      line('Sam', 'Carry on.'),
-    ];
-    view.rerender(<MeetingGrid role="chef" />);
-    expect(mocks.typeBarProps.at(-1)?.paused).toBe(false);
+describe('speaking is the only input', () => {
+  it('has no text box, Send, Lock or Pause under the stage', () => {
+    render(<MeetingGrid role="chef" />);
+    expect(screen.queryByRole('textbox')).toBeNull();
+    for (const name of [/^Send$/, /Lock in my decision/, /^Pause$/, /^Stop$/]) {
+      expect(screen.queryByRole('button', { name })).toBeNull();
+    }
   });
 
-  it('takes the pause from the hook\'s record even after it leaves the event window', () => {
-    // The hook owns the newest record; the 50-event window has already pushed it out.
-    mocks.screenEvents = [line('Sam', 'Carry on.')];
-    mocks.latestRecord = record(0, [], { paused: true, pauseKind: 'person' });
+  it('never tells the visitor to type, and the ideas are lines to say, not buttons that send', () => {
     render(<MeetingGrid role="chef" />);
-    expect(mocks.typeBarProps.at(-1)?.paused).toBe(true);
+    const turn = screen.getByRole('region', { name: /Your turn and starter questions/ });
+    expect(turn.textContent).not.toMatch(/\btype\b/i);
+    fireEvent.click(screen.getByRole('button', { name: /Need an idea/ }));
+    expect(turn.textContent).not.toMatch(/\btype\b|click/i);
+    expect(screen.getAllByRole('button').map((button) => button.textContent)).not.toContainEqual(
+      expect.stringMatching(/table it for now/),
+    );
+    expect(screen.getByText(/table it for now/)).toBeTruthy();
   });
 });
