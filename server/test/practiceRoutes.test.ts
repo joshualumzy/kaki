@@ -15,7 +15,7 @@ afterEach(async () => {
 });
 
 async function appWith(
-  options: { maxPracticeMeetings?: number; devRoutes?: boolean } = {},
+  options: { maxPracticeMeetings?: number; devRoutes?: boolean; llmRequestsPerMinute?: number } = {},
 ): Promise<{ app: KakiApp; port: number }> {
   const app = await createApp({
     speechRecognition: 'browser',
@@ -24,6 +24,9 @@ async function appWith(
     rejoinGraceMs: 60_000,
     ...(options.maxPracticeMeetings === undefined ? {} : { maxPracticeMeetings: options.maxPracticeMeetings }),
     ...(options.devRoutes === undefined ? {} : { devRoutes: options.devRoutes }),
+    ...(options.llmRequestsPerMinute === undefined
+      ? {}
+      : { llmRequestsPerMinute: options.llmRequestsPerMinute }),
   });
   apps.push(app);
   return { app, port: portOf(app) };
@@ -114,6 +117,32 @@ describe('POST /api/practice', () => {
     const response = await post(port, '/api/practice', undefined, forged);
     expect(response.status).toBe(403);
     expect(((await response.json()) as { error: string }).error).toBe('practice-access');
+  });
+
+  it('rate-limits fresh practice opens per address with a plain 429, never a refresh', async () => {
+    const { port } = await appWith({ llmRequestsPerMinute: 2, maxPracticeMeetings: 5 });
+    const first = await startPractice(port);
+    // A refresh or second tab reuses the visitor's own room and never counts.
+    for (let i = 0; i < 5; i += 1) {
+      expect((await post(port, '/api/practice', undefined, first.cookie)).status).toBe(200);
+    }
+    expect((await post(port, '/api/practice')).status).toBe(200);
+    const limited = await post(port, '/api/practice');
+    expect(limited.status).toBe(429);
+    const body = (await limited.json()) as { error: string };
+    expect(body.error).toBe('Too many practice rooms were opened from here. Try again in a minute.');
+  });
+
+  it('gives every practice its own modules and clock, even without practiceModules', async () => {
+    const { app, port } = await appWith();
+    const alice = await startPractice(port);
+    const ben = await startPractice(port);
+    const first = app.registry.findPractice(alice.meetingId);
+    const second = app.registry.findPractice(ben.meetingId);
+    if (first === undefined || second === undefined) throw new Error('Expected both practices');
+    expect(first.modules.length).toBeGreaterThan(0);
+    expect(first.modules).not.toBe(second.modules);
+    expect(first.modules[0]).not.toBe(second.modules[0]);
   });
 
   it('shows the plain practice-full message when every practice room is in use', async () => {

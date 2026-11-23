@@ -109,7 +109,11 @@ interface MeetingRegistryDeps {
   /** The id of the meeting whose saved state holds this code; absent means loaded meetings only. */
   findSavedIdByCode?(code: string): Promise<string | undefined>;
   maxOpen?: number;
-  /** How many practice meetings may be open at once; the rest of `maxOpen` stays for real meetings. */
+  /**
+   * How many practice meetings may be open at once. Practice and the always-open legacy room take
+   * slots from `maxOpen`, so real meetings keep `maxOpen - maxPractice - 1` while the legacy room
+   * exists; removing it leaves `maxOpen - maxPractice`.
+   */
   maxPractice?: number;
   /** How many real meetings one owner may keep open at once. */
   maxOpenPerUser?: number;

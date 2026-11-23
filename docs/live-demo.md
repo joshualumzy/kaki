@@ -39,7 +39,7 @@ Sign-in mode is on when `KAKI_AUTH=1`. Set these keys in `.env` (names only here
 | `KAKI_MAX_OPEN_MEETINGS` | How many real meetings the server keeps open at once (default 10). |
 | `KAKI_MAX_OPEN_MEETINGS_PER_USER` | How many real meetings one owner keeps open at once (default 2). |
 | `KAKI_MAX_MEETINGS_PER_DAY` | How many meetings one owner may create per day (default 20). |
-| `KAKI_MAX_PRACTICE` | How many practice meetings may run at once (default 5). They count toward `KAKI_MAX_OPEN_MEETINGS`, and the rest of that cap stays free for real meetings. |
+| `KAKI_MAX_PRACTICE` | How many practice meetings may run at once (default 5). They count toward `KAKI_MAX_OPEN_MEETINGS`, and so does the always-open legacy demo room, so real meetings keep `KAKI_MAX_OPEN_MEETINGS − KAKI_MAX_PRACTICE − 1` while it exists. |
 | `KAKI_PRACTICE_UNLOAD_MS` | How long an empty practice meeting stays loaded for its visitor to return (default 5 min); an ended one is unloaded at once. |
 
 Sign-in mode refuses the dev routes. Approved posts are signed "Posted by Kaki for <name>, approved in <meeting title>"

@@ -41,3 +41,21 @@ export function createMeetingModules(
     meetingPause: host.meetingPause,
   };
 }
+
+/**
+ * Fresh modules for one practice instance: its own agenda clock, Host, Wingman and Action modules.
+ * Every practice meeting gets its own set, because a module keeps its state inside `start(ctx)`;
+ * sharing one set would let two visitors' meetings hear and change each other.
+ *
+ * A practice meeting runs the sample workspace, so its tools come from the instance, not here.
+ */
+export function createPracticeModules(scenario: Scenario): MeetingModules {
+  const host = createHostModules(scenario);
+  return {
+    modules: [...host.modules, ...createWingmanModules(), ...createActionModules()],
+    meetingElapsedSeconds: host.meetingElapsedSeconds,
+    meetingAgendaIndex: host.meetingAgendaIndex,
+    meetingPaused: host.meetingPaused,
+    meetingPause: host.meetingPause,
+  };
+}

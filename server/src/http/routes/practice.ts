@@ -1,8 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import { accountUserId, publicUrlIsHttps, tokenMatches } from '../access';
+import { accountUserId, clientAddress, publicUrlIsHttps, tokenMatches } from '../access';
 import { cookieValue, sendJson } from '../http';
 import { PRACTICE_COOKIE, type RouteCall } from '../routeCall';
 import { MeetingBusyError, PracticeFullError } from '../../meeting/registry';
+
+const PRACTICE_RATE_LIMIT_MESSAGE =
+  'Too many practice rooms were opened from here. Try again in a minute.';
 
 /** The practice cookie names its own meeting, so one visitor's capability never opens another's. */
 function practiceCookie(meetingId: string, capability: string): string {
@@ -59,6 +62,17 @@ export async function handlePractice(call: RouteCall): Promise<void> {
       // The old practice has ended; the visitor's next practice is a fresh meeting.
     }
   }
+
+  // Only opening a fresh room counts, one bucket per address: a refresh or second tab that reuses
+  // the visitor's own practice never does, but a loop that clears its cookie and asks again is
+  // refused plainly instead of keeping every practice room occupied.
+  const limiter = context.practiceAttempts;
+  const address = `address:${clientAddress(request)}`;
+  if (limiter?.isLimited(address) === true) {
+    sendJson(response, 429, { error: PRACTICE_RATE_LIMIT_MESSAGE });
+    return;
+  }
+  limiter?.recordFailure(address);
 
   let meetingId: string;
   try {

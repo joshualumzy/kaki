@@ -83,6 +83,8 @@ export interface MeetingInstance {
   hub: MeetingHub;
   tasks: TaskStore;
   memory: MeetingMemoryEntry[];
+  /** Fresh modules for this instance; started once and stopped on dispose. */
+  modules: KakiModule[];
   /** The LiveKit room this meeting uses right now. */
   roomName: string;
   /** The row meeting_state.id = id; absent when no database is configured. */
@@ -1925,6 +1927,7 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
     hub,
     tasks,
     memory,
+    modules,
     get roomName() {
       return roomName();
     },
