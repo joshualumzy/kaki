@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
 import type { KakiEvent } from '@kaki/shared';
 import { createApp, type KakiApp } from '../../src/app';
@@ -9,7 +9,7 @@ import { createMemoryAuthStore, type AuthStore } from '../../src/auth/store';
 import { createMeetingCodeSource } from '../../src/meeting/meetingCode';
 import { createMemoryMeetingStore } from '../../src/meeting/registry';
 import { testScenario } from '../fixtures/scenario';
-import { portOf, waitFor } from '../helpers';
+import { portOf, settle, waitFor } from '../helpers';
 
 const SERVICE_TOKEN = 'real-seat-test-token';
 
@@ -117,7 +117,15 @@ function connect(base: string, meetingId: string, audience: string, cookie?: str
 function postSpeechLine(
   base: string,
   meetingId: string,
-  line: { participantIdentity: string; seat: string; text: string; clientLineId: string },
+  line: {
+    participantIdentity: string;
+    seat: string;
+    text: string;
+    clientLineId: string;
+    speechStartedAt?: string;
+    speechEndedAt?: string;
+    micLevel?: number;
+  },
 ): Promise<Response> {
   return request(base, `/api/meetings/${meetingId}/runner/human-line`, {
     method: 'POST',
@@ -132,6 +140,7 @@ const sockets: Socket[] = [];
 afterEach(async () => {
   for (const socket of sockets.splice(0)) socket.ws.close();
   for (const app of apps.splice(0)) await app.close();
+  vi.restoreAllMocks();
 });
 
 async function build(): Promise<{ app: KakiApp; base: string; store: AuthStore; meetingCode: ReturnType<typeof createMeetingCodeSource> }> {
@@ -476,6 +485,69 @@ describe('real meeting speech lines', () => {
 
     const chunk = await waitFor(() => transcriptChunk(screen, text), 'the guest speech line');
     expect(chunk).toMatchObject({ payload: { speaker: 'Sam', speakerRole: guestSeat.seat } });
+  });
+
+  it("drops the repeat when a second seat's microphone hears the first speaker, and logs it", async () => {
+    const { base, meetingId, ownerSeat } = await runningMeeting();
+    const joined = await request(base, `/api/meetings/${meetingId}/join`, {
+      method: 'POST',
+      body: { name: 'Bao' },
+    });
+    expect(joined.status).toBe(200);
+    const guestCookie = cookiePair(setCookies(joined), 'kaki_session');
+    if (guestCookie === undefined) throw new Error('the guest got no cookie');
+    const guestSeat = await seat(base, meetingId, guestCookie, 'Bao');
+    expect(guestSeat.status).toBe(200);
+
+    const screen = await connect(base, meetingId, 'screen', ownerSeat.cookie);
+    sockets.push(screen);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    const text = 'We open at eight every morning.';
+    const speechStartedAt = new Date(Date.now() - 1_200).toISOString();
+    const speechEndedAt = new Date(Date.now() - 200).toISOString();
+    expect(
+      (
+        await postSpeechLine(base, meetingId, {
+          participantIdentity: ownerSeat.identity,
+          seat: ownerSeat.seat,
+          text,
+          clientLineId: 'owner-said-it',
+          speechStartedAt,
+          speechEndedAt,
+          micLevel: 0.12,
+        })
+      ).status,
+    ).toBe(200);
+    await waitFor(() => transcriptChunk(screen, text), 'the first seat’s line');
+
+    // The guest's microphone also picked up the owner's voice: the recogniser forwards the same
+    // words under the guest's seat over the same speech time, but its microphone was much quieter.
+    // The first line stays; the repeat is dropped rather than shown twice.
+    expect(
+      (
+        await postSpeechLine(base, meetingId, {
+          participantIdentity: guestSeat.identity,
+          seat: guestSeat.seat,
+          text: `  ${text.toLowerCase()} `,
+          clientLineId: 'guest-heard-it-too',
+          speechStartedAt: new Date(Date.parse(speechStartedAt) + 100).toISOString(),
+          speechEndedAt: new Date(Date.parse(speechEndedAt) + 100).toISOString(),
+          micLevel: 0.02,
+        })
+      ).status,
+    ).toBe(200);
+    await waitFor(() => (warn.mock.calls.length > 0 ? true : undefined), 'the cross-seat bleed log');
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('another seat\'s microphone heard it too'));
+    await settle(50);
+
+    const chunks = screen.messages.filter(
+      (event): event is Extract<KakiEvent, { type: 'TRANSCRIPT_CHUNK' }> =>
+        event.type === 'TRANSCRIPT_CHUNK' &&
+        event.payload.text.trim().toLowerCase() === text.toLowerCase(),
+    );
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0]).toMatchObject({ payload: { speaker: 'Ada', speakerRole: ownerSeat.seat } });
   });
 
   it('tells two people with the same display name apart by the identity each real token issued', async () => {

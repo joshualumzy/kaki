@@ -20,9 +20,14 @@ export interface SpeechStart {
   startedAt: number;
 }
 
-/** A stretch of speech with the moment it ended. */
+/** A stretch of speech with the moment it ended and how loud the microphone was throughout it. */
 export interface SpeechTiming extends SpeechStart {
   endedAt: number;
+  /**
+   * RMS microphone level, 0..1, over exactly the audio sent to recognition for this stretch. It is
+   * the same scale the voice detector uses, so two seats hearing the same voice can be compared.
+   */
+  micLevel?: number;
 }
 
 interface UtteranceRecorderOptions {
@@ -72,6 +77,8 @@ export class UtteranceRecorder {
   private prerollSamples = 0;
   private session: SttSession | undefined;
   private sentSamples = 0;
+  /** Summed squares of every sample sent for this stretch, in the same 0..1 scale as the voice detector. */
+  private sentSquareSum = 0;
   private sent: Int16Array[] = [];
   private chain: Promise<void> = Promise.resolve();
   private pendingRecognitions = 0;
@@ -101,6 +108,7 @@ export class UtteranceRecorder {
     this.prerollSamples = 0;
     this.sent = [];
     this.sentSamples = 0;
+    this.sentSquareSum = 0;
   }
 
   /** Start listening again; new speech opens a fresh recognition session. */
@@ -134,6 +142,7 @@ export class UtteranceRecorder {
       if (this.session !== undefined) return;
       this.session = this.recognizer.start();
       this.sentSamples = 0;
+      this.sentSquareSum = 0;
       this.sent = [];
       const keptMs = (this.prerollSamples / this.options.sampleRate) * 1000;
       this.speech = newSpeechStart(Date.now() - Math.round(keptMs));
@@ -154,20 +163,30 @@ export class UtteranceRecorder {
     session.cancel();
     const speech = this.speech;
     this.speech = undefined;
-    if (speech !== undefined) this.options.onSpeechDiscarded?.({ ...speech, endedAt: Date.now() });
+    if (speech !== undefined) this.options.onSpeechDiscarded?.({ ...speech, endedAt: Date.now(), micLevel: this.micLevel() });
   }
 
   private send(samples: Int16Array): void {
     this.sentSamples += samples.length;
+    for (const sample of samples) this.sentSquareSum += (sample / 32768) ** 2;
     if (this.options.onAudio !== undefined) this.sent.push(samples);
     this.session?.push(samples);
+  }
+
+  /** RMS of exactly the audio recognised for this stretch, on the same 0..1 scale as the voice detector. */
+  private micLevel(): number {
+    return this.sentSamples === 0 ? 0 : Math.sqrt(this.sentSquareSum / this.sentSamples);
   }
 
   private end(): void {
     const session = this.session;
     if (session === undefined) return;
     this.session = undefined;
-    const timing: SpeechTiming = { ...(this.speech ?? newSpeechStart(Date.now())), endedAt: Date.now() };
+    const timing: SpeechTiming = {
+      ...(this.speech ?? newSpeechStart(Date.now())),
+      endedAt: Date.now(),
+      micLevel: this.micLevel(),
+    };
     this.speech = undefined;
     const sentMs = (this.sentSamples / this.options.sampleRate) * 1000;
     if (this.options.onAudio !== undefined && this.sent.length > 0) {

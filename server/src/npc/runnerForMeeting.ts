@@ -257,6 +257,7 @@ function postHumanLine(line: {
   clientLineId: string;
   speechStartedAt?: string;
   speechEndedAt?: string;
+  micLevel?: number;
   overlap?: boolean;
 }): void {
   runnerClient

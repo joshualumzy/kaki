@@ -50,6 +50,7 @@ import {
 import type { MeetingCodeSource } from './meetingCode';
 import { assertReadableSavedMeeting, assertReadableSavedSetup } from '../persist/state';
 import { createRejoinGuard, createRoomPoll, departedSeatGraceMs, rejoinGraceMsFromEnv, roomPollIntervalMs, REJOIN_POLL_MS } from './rejoin';
+import { findCrossSeatDuplicate, rememberSpeechLine, type SpeechLine } from './crossSeatBleed';
 import { buildRunnerMeetingSnapshot, hostIsHumanFromSession } from './runnerState';
 import { createMeetingSession, type MeetingSession } from './session';
 import { createTaskStore, type TaskStore } from './tasks';
@@ -850,10 +851,13 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
     return { retainKey };
   }
   const humanLineTimes = new Map<string, number[]>();
+  /** Accepted speech lines, so a second seat's microphone picking up the same voice is not written twice. */
+  const recentSpeechLines: SpeechLine[] = [];
   hub.subscribe((event) => {
     if (event.type !== 'MEETING_RESET') return;
     humanLineIds.clear();
     humanLineTimes.clear();
+    recentSpeechLines.length = 0;
   });
 
   function seatKey(seat: string): string {
@@ -868,6 +872,7 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
     participantIdentity,
     speechStartedAt,
     speechEndedAt,
+    micLevel,
     overlap,
   }: {
     seat: string;
@@ -877,6 +882,7 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
     participantIdentity?: string;
     speechStartedAt?: string;
     speechEndedAt?: string;
+    micLevel?: number;
     overlap?: boolean;
   }): void {
     if (meetingId !== undefined && meetingId !== meeting.id) {
@@ -912,15 +918,38 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
     const key = seatKey(holder.seat);
     const seen = humanLineIds.get(key);
     if (seen?.ids.has(clientLineId)) return;
-    const now = Date.now();
-    const times = (humanLineTimes.get(key) ?? []).filter((at) => now - at < HUMAN_LINE_RATE_WINDOW_MS);
-    if (times.length >= HUMAN_LINE_RATE_LIMIT) {
-      throw new CommandError('Too many lines at once; wait a moment and try again');
-    }
     // The admitted person is the speaker; the setup seat is only the role they took.
     const speaker = holder.displayName?.trim() || holder.name;
     if (speaker.trim() === '') {
       throw new CommandError('That person has no name in this meeting');
+    }
+    const now = Date.now();
+    const startedAtMs = speechStartedAt === undefined ? undefined : Date.parse(speechStartedAt);
+    const endedAtMs = speechEndedAt === undefined ? undefined : Date.parse(speechEndedAt);
+    // Two microphones in one room can both recognise the same voice. Only audio evidence proves it:
+    // the two stretches must overlap in time and this microphone must have been clearly quieter.
+    // The same words alone are not enough, because two people really do both say "Yes".
+    if (source === 'speech') {
+      const line = {
+        seat: key,
+        speaker,
+        text: cleaned,
+        ...(startedAtMs === undefined || !Number.isFinite(startedAtMs) ? {} : { speechStartedAt: startedAtMs }),
+        ...(endedAtMs === undefined || !Number.isFinite(endedAtMs) ? {} : { speechEndedAt: endedAtMs }),
+        ...(micLevel === undefined ? {} : { micLevel }),
+      };
+      const duplicate = findCrossSeatDuplicate(line, recentSpeechLines);
+      if (duplicate !== undefined) {
+        console.warn(
+          `kaki transcript: dropped "${cleaned}" from ${speaker}; ${duplicate.speaker}'s line overlaps it and this microphone was quieter (${micLevel?.toFixed(3)} vs ${duplicate.micLevel?.toFixed(3)}), so another seat's microphone heard it too`,
+        );
+        return;
+      }
+      rememberSpeechLine(recentSpeechLines, line);
+    }
+    const times = (humanLineTimes.get(key) ?? []).filter((at) => now - at < HUMAN_LINE_RATE_WINDOW_MS);
+    if (times.length >= HUMAN_LINE_RATE_LIMIT) {
+      throw new CommandError('Too many lines at once; wait a moment and try again');
     }
     times.push(now);
     humanLineTimes.set(key, times);

@@ -165,6 +165,7 @@ export interface RequestContext {
     participantIdentity?: string;
     speechStartedAt?: string;
     speechEndedAt?: string;
+    micLevel?: number;
     overlap?: boolean;
   }): void;
 }
