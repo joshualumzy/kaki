@@ -7,7 +7,7 @@ A meeting assistant that gives every seat a private wingman.
 ![Kaki meeting room](docs/images/meeting-room.png)
 *A practice meeting. Kaki Wingman has just handed the Operations Director a private fact for the question on the table.*
 
-Kaki (Singlish for "buddy" or "one of us") helps a small team run a meeting and finish the work it creates. A person signs in, gets a personal workspace, and connects the tools that workspace already uses. They start a meeting now or schedule it for later, invite people by link or QR code, and guests join under their own name without an account. Each person holds their own seat and gets a private wingman, while a neutral host keeps the clock and the notes. Follow-ups become to-do cards that a person can hand to Kaki to draft, and the minutes and to-dos stay in the workspace after the meeting ends. A practice meeting, where AI colleagues fill the other seats, is still one click away at `/practice` and `/demo`.
+Kaki (Singlish for "buddy" or "one of us") helps a small team run a meeting and finish the work it creates. A person signs in, gets a personal workspace, and connects the tools that workspace already uses. They start a meeting now or schedule it for later, invite people by link or QR code, and guests join under their own name without an account. Each person holds their own seat and gets a private wingman, while a neutral host keeps the clock and the notes. Follow-ups become to-do cards that a person can hand to Kaki to draft, and the minutes and to-dos stay in the workspace after the meeting ends. A practice meeting, where AI colleagues fill the other seats, is still one click away at `/practice`.
 
 ## Highlights
 
@@ -18,7 +18,7 @@ Kaki (Singlish for "buddy" or "one of us") helps a small team run a meeting and 
 - Every person has their own seat and a private wingman that answers "what did I miss?" from the meeting first, then the workspace records with sources and dates. Guests get answers from the meeting only.
 - A to-do card can be done for you: the owner presses Do it for me (tool), reviews the draft and approves it. At End, the minutes card publishes the one record to the team wiki. Every post Kaki makes is signed "Posted by Kaki for <name>, approved in <meeting title>".
 - After the meeting, the workspace keeps the minutes and to-dos, with Copy, Download and a tick for each to-do.
-- A practice meeting with AI colleagues still runs at `/practice` and `/demo`, with the stage above the dock on narrow screens.
+- A practice meeting with AI colleagues still runs at `/practice`, with the stage above the dock on narrow screens.
 
 ## Screenshots
 
@@ -73,7 +73,7 @@ Sign in with Google to open your workspace. The account menu lists your personal
 | What | Where | Sign-in |
 | --- | --- | --- |
 | Kaki app (workspaces and real meetings) | [kaki.southeastasia.cloudapp.azure.com](https://kaki.southeastasia.cloudapp.azure.com) | Sign in with Google |
-| Practice meeting with AI colleagues | [/practice](https://kaki.southeastasia.cloudapp.azure.com/practice) or [/demo](https://kaki.southeastasia.cloudapp.azure.com/demo) | No sign-in |
+| Practice meeting with AI colleagues | [/practice](https://kaki.southeastasia.cloudapp.azure.com/practice) | No sign-in |
 | Wiki.js | [Port 8081](http://kaki.southeastasia.cloudapp.azure.com:8081) | `demo` / `demo` |
 | Gitea | [Port 8082](http://kaki.southeastasia.cloudapp.azure.com:8082) | `demo` / `demo` (or `wei-ling`, `arjun`, `mei`, `daniel` / `demo`) |
 | Mattermost | [Port 8443](https://kaki.southeastasia.cloudapp.azure.com:8443) | `demo` / `demo` (or `weiling`, `arjun`, `mei`, `daniel` / `demo`) |
@@ -156,11 +156,11 @@ Follow-ups are to-do cards. The owner can press Do it for me (tool), review the 
 
 Questions and follow-ups are proposed only from transcript lines, and a second model pass judges whether the meaning matches. A doubtful case is left unresolved.
 
-In a practice meeting, one person sits with four AI colleagues who speak in their own voices, take turns, react to what is said and stop when interrupted. The practice meeting still runs at `/practice` and `/demo`, and each visitor gets their own room.
+In a practice meeting, one person sits with four AI colleagues who speak in their own voices, take turns, react to what is said and stop when interrupted. The practice meeting still runs at `/practice`, and each visitor gets their own room.
 
 ## Front-end features
 
-The web app is one React and Vite application. The product pages are `/signin` (Google sign-in), `/new` (new meeting), `/workspaces/:id` (workspace and tools), `/workspaces/:id/meetings/:meetingId` (meeting history), `/m/:id` (guest join) and `/m/:id/room` (real meeting room) (`web/src/product/`, `web/src/App.tsx`). The practice pages still work: `/practice` and `/demo` open the practice meeting. `/` is the landing page: it leads to Google sign-in and a new meeting, to the practice meeting, or to a real meeting's join page when someone types its meeting code. Any other path redirects to `/`.
+The web app is one React and Vite application. The product pages are `/signin` (Google sign-in), `/new` (new meeting), `/workspaces/:id` (workspace and tools), `/workspaces/:id/meetings/:meetingId` (meeting history), `/m/:id` (guest join) and `/m/:id/room` (real meeting room) (`web/src/product/`, `web/src/App.tsx`). The practice pages still work: `/practice` open the practice meeting. `/` is the landing page: it leads to Google sign-in and a new meeting, to the practice meeting, or to a real meeting's join page when someone types its meeting code. Any other path redirects to `/`.
 
 The design uses shared colour and type tokens in `web/src/ui/tokens.css` and shared components in `web/src/ui` (`Button`, `Card`, `StatusPill`). The meeting stage takes the most space, private cards sit in the dock beside it, and on a narrow screen the stage stacks above the dock.
 
@@ -172,7 +172,7 @@ Screen map:
 - `/workspaces/:id` lists the workspace's meetings and tools. An admin can connect, test and disconnect tools.
 - `/workspaces/:id/meetings/:meetingId` shows the minutes and to-dos of an ended meeting, with Copy and Download.
 - `/m/:id` is the guest join page, and `/m/:id/room` is the real meeting room.
-- `/practice` and `/demo` open this visitor's own practice meeting. Any other path redirects to `/`.
+- `/practice` open this visitor's own practice meeting. Any other path redirects to `/`.
 
 ### Plan the meeting (front end)
 
@@ -193,7 +193,7 @@ Screen map:
 - The dock carries the role card, the agenda clock, the transcript, the task board, the private Wingman panel and any private task card. `web/src/meeting/room/Dock.tsx`, `web/src/meeting/room/RoleCard.tsx`, `web/src/meeting/room/WingmanPanel.tsx`, `web/src/meeting/room/ActiveRoleCards.tsx`, `web/src/meeting/room/MeetingPanel.tsx`
 - The real meeting bar has microphone and camera controls, Off the record, Invite, People and Leave, plus End for everyone (owner or admin). An off-the-record banner shows while the room is off the record. `web/src/meeting/room/RealMeetingBar.tsx`, `web/src/meeting/room/RealRoomOverlays.tsx`
 - Microphone and speaker controls show a live level. A phone can tap to start playback when the browser blocks it. `web/src/meeting/room/MediaPreview.tsx`, `web/src/meeting/room/AudioUnlock.tsx`
-- Narrow screens put the stage above the dock and keep the meeting controls at the bottom. `web/src/meeting/room/demo.css`
+- Narrow screens put the stage above the dock and keep the meeting controls at the bottom. `web/src/meeting/room/practice.css`
 - One hook holds the WebSocket connection, the event window, the task list and the send function. `web/src/kaki/useKaki.ts`
 
 ### After the meeting (front end)
@@ -204,7 +204,7 @@ Screen map:
 
 ### Practise alone
 
-- `/practice` and `/demo` open a meeting where AI colleagues fill the other seats. The visitor takes part by speaking, and the AI stops when interrupted. `web/src/meeting/room/Meeting.tsx`
+- `/practice` open a meeting where AI colleagues fill the other seats. The visitor takes part by speaking, and the AI stops when interrupted. `web/src/meeting/room/Meeting.tsx`
 
 ## Back-end features
 
@@ -272,7 +272,7 @@ Screen map:
 | Controlled forms and validation | `web/src/meeting/room/JoinForm.tsx`, `web/src/product/NewMeetingPage.tsx` | Submit stays disabled until required fields are valid, and the server's refusal appears next to the form. |
 | Error boundary | `web/src/meeting/room/ErrorBoundary.tsx`, used in `Dock` | A broken card shows an error instead of taking down the meeting page. |
 | LiveKit React components | `LiveKitRoom`, `useTracks`, `ParticipantTile`, `RoomAudioRenderer`, `useRoomContext` from `@livekit/components-react` | The room, tiles and audio renderer come from the LiveKit React package. |
-| Plain CSS | `web/src/ui/tokens.css`, `web/src/ui/ui.css`, `web/src/meeting/room/demo.css`, `web/src/product/product.css` | Shared colour and type tokens keep the pages uniform, and media queries restack the meeting room on a phone. |
+| Plain CSS | `web/src/ui/tokens.css`, `web/src/ui/ui.css`, `web/src/meeting/room/practice.css`, `web/src/product/product.css` | Shared colour and type tokens keep the pages uniform, and media queries restack the meeting room on a phone. |
 | Vite dev server with proxy | `web/vite.config.ts` | `/api`, `/health`, `/ws` and `/dev` reach the Kaki server during development, and only this machine may call `/dev`. |
 
 Kaki uses React 19, React Router 7 and Vite 8.
@@ -333,9 +333,9 @@ npm start
 
 `npm start` installs dependencies if `node_modules` is missing, starts the seven Docker containers, seeds the **Nanyang Kopi & Toast (`kopitiam`)** scenario into Postgres, Wiki.js, Gitea, Mattermost, Mailpit and Radicale Calendar, indexes the knowledge chunks into pgvector, starts the Kaki server on port 3001, the Vite web app on port 5173 and the AI runner, then runs the preflight. It stops with the exact fix if Docker is not running, `.env` is missing or a required key is empty. The seed generates the Gitea and Mattermost tokens in `docker/.env`, and `npm start` passes them to Kaki.
 
-Open `http://localhost:5173` in Chrome. The practice meeting is at `/practice` and `/demo`; the product pages are `/signin`, `/new` and `/workspaces/:id`.
+Open `http://localhost:5173` in Chrome. The practice meeting is at `/practice`; the product pages are `/signin`, `/new` and `/workspaces/:id`.
 
-To use the product pages locally, set `KAKI_AUTH=1`, `KAKI_GOOGLE_CLIENT_ID`, `KAKI_GOOGLE_CLIENT_SECRET` and `KAKI_PUBLIC_URL` (the address Google returns to), set `KAKI_SERVICE_TOKEN` so the AI runner can reach the meeting, and set `KAKI_SECRET_KEY` to 32 random bytes, base64-encoded, so a workspace can store tool logins. `KAKI_MAX_OPEN_MEETINGS` caps how many meetings run at once (default 10). `npm start` wires `POSTGRES_URL` from `docker/.env`.
+To use the product pages locally, set `KAKI_AUTH=1`, `KAKI_GOOGLE_CLIENT_ID`, `KAKI_GOOGLE_CLIENT_SECRET` and `KAKI_PUBLIC_URL` (the address Google returns to), set `KAKI_SERVICE_TOKEN` so the AI runner can reach the meeting, and set `KAKI_SECRET_KEY` to 32 random bytes, base64-encoded, so a workspace can store tool logins. `KAKI_MAX_OPEN_MEETINGS` caps how many meetings run at once (default 10); practice meetings count toward it, so real meetings keep `KAKI_MAX_OPEN_MEETINGS − KAKI_MAX_PRACTICE` slots. `npm start` wires `POSTGRES_URL` from `docker/.env`.
 
 
 ```bash

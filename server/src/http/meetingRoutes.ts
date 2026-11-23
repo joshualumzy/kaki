@@ -6,8 +6,8 @@ import { handleGetSetup, handleGetSetupTools, handleImportCalendar, handlePutSet
 
 /**
  * Every route one meeting answers. The access check runs once, before any handler, and an unlisted
- * path is a 404. The app serves these under `/api` for the legacy instance and under
- * `/api/meetings/:id` for every other one, so the handlers and access levels are exactly shared.
+ * path is a 404. The app serves these under `/api/meetings/:id` for every meeting, so the handlers
+ * and access levels are exactly shared.
  */
 export function buildMeetingRouteTable({ devRoutes }: { devRoutes: boolean }): RoutedRoute[] {
   const routes: RoutedRoute[] = [

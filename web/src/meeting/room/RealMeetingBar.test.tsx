@@ -33,7 +33,7 @@ vi.mock('./realRoom', () => ({
   }),
 }));
 
-vi.mock('../MeetingOverlays', () => ({
+vi.mock('../QrCode', () => ({
   QrCode: ({ value }: { value: string }) => <div data-testid="qr" data-value={value} />,
 }));
 

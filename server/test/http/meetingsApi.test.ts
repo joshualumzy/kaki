@@ -5,7 +5,6 @@ import { createApp, type CreateAppOptions, type KakiApp } from '../../src/app';
 import { createAuth, type Auth } from '../../src/auth/module';
 import { hashToken } from '../../src/auth/password';
 import { createMemoryAuthStore, type AuthStore, type UserRecord } from '../../src/auth/store';
-import { createMeetingCodeSource } from '../../src/meeting/meetingCode';
 import { createMemoryMeetingStore } from '../../src/meeting/registry';
 import { SAMPLE_WORKSPACE_ID } from '../../src/workspace/constants';
 import { testScenario } from '../fixtures/scenario';
@@ -48,14 +47,12 @@ async function buildApp(
   meetings: ReturnType<typeof createMemoryMeetingStore>;
 }> {
   const store = createMemoryAuthStore();
-  const meetingCode = createMeetingCodeSource('K7M2Q9');
-  const auth = createAuth({ store, meetingCode });
+  const auth = createAuth({ store});
   const meetings = createMemoryMeetingStore();
   const app = await createApp({
     scenario: testScenario,
     speechRecognition: 'browser',
     auth,
-    meetingCode,
     meetings,
     ...options,
   });
@@ -281,8 +278,10 @@ describe('meetings API', () => {
       guestId: expect.any(String),
     });
     expect(await auth.resolvePrincipal(fakeRequest(cookie!), meetingB.id)).toBeUndefined();
-    // A guest is not a legacy-meeting participant either.
-    expect((await request(base, '/api/setup', { cookie: cookie! })).status).toBe(401);
+    // A guest does not reach the meeting's owner setup either.
+    expect(
+      (await request(base, `/api/meetings/${meetingA.id}/setup`, { cookie: cookie! })).status,
+    ).toBe(401);
   });
 
   it('lets a signed-in user join without a name and without a guest session', async () => {

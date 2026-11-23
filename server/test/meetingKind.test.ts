@@ -6,10 +6,8 @@ import { createAuth } from '../src/auth/module';
 import { hashPassword, hashToken } from '../src/auth/password';
 import { createMemoryAuthStore } from '../src/auth/store';
 import { loadScenario } from '../src/core/loadScenario';
-import { createMeetingCodeSource } from '../src/meeting/meetingCode';
 import { meetingPath, openRealMeeting, portOf } from './helpers';
 
-const CODE = 'K7M2Q9';
 const TOKEN = 'local-test-runner-token';
 const HOST_EMAIL = 'host@example.com';
 const HOST_PASSWORD = 'host-password';
@@ -52,7 +50,6 @@ async function openModeApp(options: { roomRoster?: () => Promise<Array<{ name: s
     speechRecognition: 'browser',
     scenario: pack,
     roomRoster: options.roomRoster ?? (async () => []),
-    meetingCode: createMeetingCodeSource(CODE),
     rejoinGraceMs: 60_000,
     rejoinPollMs: 20,
   });
@@ -67,17 +64,14 @@ async function authModeApp(options: { roomRoster?: () => Promise<Array<{ name: s
 }> {
   const store = createMemoryAuthStore();
   await store.createUser({ email: HOST_EMAIL, passwordHash: await hashPassword(HOST_PASSWORD) });
-  const meetingCode = createMeetingCodeSource(CODE);
   const auth = createAuth({
     store,
     offeredRoles: () => joinSeatRoles(pack).map((role) => role.id),
-    meetingCode,
   });
   const app = await createApp({
     speechRecognition: 'browser',
     scenario: pack,
     auth,
-    meetingCode,
     serviceToken: TOKEN,
     roomRoster: options.roomRoster ?? (async () => []),
     rejoinGraceMs: 60_000,
@@ -155,30 +149,6 @@ describe('one practice meeting per visitor', () => {
       (await request(port, `/api/meetings/${meetingId}/meeting/participants`, 'GET', undefined, cookie)).status,
     ).toBe(403);
     expect(app.registry.findPractice(meetingId)?.session.holders()).toHaveLength(1);
-  });
-});
-
-describe('the legacy demo meeting', () => {
-  it('refuses a plain join until the owner opens, then records the meeting as real', async () => {
-    const { app, port } = await openModeApp();
-
-    const refused = await request(port, '/api/livekit/token', 'POST', {
-      participantName: 'Alice',
-      participantRole: 'operations_director',
-    });
-    expect(refused.status).toBe(409);
-    expect(((await refused.json()) as { error: string }).error).toBe(
-      'No team meeting is open right now. Ask the meeting owner for the invite link.',
-    );
-
-    expect((await request(port, '/api/meeting/open', 'POST')).status).toBe(200);
-    const legacy = await request(port, '/api/livekit/token', 'POST', {
-      participantName: 'Alice',
-      participantRole: 'operations_director',
-    });
-    expect(legacy.status).toBe(200);
-    expect(((await legacy.json()) as { started: boolean }).started).toBe(false);
-    expect(app.session.kind()).toBe('real');
   });
 });
 

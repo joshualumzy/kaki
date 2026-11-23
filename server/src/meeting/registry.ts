@@ -115,7 +115,6 @@ export interface MeetingRegistry {
 }
 
 interface MeetingRegistryDeps {
-  legacy: MeetingInstance;
   store: MeetingStore;
   /** Build an instance from its row; persistence is already loaded for it. */
   buildInstance(row: MeetingRow, persistence: MeetingPersistence | undefined): Promise<MeetingInstance>;
@@ -127,9 +126,8 @@ interface MeetingRegistryDeps {
   findSavedIdByCode?(code: string): Promise<string | undefined>;
   maxOpen?: number;
   /**
-   * How many practice meetings may be open at once. Practice and the always-open legacy room take
-   * slots from `maxOpen`, so real meetings keep `maxOpen - maxPractice - 1` while the legacy room
-   * exists; removing it leaves `maxOpen - maxPractice`.
+   * How many practice meetings may be open at once. Practice and real meetings share `maxOpen`, so
+   * real meetings keep `maxOpen - maxPractice` slots.
    */
   maxPractice?: number;
   /** How many real meetings one owner may keep open at once. */
@@ -169,9 +167,6 @@ function positiveEnvNumber(name: string, fallback: number): number {
   }
   return value;
 }
-
-/** The registry key of the one legacy practice instance. */
-export const LEGACY_MEETING_ID = 'meeting';
 
 /** Generate a meeting id: 22 base64url characters from 128 random bits. */
 export function newMeetingId(): string {
@@ -221,7 +216,7 @@ export function createMeetingRegistry(deps: MeetingRegistryDeps): MeetingRegistr
   /** An ended instance stays loaded for its room and minutes, but it holds no open slot. */
   const isEnded = (instance: MeetingInstance): boolean => instance.session.phase() === 'ended';
   const openCount = (): number =>
-    [...loaded.values()].filter((instance) => !isEnded(instance)).length + 1; // the legacy instance is always open
+    [...loaded.values()].filter((instance) => !isEnded(instance)).length;
   const practiceCount = (): number =>
     [...loaded.values()].filter((instance) => instance.runnerKind === 'practice' && !isEnded(instance))
       .length;
@@ -363,7 +358,6 @@ export function createMeetingRegistry(deps: MeetingRegistryDeps): MeetingRegistr
     },
 
     async get(id) {
-      if (id === LEGACY_MEETING_ID) return deps.legacy;
       const open = loaded.get(id);
       if (open !== undefined) return open;
       const pending = loading.get(id);
@@ -386,7 +380,7 @@ export function createMeetingRegistry(deps: MeetingRegistryDeps): MeetingRegistr
         }
       }
       const savedId = await deps.findSavedIdByCode?.(wanted);
-      if (savedId === undefined || savedId === LEGACY_MEETING_ID) return undefined;
+      if (savedId === undefined) return undefined;
       // A loaded meeting's code is the one it holds now; a stale saved copy must not match.
       const open = loaded.get(savedId);
       if (open !== undefined && normalizeMeetingCode(open.meetingCode()) !== wanted) return undefined;
@@ -461,7 +455,6 @@ export function createMeetingRegistry(deps: MeetingRegistryDeps): MeetingRegistr
       }
       const failed: string[] = [];
       for (const row of byId.values()) {
-        if (row.id === LEGACY_MEETING_ID) continue;
         const instance = loaded.get(row.id);
         // Try every step for every row, then report what failed: one bad meeting must not stop
         // the others from ending cleanly.
@@ -513,9 +506,6 @@ export function createMeetingRegistry(deps: MeetingRegistryDeps): MeetingRegistr
     },
 
     async unload(id) {
-      if (id === LEGACY_MEETING_ID) {
-        throw new Error('the legacy practice meeting cannot be unloaded');
-      }
       const instance = loaded.get(id);
       if (instance === undefined) return;
       await closeInstance(instance);
@@ -526,7 +516,7 @@ export function createMeetingRegistry(deps: MeetingRegistryDeps): MeetingRegistr
     },
 
     openMeetings() {
-      return [openMeeting(deps.legacy), ...[...loaded.values()].map(openMeeting)];
+      return [...loaded.values()].map(openMeeting);
     },
 
     async close() {

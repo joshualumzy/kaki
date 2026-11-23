@@ -4,7 +4,6 @@ import { createAuth } from '../src/auth/module';
 import { hashToken } from '../src/auth/password';
 import { createMemoryAuthStore } from '../src/auth/store';
 import { createMemoryMeetingStore } from '../src/meeting/registry';
-import { createMeetingCodeSource } from '../src/meeting/meetingCode';
 import { createWikiModule } from '../src/action/wiki';
 import { createTestApp, portOf, waitFor } from './helpers';
 
@@ -17,11 +16,9 @@ afterEach(async () => {
 async function appWithPracticeMinutes() {
   const authStore = createMemoryAuthStore();
   const meetings = createMemoryMeetingStore();
-  const meetingCode = createMeetingCodeSource('K7M2Q9');
-  const auth = createAuth({ store: authStore, offeredRoles: () => [], meetingCode });
+  const auth = createAuth({ store: authStore, offeredRoles: () => []});
   const app = await createTestApp({
     auth,
-    meetingCode,
     meetings,
     practiceModules: () => ({ modules: [createWikiModule({ minutesDelayMs: 5 })] }),
   });

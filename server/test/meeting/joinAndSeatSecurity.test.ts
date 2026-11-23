@@ -18,7 +18,6 @@ import {
   openRealMeeting,
   portOf,
   settle,
-  waitFor,
   type TestMeeting,
 } from '../helpers';
 
@@ -101,39 +100,6 @@ function waitForClose(socket: WebSocket): Promise<number> {
   return new Promise((resolve) => socket.once('close', (code) => resolve(code)));
 }
 
-function connectLegacy(
-  port: number,
-  role: string,
-  options: { cookie?: string; authorization?: string } = {},
-): Promise<ConnectResult> {
-  const headers: Record<string, string> = {};
-  if (options.cookie !== undefined) headers.cookie = options.cookie;
-  if (options.authorization !== undefined) headers.authorization = options.authorization;
-  const ws = new WebSocket(
-    `ws://127.0.0.1:${port}/ws?role=${encodeURIComponent(role)}`,
-    Object.keys(headers).length === 0 ? undefined : { headers },
-  );
-  return new Promise((resolve) => {
-    let settled = false;
-    ws.once('open', () => {
-      if (settled) return;
-      settled = true;
-      resolve({ ok: true, ws });
-    });
-    ws.once('unexpected-response', (_request, response) => {
-      if (settled) return;
-      settled = true;
-      response.resume();
-      resolve({ ok: false, status: response.statusCode ?? 0 });
-    });
-    ws.once('error', () => {
-      if (settled) return;
-      settled = true;
-      resolve({ ok: false, status: 0 });
-    });
-  });
-}
-
 /** A scenario with every kind of private material the projection must withhold. */
 function privateScenario(): Scenario {
   return {
@@ -171,32 +137,6 @@ function privateScenario(): Scenario {
         agenda: 'Keep the kitchen running.',
         concerns: [],
         hiddenGoal: 'npc hidden goal',
-      },
-    ],
-  };
-}
-
-/** A startable, AI-free meeting carrying private cards, for host seat powers. */
-function hostSeatScenario(): Scenario {
-  return {
-    ...testScenario,
-    roles: [
-      {
-        id: 'chef',
-        label: 'Chef',
-        card: { youAre: 'You run the kitchen.', facts: ['chef card secret'], responsibility: 'You order stock.' },
-      },
-      {
-        id: 'cashier',
-        label: 'Cashier',
-        card: { youAre: 'You run the till.', facts: ['cashier card secret'], responsibility: 'You count the float.' },
-      },
-    ],
-    agenda: [
-      {
-        ...testScenario.agenda[0]!,
-        directions: ['hidden direction'],
-        seatFacts: { chef: 'chef seat secret', cashier: 'cashier seat secret' },
       },
     ],
   };
@@ -262,7 +202,6 @@ describe('security round 2', () => {
     const auth = createAuth({
       store,
       offeredRoles: () => ['chef', 'cashier'],
-      meetingCode,
       ...(secureCookies === undefined ? {} : { secureCookies }),
       ...(verifyPassword === undefined ? {} : { verifyPassword }),
     });
@@ -271,7 +210,6 @@ describe('security round 2', () => {
         speechRecognition: 'browser',
         scenario,
         auth,
-        meetingCode,
         roomRoster: roomRoster ?? (async () => []),
         ...(serviceToken === undefined ? {} : { serviceToken }),
         ...(rejoinGraceMs === undefined ? {} : { rejoinGraceMs }),
@@ -299,23 +237,12 @@ describe('security round 2', () => {
     });
   }
 
-  async function signInAsHost(app: KakiApp): Promise<string> {
-    const response = await post(app, '/api/auth/login', { email: HOST_EMAIL, password: HOST_PASSWORD });
-    expect(response.status).toBe(200);
-    return cookieFrom(response);
-  }
-
-  async function meetingState(app: KakiApp): Promise<{ meetingId: string }> {
-    return (await (await get(app, '/api/meeting/state')).json()) as { meetingId: string };
-  }
-
   async function meetingAuthApp(
     options: { serviceToken?: string } = {},
   ): Promise<{ app: KakiApp; store: AuthStore }> {
     const store = createMemoryAuthStore();
     await store.createUser({ email: HOST_EMAIL, passwordHash: await hashPassword(HOST_PASSWORD) });
-    const meetingCode = createMeetingCodeSource(MEETING_CODE);
-    const auth = createAuth({ store, offeredRoles: () => ['chef', 'cashier'], meetingCode });
+    const auth = createAuth({ store, offeredRoles: () => ['chef', 'cashier']});
     const app = track(
       await createTestApp({
         auth,
@@ -394,251 +321,6 @@ describe('security round 2', () => {
     }
   });
 
-  it('refuses a stranger before resetting an empty meeting when auth is on', async () => {
-    const { app } = await authApp({ roomRoster: async () => [] });
-    const before = await meetingState(app);
-
-    for (const meetingCode of [undefined, 'WRONG1']) {
-      const response = await post(app, '/api/livekit/token', {
-        participantName: 'Mallory',
-        participantRole: 'chef',
-        ...(meetingCode === undefined ? {} : { meetingCode }),
-      });
-      expect(response.status).toBe(409);
-      const body = (await response.json()) as { error?: string; meetingCode?: unknown; token?: unknown };
-      expect(body.error).toMatch(/No team meeting is open right now/);
-      expect(body.meetingCode).toBeUndefined();
-      expect(body.token).toBeUndefined();
-      expect(await meetingState(app)).toEqual(before);
-    }
-  });
-
-  it('admits a code holder as the first person into a fresh meeting with auth on', async () => {
-    const { app, meetingCode } = await authApp({ roomRoster: async () => [] });
-    const host = await signInAsHost(app);
-    expect((await post(app, '/api/meeting/open', {}, host)).status).toBe(200);
-    const before = await meetingState(app);
-    const codeBefore = meetingCode.value;
-
-    const participant = await post(app, '/api/livekit/token', {
-      participantName: 'Ada',
-      participantRole: 'chef',
-      meetingCode: MEETING_CODE,
-    });
-    expect(participant.status).toBe(200);
-    const body = (await participant.json()) as { meetingCode: string; resumed?: boolean };
-    expect(body.meetingCode).toBe(codeBefore);
-    expect(body.resumed).toBe(false);
-    // The first arrival keeps the generation that phones already joined under.
-    expect((await meetingState(app)).meetingId).toBe(before.meetingId);
-  });
-
-  it('refuses a code holder once a meeting has run and the grace has passed, then the host starts the next', async () => {
-    const { app, meetingCode } = await authApp({
-      roomRoster: async () => [],
-      rejoinGraceMs: 20,
-      rejoinPollMs: 5,
-      admissionReservationMs: 20,
-    });
-    const host = await signInAsHost(app);
-    expect((await post(app, '/api/meeting/open', {}, host)).status).toBe(200);
-    const seated = await post(
-      app,
-      '/api/livekit/token',
-      { participantName: 'Ada', participantRole: 'chef' },
-      host,
-    );
-    expect(seated.status).toBe(200);
-    const seatHost = cookieFrom(seated);
-    expect((await post(app, '/api/meeting/start', {}, seatHost)).status).toBe(200);
-    const codeBefore = meetingCode.value;
-
-    // Everyone has left and the room poll's grace has expired.
-    await settle(80);
-    const before = await meetingState(app);
-
-    const guest = await post(app, '/api/livekit/token', {
-      participantName: 'Mallory',
-      participantRole: 'cashier',
-      meetingCode: MEETING_CODE,
-    });
-    expect(guest.status).toBe(409);
-    expect(((await guest.json()) as { error: string }).error).toMatch(/No team meeting is open right now/);
-    expect(await meetingState(app)).toEqual(before);
-    expect(meetingCode.value).toBe(codeBefore);
-
-    // The expired real meeting was released; the owner must open the next one before joining.
-    expect((await post(app, '/api/meeting/open', {}, seatHost)).status).toBe(200);
-    const hosted = await post(
-      app,
-      '/api/livekit/token',
-      { participantName: 'Ada', participantRole: 'chef' },
-      seatHost,
-    );
-    expect(hosted.status).toBe(200);
-    expect((await meetingState(app)).meetingId).not.toBe(before.meetingId);
-  });
-
-  it('leaves rejoin state untouched when it refuses a guest, so a known person still resumes', async () => {
-    let people: Array<{ name: string; role?: string }> = [];
-    const { app, meetingCode } = await authApp({
-      roomRoster: async () => people,
-      rejoinGraceMs: 20,
-      rejoinPollMs: 60_000,
-      admissionReservationMs: 20,
-    });
-    const host = await signInAsHost(app);
-    expect((await post(app, '/api/meeting/open', {}, host)).status).toBe(200);
-    const hosted = await post(
-      app,
-      '/api/livekit/token',
-      { participantName: 'Ada', participantRole: 'chef' },
-      host,
-    );
-    expect(hosted.status).toBe(200);
-    const seatHost = cookieFrom(hosted);
-
-    // Booth joins a room Ada is already in, so both are known to the meeting.
-    people = [{ name: 'Ada', role: 'chef' }];
-    const known = await post(app, '/api/livekit/token', {
-      participantName: 'Booth',
-      participantRole: 'cashier',
-      meetingCode: MEETING_CODE,
-    });
-    expect(known.status).toBe(200);
-    const knownCookie = cookieFrom(known);
-    expect((await post(app, '/api/meeting/start', {}, seatHost)).status).toBe(200);
-    const codeBefore = meetingCode.value;
-    const before = await meetingState(app);
-
-    // They both left, but no poll saw the empty room yet, so the grace window has not started.
-    people = [];
-    await settle(80);
-
-    const refused = await post(app, '/api/livekit/token', {
-      participantName: 'Mallory',
-      participantRole: 'cashier',
-      meetingCode: MEETING_CODE,
-    });
-    expect(refused.status).toBe(409);
-    expect(await meetingState(app)).toEqual(before);
-    expect(meetingCode.value).toBe(codeBefore);
-
-    // If the refusal had started a grace window, it would have expired by now and Booth would reset.
-    await settle(80);
-    const back = await post(
-      app,
-      '/api/livekit/token',
-      { participantName: 'Booth', participantRole: 'cashier', meetingCode: MEETING_CODE },
-      knownCookie,
-    );
-    expect(back.status).toBe(200);
-    const body = (await back.json()) as { meetingCode: string; resumed?: boolean };
-    expect(body.meetingCode).toBe(codeBefore);
-    expect(body.resumed).toBe(true);
-    expect(await meetingState(app)).toEqual(before);
-  });
-
-  it('says a seat is being kept when its holder left inside the grace', async () => {
-    const { app } = await authApp({
-      roomRoster: async () => [],
-      rejoinGraceMs: 45_000,
-      rejoinPollMs: 5,
-      admissionReservationMs: 20,
-    });
-    const host = await signInAsHost(app);
-    expect((await post(app, '/api/meeting/open', {}, host)).status).toBe(200);
-    const seated = await post(
-      app,
-      '/api/livekit/token',
-      { participantName: 'Ada', participantRole: 'chef' },
-      host,
-    );
-    expect(seated.status).toBe(200);
-
-    // Ada's tab is gone: no cookie arrives with the retry, but the grace still keeps her seat.
-    const back = await post(app, '/api/livekit/token', {
-      participantName: 'Ada',
-      participantRole: 'chef',
-      meetingCode: MEETING_CODE,
-    });
-    expect(back.status).toBe(409);
-    const error = ((await back.json()) as { error: string }).error;
-    expect(error).toContain('being kept for someone who just left');
-    expect(error).toContain('45 seconds');
-  });
-
-  it('says a seat is being kept on the phone join route too', async () => {
-    const { app } = await authApp({
-      roomRoster: async () => [],
-      rejoinGraceMs: 120_000,
-      rejoinPollMs: 5,
-      admissionReservationMs: 20,
-    });
-    const host = await signInAsHost(app);
-    expect((await post(app, '/api/meeting/open', {}, host)).status).toBe(200);
-    const seated = await post(
-      app,
-      '/api/livekit/token',
-      { participantName: 'Ada', participantRole: 'chef' },
-      host,
-    );
-    expect(seated.status).toBe(200);
-
-    // The poll sees the room empty: the grace starts and keeps Ada's seat for her.
-    await settle(50);
-    const back = await post(app, '/api/join', { code: MEETING_CODE, role: 'chef' });
-    expect(back.status).toBe(409);
-    const error = ((await back.json()) as { error: string }).error;
-    expect(error).toContain('being kept for someone who just left');
-    expect(error).toContain('2 minutes');
-  });
-
-  it('uses one atomic seat record for participants and the host’s seat', async () => {
-    const { app } = await authApp({
-      scenario: hostSeatScenario(),
-      roomRoster: async () => [{ name: 'Hosty', role: 'cashier' }],
-    });
-    const host = await signInAsHost(app);
-    expect((await post(app, '/api/meeting/open', {}, host)).status).toBe(200);
-    const hostSeated = await post(
-      app,
-      '/api/livekit/token',
-      { participantName: 'Ada', participantRole: 'chef', meetingCode: MEETING_CODE },
-      host,
-    );
-    expect(hostSeated.status).toBe(200);
-    const seatHost = cookieFrom(hostSeated);
-
-    const otherJoin = await post(app, '/api/join', { code: MEETING_CODE, role: 'chef' });
-    expect(otherJoin.status).toBe(409);
-    const otherToken = await post(app, '/api/livekit/token', {
-      participantName: 'Other',
-      participantRole: 'chef',
-      meetingCode: MEETING_CODE,
-    });
-    expect(otherToken.status).toBe(409);
-
-    const rejoin = await post(
-      app,
-      '/api/livekit/token',
-      { participantName: 'Ada', participantRole: 'chef', meetingCode: MEETING_CODE },
-      seatHost,
-    );
-    expect(rejoin.status).toBe(200);
-  });
-
-  it('lets only one of two simultaneous joins take the same seat', async () => {
-    const { app } = await authApp();
-    const host = await signInAsHost(app);
-    expect((await post(app, '/api/meeting/open', {}, host)).status).toBe(200);
-    const [first, second] = await Promise.all([
-      post(app, '/api/join', { code: MEETING_CODE, role: 'chef' }),
-      post(app, '/api/join', { code: MEETING_CODE, role: 'chef' }),
-    ]);
-    expect([first.status, second.status].sort()).toEqual([200, 409]);
-  });
-
   it('drops a host seat grant when the meeting rotates but keeps host powers', async () => {
     const { app, store } = await meetingAuthApp();
     const { meeting, owner } = await openMeeting(app, store);
@@ -674,36 +356,6 @@ describe('security round 2', () => {
     if (!oldSeatFeed.ok) expect(oldSeatFeed.status).toBe(401);
   });
 
-  it('closes sockets authorized by a host session that is swapped for a seat session', async () => {
-    const { app } = await authApp({
-      scenario: hostSeatScenario(),
-      roomRoster: async () => [{ name: 'Hosty', role: 'cashier' }],
-    });
-    const host = await signInAsHost(app);
-    expect((await post(app, '/api/meeting/open', {}, host)).status).toBe(200);
-    const port = portOf(app);
-    const screen = await connectLegacy(port, 'screen', { cookie: host });
-    const lifecycle = await connectLegacy(port, 'lifecycle', { cookie: host });
-    expect(screen.ok && lifecycle.ok).toBe(true);
-    if (!screen.ok || !lifecycle.ok) return;
-    const screenClosed = waitForClose(screen.ws);
-    const lifecycleClosed = waitForClose(lifecycle.ws);
-
-    const seated = await post(
-      app,
-      '/api/livekit/token',
-      { participantName: 'Ada', participantRole: 'chef', meetingCode: MEETING_CODE },
-      host,
-    );
-    expect(seated.status).toBe(200);
-
-    await waitFor(
-      () => (screenClosed !== undefined && lifecycleClosed !== undefined ? true : undefined),
-      'the old host sockets to close',
-    );
-    expect([await screenClosed, await lifecycleClosed]).toEqual([4001, 4001]);
-  });
-
   it('closes a runner socket once its role is no longer played by an AI', async () => {
     const scenario = { ...aiScenario, npcs: [...(aiScenario.npcs ?? [])] };
     const app = await createPracticeTestApp({ scenario, serviceToken: 'runner-secret' });
@@ -727,46 +379,39 @@ describe('security round 2', () => {
   });
 
   it('refuses auth-on startup without an https public URL on a public bind', async () => {
-    const makeAuth = (code: MeetingCodeSource) =>
-      createAuth({ store: createMemoryAuthStore(), offeredRoles: () => ['chef', 'cashier'], meetingCode: code });
-
-    const code = createMeetingCodeSource(MEETING_CODE);
-    const auth = makeAuth(code);
-    await expect(createApp({ speechRecognition: 'browser', scenario: testScenario, host: '0.0.0.0', auth, meetingCode: code })).rejects.toThrow(
+    const makeAuth = () =>
+      createAuth({ store: createMemoryAuthStore(), offeredRoles: () => ['chef', 'cashier'] });
+    const auth = makeAuth();
+    await expect(createApp({ speechRecognition: 'browser', scenario: testScenario, host: '0.0.0.0', auth})).rejects.toThrow(
       /KAKI_PUBLIC_URL/,
     );
     await auth.close();
 
     vi.stubEnv('KAKI_PUBLIC_URL', 'http://kaki.example');
-    const httpCode = createMeetingCodeSource(MEETING_CODE);
-    const httpAuth = makeAuth(httpCode);
+    const httpAuth = makeAuth();
     await expect(
-      createApp({ speechRecognition: 'browser', scenario: testScenario, host: '0.0.0.0', auth: httpAuth, meetingCode: httpCode }),
+      createApp({ speechRecognition: 'browser', scenario: testScenario, host: '0.0.0.0', auth: httpAuth}),
     ).rejects.toThrow(/KAKI_PUBLIC_URL/);
     await httpAuth.close();
 
     vi.stubEnv('KAKI_ALLOW_OPEN', '1');
-    const allowedCode = createMeetingCodeSource(MEETING_CODE);
-    const allowedAuth = makeAuth(allowedCode);
+    const allowedAuth = makeAuth();
     const allowed = await createApp({
       speechRecognition: 'browser',
       scenario: testScenario,
       host: '0.0.0.0',
       auth: allowedAuth,
-      meetingCode: allowedCode,
     });
     await allowed.close();
 
     vi.unstubAllEnvs();
     vi.stubEnv('KAKI_PUBLIC_URL', 'https://kaki.example');
-    const httpsCode = createMeetingCodeSource(MEETING_CODE);
-    const httpsAuth = makeAuth(httpsCode);
+    const httpsAuth = makeAuth();
     const https = await createApp({
       speechRecognition: 'browser',
       scenario: testScenario,
       host: '0.0.0.0',
       auth: httpsAuth,
-      meetingCode: httpsCode,
     });
     await https.close();
   });

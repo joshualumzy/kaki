@@ -194,11 +194,7 @@ function useKakiLinks(feeds: readonly KakiAudience[] | undefined): ReadonlyMap<s
 
     function query(audience: KakiAudience): string {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const meetingQuery =
-        meetingId === undefined || meetingId === ''
-          ? ''
-          : `&meeting=${encodeURIComponent(meetingId)}`;
-      return `${protocol}//${window.location.host}/ws?${channelQuery(audience)}${meetingQuery}`;
+      return `${protocol}//${window.location.host}/ws?${channelQuery(audience)}&meeting=${encodeURIComponent(meetingId)}`;
     }
 
     function stop(runtime: FeedRuntime): void {

@@ -9,7 +9,6 @@ import { createAgendaClock } from '../src/host/clock';
 import { createMeetingModule } from '../src/host/meeting';
 import { createFakeLlm } from '../src/services/llm';
 import { loadScenario } from '../src/core/loadScenario';
-import { createMeetingCodeSource } from '../src/meeting/meetingCode';
 import { SAMPLE_WORKSPACE_ID } from '../src/workspace/constants';
 import {
   createPracticeTestApp,
@@ -595,8 +594,7 @@ describe('human-line security with sign-in on', () => {
       expiresAt: new Date(Date.now() + 60_000),
     });
     const host = `kaki_session=${token}`;
-    const meetingCode = createMeetingCodeSource('');
-    const auth = createAuth({ store, meetingCode });
+    const auth = createAuth({ store});
     const clock = createAgendaClock({ agenda: testScenario.agenda });
     let people: Array<{ name: string }> = [];
     const app = await createRealTestApp(

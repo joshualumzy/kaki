@@ -11,7 +11,6 @@ import { createMemoryAuthStore, type AuthStore, type UserRecord } from '../../sr
 import type { MeetingPauseControl } from '../../src/host';
 import { createAgendaClock } from '../../src/host/clock';
 import { createMeetingModule } from '../../src/host/meeting';
-import { createMeetingCodeSource } from '../../src/meeting/meetingCode';
 import { createRunnerClient } from '../../src/npc/runnerClient';
 import { testScenario } from '../fixtures/scenario';
 import {
@@ -27,7 +26,6 @@ import {
 } from '../helpers';
 import { createPostgresTestSchema, type PostgresTestSchema } from '../postgresTestSchema';
 
-const code = 'K7M2Q9';
 const serviceToken = 'local-test-runner-token';
 const connectionString = process.env.POSTGRES_URL;
 
@@ -133,8 +131,7 @@ for (const kind of ['memory', 'postgres'] as const) {
         store = createMemoryAuthStore();
       }
       const owner = await signInGoogle(store, 'Demo');
-      const meetingCode = createMeetingCodeSource(code);
-      const auth = createAuth({ store, offeredRoles: () => ['chef', 'cashier', 'manager'], meetingCode, secureCookies: true });
+      const auth = createAuth({ store, offeredRoles: () => ['chef', 'cashier', 'manager'], secureCookies: true });
       const roster: Array<{ name: string; role: string }> = [];
       const clock = createAgendaClock({ agenda: scenario.agenda });
       const pause: MeetingPauseControl = {

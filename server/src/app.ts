@@ -2,7 +2,7 @@ import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import { createServer } from 'node:http';
 import type { Duplex } from 'node:stream';
 import { WebSocketServer, WebSocket } from 'ws';
-import { type MeetingMemoryEntry, type Scenario } from '@kaki/shared';
+import type { Scenario } from '@kaki/shared';
 import {
   assertSafeBind,
   assertSafeMattermost,
@@ -18,19 +18,9 @@ import type { CalendarSettings } from './action/calendar';
 import type { ActionToolOptions } from './action/tools';
 import type { Auth } from './auth/module';
 import { createAttemptLimiter } from './http/attemptLimiter';
-import type { Hub } from './core/hub';
 import { createIdleTracker, type IdleTracker } from './core/idle';
-import type { KakiModule } from './core/modules';
 import type { MeetingPersistence } from './persist/persistence';
-import {
-  createMeetingCodeSource,
-  MEETING_CODE_FAILURE_LIMIT,
-  MEETING_CODE_WINDOW_MS,
-  type MeetingCodeSource,
-} from './meeting/meetingCode';
-import type { MeetingPauseControl } from './host';
-import type { MeetingSession } from './meeting/session';
-import type { TaskStore } from './meeting/tasks';
+import { createMeetingCodeSource, MEETING_CODE_FAILURE_LIMIT, MEETING_CODE_WINDOW_MS } from './meeting/meetingCode';
 import { ADMISSION_RESERVATION_MS, livekitRoster, type RoomRoster } from './services/livekit';
 import { buildMeetingRouteTable } from './http/meetingRoutes';
 import { handleRoutedRequest } from './http/dispatch';
@@ -49,7 +39,6 @@ import {
 } from './account/deleteAccountData';
 import { createMeetingInstance, type MeetingInstance } from './meeting/instance';
 import {
-  LEGACY_MEETING_ID,
   MeetingBusyError,
   createMeetingRegistry,
   createMemoryMeetingStore,
@@ -83,8 +72,6 @@ export interface CreateAppOptions {
    */
   host?: string;
   scenario: Scenario;
-  /** The legacy instance's modules; fresh modules for other meetings come from `meetingModules`. */
-  modules?: KakiModule[];
   devRoutes?: boolean;
   /** Optional sign-in, sessions and WebSocket gating; absent means auth is off. */
   auth?: Auth;
@@ -115,20 +102,7 @@ export interface CreateAppOptions {
   roomRoster?: RoomRoster;
   /** When true, modules may draft and review actions but must never send them to external services. */
   draftOnly?: boolean;
-  /** Seconds since the legacy meeting started, for stamping settled cards with their source time; omit when unknown. */
-  meetingElapsedSeconds?: () => number | undefined;
-  /** The live agenda item, for a reconnecting runner; omit when unknown. */
-  meetingAgendaIndex?: () => number | undefined;
-  /** Whether the server-owned agenda clock is paused, for the runner snapshot. */
-  meetingPaused?: () => boolean | undefined;
-  /**
-   * The server's pause control. When present, the app pauses a running meeting for an empty room
-   * and resumes it when someone returns; a person's explicit Stop stays paused.
-   */
-  meetingPause?: MeetingPauseControl;
-  /** Keeps the legacy meeting, notetaker and tasks across a restart; absent means memory only. */
-  persistence?: MeetingPersistence;
-  /** The saved state of any other meeting, loaded when that meeting first opens. */
+  /** The saved state of a meeting, loaded when that meeting first opens; absent means memory only. */
   persistenceFor?: (id: string) => Promise<MeetingPersistence | undefined>;
   /** Finds the meeting whose saved state holds a code; absent means only loaded meetings can be found by code. */
   findSavedIdByCode?: (code: string) => Promise<string | undefined>;
@@ -142,7 +116,10 @@ export interface CreateAppOptions {
   practiceModules?: () => Partial<MeetingModules> & { modules: MeetingModules['modules'] };
   /** How many meetings may be open at once; defaults to KAKI_MAX_OPEN_MEETINGS or 10. */
   maxOpenMeetings?: number;
-  /** How many practice meetings may be open at once; defaults to KAKI_MAX_PRACTICE or 5. */
+  /**
+   * How many practice meetings may be open at once; defaults to KAKI_MAX_PRACTICE or 5. Practice
+   * counts toward `maxOpenMeetings`, so real meetings keep `maxOpenMeetings - maxPracticeMeetings`.
+   */
   maxPracticeMeetings?: number;
   /** How many real meetings one owner may keep open at once; defaults to KAKI_MAX_OPEN_MEETINGS_PER_USER or 2. */
   maxOpenMeetingsPerUser?: number;
@@ -171,8 +148,6 @@ export interface CreateAppOptions {
   startAckTimeoutMs?: number;
   /** Shared secret the AI runner uses for its service channels; defaults to KAKI_SERVICE_TOKEN. */
   serviceToken?: string;
-  /** The one code shared with phone sign-in; omitted creates one that rotates with the meeting. */
-  meetingCode?: MeetingCodeSource;
   /**
    * Who hears a person's speech: the runner's server-side recogniser (the default) or the browser's.
    * A server-side meeting needs a connected runner even when every seat is a person.
@@ -185,11 +160,6 @@ export interface CreateAppOptions {
 /** A listening Kaki server and the one registry that owns every meeting it serves. */
 export interface KakiApp {
   server: Server;
-  /** The legacy practice instance's hub, kept for existing clients and tests. */
-  hub: Hub;
-  tasks: TaskStore;
-  session: MeetingSession;
-  memory: readonly MeetingMemoryEntry[];
   /** Every route this server serves, each with its mandatory access level. */
   routes: readonly Route[];
   /** The server's view of who is connected and when a person was last active. */
@@ -218,7 +188,6 @@ function buildServerRouteTable({ auth }: { auth: Auth | undefined }): RoutedRout
     { method: 'GET', path: '/api/auth/me', access: 'public', handle: handleAuthRoutes },
     { method: 'GET', path: '/api/auth/google/start', access: 'public', handle: handleAuthRoutes },
     { method: 'GET', path: '/api/auth/google/callback', access: 'public', handle: handleAuthRoutes },
-    { method: 'POST', path: '/api/join', access: 'public', handle: handleAuthRoutes },
     { method: 'DELETE', path: '/api/account', access: 'user', handle: handleDeleteAccount },
     { method: 'GET', path: '/api/workspaces', access: 'user', handle: handleWorkspaces },
     { method: 'POST', path: '/api/workspaces', access: 'user', handle: handleWorkspaces },
@@ -376,15 +345,13 @@ function createRunnerControl({
 }
 
 /**
- * Create the HTTP server and the registry, then open the legacy instance. The legacy instance keeps
- * every unprefixed path and its WebSocket; other meetings live under `/api/meetings/:id` and
- * `/ws?meeting=:id`.
+ * Create the HTTP server and the registry. Every meeting lives under `/api/meetings/:id` and
+ * `/ws?meeting=:id`; `/api/practice` gives one visitor their own practice meeting.
  */
 export async function createApp({
   port = 0,
   host = '127.0.0.1',
   scenario,
-  modules = [],
   devRoutes = false,
   auth,
   calendar,
@@ -396,11 +363,6 @@ export async function createApp({
   workspaceIndexIntervalMs,
   roomRoster = livekitRoster(),
   draftOnly = false,
-  meetingElapsedSeconds,
-  meetingAgendaIndex,
-  meetingPaused,
-  meetingPause,
-  persistence,
   persistenceFor,
   findSavedIdByCode,
   meetings = createMemoryMeetingStore(),
@@ -422,7 +384,6 @@ export async function createApp({
   // A real meeting's runner needs a few seconds to open the room, longer when several open at once.
   startAckTimeoutMs = 20_000,
   serviceToken = process.env.KAKI_SERVICE_TOKEN?.trim(),
-  meetingCode: meetingCodeOption,
   speechRecognition = 'server',
   idleClock,
 }: CreateAppOptions): Promise<KakiApp> {
@@ -454,9 +415,10 @@ export async function createApp({
     (async ({ workspaceId, kind, tools }: { workspaceId: string; kind: WorkspaceToolKind; tools: WorkspaceTools }) => {
       await indexWorkspaceSource({ workspaceId, kind, tools, postgresUrl: requirePostgresUrl() });
     });
-  // The sample is connectionless: refresh its seeded records while its legacy meeting is open.
+  // The sample is connectionless: refresh its seeded records while a meeting in it is open.
   const workspaceIndexScheduler = createWorkspaceIndexScheduler({
     intervalMs: workspaceIndexIntervalMs ?? 30 * 60_000,
+
     async index(workspaceId) {
       if (workspaceId === SAMPLE_WORKSPACE_ID) {
         await indexSampleKnowledge();
@@ -475,18 +437,9 @@ export async function createApp({
       }
     },
   });
-  workspaceIndexScheduler.opened(SAMPLE_WORKSPACE_ID);
   const serverRoutes = buildServerRouteTable({ auth });
-  const legacyRoutes = buildMeetingRouteTable({ devRoutes });
-  // Every prefixed meeting answers the same dev routes under its own id when the app has them on.
-  const newMeetingRoutes = buildMeetingRouteTable({ devRoutes });
-  const meetingCode = meetingCodeOption ?? createMeetingCodeSource();
-  const meetingCodeAttempts =
-    auth?.meetingCodeLimiter ??
-    createAttemptLimiter({
-      limit: MEETING_CODE_FAILURE_LIMIT,
-      windowMs: MEETING_CODE_WINDOW_MS,
-    });
+  // Every meeting answers the same route table under its own id.
+  const meetingRoutes = buildMeetingRouteTable({ devRoutes });
   const guestJoinAttempts = createAttemptLimiter({ limit: 20, windowMs: 60_000 });
   // Paid work: one bucket per endpoint, keyed by both the account and the address that asked.
   const llmRequestLimit = Number.isFinite(llmRequestsPerMinute) && llmRequestsPerMinute > 0 ? llmRequestsPerMinute : 10;
@@ -514,40 +467,6 @@ export async function createApp({
     openMeetings: () => registry.openMeetings(),
   });
 
-  const legacy = await createMeetingInstance({
-    id: LEGACY_MEETING_ID,
-    workspaceId: SAMPLE_WORKSPACE_ID,
-    paths: 'legacy',
-    kind: 'practice',
-    scenario,
-    modules,
-    tools: () => toolSource.toolsFor(SAMPLE_WORKSPACE_ID),
-    routes: legacyRoutes,
-    devRoutes,
-    ...(persistence === undefined ? {} : { persistence }),
-    ...(auth === undefined ? {} : { auth }),
-    ...(serviceToken === undefined ? {} : { serviceToken }),
-    ...(calendar === undefined ? {} : { calendar }),
-    ...(calendarFetch === undefined ? {} : { calendarFetch }),
-    actionTools,
-    roomRoster,
-    draftOnly,
-    meetingCode,
-    meetingCodeAttempts,
-    ...(rejoinGraceMs === undefined ? {} : { rejoinGraceMs }),
-    ...(rejoinPollMs === undefined ? {} : { rejoinPollMs }),
-    ...(emptyRoomPauseMs === undefined ? {} : { emptyRoomPauseMs }),
-    admissionReservationMs,
-    startAckTimeoutMs,
-    ...(meetingElapsedSeconds === undefined ? {} : { meetingElapsedSeconds }),
-    ...(meetingAgendaIndex === undefined ? {} : { meetingAgendaIndex }),
-    ...(meetingPaused === undefined ? {} : { meetingPaused }),
-    ...(meetingPause === undefined ? {} : { meetingPause }),
-    speechRecognition,
-    idle,
-    runnerPresence: runnerControl.presence,
-  });
-
   async function buildRowInstance(
     row: MeetingRow,
     rowPersistence: MeetingPersistence | undefined,
@@ -560,13 +479,12 @@ export async function createApp({
     return createMeetingInstance({
       id: row.id,
       workspaceId: row.workspaceId,
-      paths: 'prefixed',
       kind: 'real',
       scenario,
       meetingRow: row,
       modules: built.modules,
       tools: built.tools ?? (() => toolSource.toolsFor(row.workspaceId)),
-      routes: newMeetingRoutes,
+      routes: meetingRoutes,
       devRoutes,
       ...(rowPersistence === undefined ? {} : { persistence: rowPersistence }),
       ...(auth === undefined ? {} : { auth }),
@@ -615,12 +533,11 @@ export async function createApp({
     return createMeetingInstance({
       id,
       workspaceId: SAMPLE_WORKSPACE_ID,
-      paths: 'prefixed',
       kind: 'practice',
       scenario,
       modules: built.modules,
       tools: () => toolSource.toolsFor(SAMPLE_WORKSPACE_ID),
-      routes: newMeetingRoutes,
+      routes: meetingRoutes,
       devRoutes,
       ...(auth === undefined ? {} : { auth }),
       ...(serviceToken === undefined ? {} : { serviceToken }),
@@ -661,7 +578,6 @@ export async function createApp({
   }
 
   const registry = createMeetingRegistry({
-    legacy,
     store: meetings,
     buildInstance: buildRowInstance,
     buildPracticeInstance,
@@ -723,8 +639,8 @@ export async function createApp({
       return;
     }
 
-    // The only prefixed meeting paths: /api/meetings/:id/<rest> resolves that meeting first, so
-    // its handlers, access levels and principal are never the legacy meeting's.
+    // Every meeting path is prefixed: /api/meetings/:id/<rest> resolves that meeting first, so its
+    // handlers, access levels and principal belong to exactly that meeting.
     const prefixed = /^\/api\/meetings\/([^/]+)(?:\/(.+))?$/.exec(path);
     if (prefixed !== null) {
       const meetingId = decodeURIComponent(prefixed[1] ?? '');
@@ -749,10 +665,6 @@ export async function createApp({
         return;
       }
       await instance.handle(request, response, rest);
-      return;
-    }
-    if (path.startsWith('/api/') || path.startsWith('/dev/')) {
-      await legacy.handle(request, response, path);
       return;
     }
     sendJson(response, 404, { error: 'Not found' });
@@ -780,9 +692,9 @@ export async function createApp({
       return;
     }
     const meetingParam = url.searchParams.get('meeting');
-    // No meeting parameter is the legacy meeting. It is explicit, never a fallback.
+    // A WebSocket always names its meeting; there is no default room to fall back to.
     if (meetingParam === null) {
-      legacy.handleUpgrade(request, socket, head);
+      refuseUpgrade(socket, 404, 'Not Found');
       return;
     }
     let instance: MeetingInstance | undefined;
@@ -813,7 +725,6 @@ export async function createApp({
     await listen(server, port, host);
   } catch (error) {
     workspaceIndexScheduler.close();
-    await legacy.dispose();
     await closeServer(server).catch(() => undefined);
     throw error;
   }
@@ -821,11 +732,7 @@ export async function createApp({
   let closed = false;
   return {
     server,
-    hub: legacy.hub,
-    tasks: legacy.tasks,
-    session: legacy.session,
-    memory: legacy.memory,
-    routes: [...serverRoutes, ...legacyRoutes],
+    routes: [...serverRoutes, ...meetingRoutes],
     idle,
     registry,
     close: async () => {
@@ -833,10 +740,6 @@ export async function createApp({
       closed = true;
       workspaceIndexScheduler.close();
       await registry.close();
-      await legacy.dispose();
-      await persistence?.close().catch((error: unknown) =>
-        console.error('kaki server: the legacy meeting persistence failed to stop', error),
-      );
       await meetings.close?.().catch((error: unknown) =>
         console.error('kaki server: the meetings store failed to stop', error),
       );

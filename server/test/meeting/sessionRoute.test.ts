@@ -1,13 +1,11 @@
 import { KAKI_LISTENER_IDENTITY } from '@kaki/shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
-import { createApp, type KakiApp } from '../../src/app';
+import type { KakiApp } from '../../src/app';
 import { createAgendaClock } from '../../src/host/clock';
 import { createMeetingModule } from '../../src/host/meeting';
 import { loadScenario } from '../../src/core/loadScenario';
-import { createMeetingCodeSource, type MeetingCodeSource } from '../../src/meeting/meetingCode';
 import {
-  connectClient,
   connectMeetingClient,
   createRealTestApp,
   meetingUrl,
@@ -18,7 +16,6 @@ import {
   type TestAppWithMeeting,
   type TestClient,
 } from '../helpers';
-import { testScenario } from '../fixtures/scenario';
 
 const apps: KakiApp[] = [];
 const sockets: WebSocket[] = [];
@@ -31,219 +28,9 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
-interface LegacyStartedMeeting {
-  app: KakiApp;
-  screen: TestClient;
-  people: Array<{ name: string; role?: string }>;
-  meetingCode: MeetingCodeSource;
-  meetingId: string;
-  code: string;
-  taskId: string;
-}
-
-function baseUrl(app: KakiApp): string {
-  return `http://127.0.0.1:${portOf(app)}`;
-}
-
-async function legacyJoin(
-  app: KakiApp,
-  body: { participantName: string; participantRole: string; meetingCode?: string },
-): Promise<Response> {
-  await fetch(`${baseUrl(app)}/api/meeting/open`, { method: 'POST' });
-  return fetch(`${baseUrl(app)}/api/livekit/token`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ roomName: 'test-room', ...body }),
-  });
-}
-
-async function legacyConnectService(port: number): Promise<void> {
-  const socket = new WebSocket(`ws://127.0.0.1:${port}/ws?role=service`);
-  sockets.push(socket);
-  socket.on('message', (data) => {
-    const message = JSON.parse(data.toString()) as {
-      kind?: string;
-      request?: { requestId?: string; attempt?: string; meetingId?: string };
-    };
-    const { requestId, attempt, meetingId } = message.request ?? {};
-    if (message.kind !== 'prepare' || requestId === undefined || attempt === undefined || meetingId === undefined) {
-      return;
-    }
-    socket.send(JSON.stringify({ kind: 'ready', requestId, attempt, meetingId }));
-  });
-  await new Promise<void>((resolve, reject) => {
-    socket.once('open', () => resolve());
-    socket.once('error', reject);
-  });
-}
-
-async function emptyRoom(meeting: LegacyStartedMeeting): Promise<void> {
-  meeting.people.length = 0;
-  // Let the previous join's seat reservation expire, so the room really looks empty to admission.
-  await settle(30);
-}
-
-async function legacyMeetingState(app: KakiApp): Promise<{ meetingId: string; started: boolean }> {
-  return (await (await fetch(`${baseUrl(app)}/api/meeting/state`)).json()) as {
-    meetingId: string;
-    started: boolean;
-  };
-}
-
 function resetCount(client: TestClient): number {
   return client.messages.filter((event) => event.type === 'MEETING_RESET').length;
 }
-
-async function legacyStartedMeeting(): Promise<LegacyStartedMeeting> {
-  const scenario = await loadScenario('kopitiam');
-  const people: Array<{ name: string; role?: string }> = [];
-  const meetingCode = createMeetingCodeSource();
-  const app = await createApp({
-    speechRecognition: 'browser',
-    scenario,
-    meetingCode,
-    roomRoster: async () => people,
-    rejoinGraceMs: 60_000,
-    rejoinPollMs: 60_000,
-    admissionReservationMs: 20,
-    devRoutes: true,
-  });
-  apps.push(app);
-  const port = portOf(app);
-  const screen = await connectClient(port, 'screen');
-  clients.push(screen);
-  await legacyConnectService(port);
-
-  const first = await legacyJoin(app, { participantName: 'Booth Playtest', participantRole: 'operations_director' });
-  expect(first.status).toBe(200);
-  const firstBody = (await first.json()) as { meetingCode: string };
-  people.push({ name: 'Booth Playtest', role: 'operations_director' });
-  expect((await fetch(`${baseUrl(app)}/api/meeting/start`, { method: 'POST' })).status).toBe(200);
-  const task = app.tasks.suggest({
-    title: 'Keep this card',
-    context: 'From the running meeting',
-    suggestedAssignee: 'operations_director',
-  });
-  await settle();
-  const state = await legacyMeetingState(app);
-  expect(state.started).toBe(true);
-
-  screen.messages.length = 0;
-  return {
-    app,
-    screen,
-    people,
-    meetingCode,
-    meetingId: state.meetingId,
-    code: firstBody.meetingCode,
-    taskId: task.id,
-  };
-}
-
-describe('join admission decides before it resets', () => {
-  it('refuses an AI attendee name in a momentarily empty room without wiping the meeting', async () => {
-    const meeting = await legacyStartedMeeting();
-    await emptyRoom(meeting);
-
-    const refused = await legacyJoin(meeting.app, { participantName: 'Sam', participantRole: 'operations_director' });
-    expect(refused.status).toBe(400);
-    expect(((await refused.json()) as { error: string }).error).toMatch(/AI attendee/i);
-
-    expect(await legacyMeetingState(meeting.app)).toMatchObject({
-      meetingId: meeting.meetingId,
-      started: true,
-    });
-    expect(meeting.meetingCode.value).toBe(meeting.code);
-    expect(meeting.app.tasks.get(meeting.taskId)?.title).toBe('Keep this card');
-    await settle();
-    expect(resetCount(meeting.screen)).toBe(0);
-  });
-
-  it('ignores the runner listener when deciding whether the room is empty', async () => {
-    const meeting = await legacyStartedMeeting();
-    await emptyRoom(meeting);
-    // Only the runner's silent listener remains in LiveKit; as far as admission goes, nobody is there.
-    meeting.people.push({ name: KAKI_LISTENER_IDENTITY, role: 'listener' });
-
-    const joined = await legacyJoin(meeting.app, { participantName: 'Guest', participantRole: 'operations_director' });
-    expect(joined.status).toBe(200);
-    expect(((await joined.json()) as { started?: boolean }).started).toBe(false);
-  });
-
-  it('still refuses a wrong code in a non-empty room without resetting', async () => {
-    // Two human seats so the room can be non-empty without the wanted seat being taken.
-    const people: Array<{ name: string; role?: string }> = [];
-    const meetingCode = createMeetingCodeSource();
-    const app = await createApp({
-      speechRecognition: 'browser',
-      scenario: testScenario,
-      meetingCode,
-      roomRoster: async () => people,
-      rejoinGraceMs: 60_000,
-      rejoinPollMs: 60_000,
-      admissionReservationMs: 20,
-    });
-    apps.push(app);
-    const screen = await connectClient(portOf(app), 'screen');
-    clients.push(screen);
-
-    const first = await legacyJoin(app, { participantName: 'Ada', participantRole: 'chef' });
-    expect(first.status).toBe(200);
-    people.push({ name: 'Ada', role: 'chef' });
-    expect((await fetch(`${baseUrl(app)}/api/meeting/start`, { method: 'POST' })).status).toBe(200);
-    const task = app.tasks.suggest({
-      title: 'Keep this card',
-      context: 'From the running meeting',
-      suggestedAssignee: 'chef',
-    });
-    await settle();
-    const state = await legacyMeetingState(app);
-    expect(state.started).toBe(true);
-    const code = meetingCode.value;
-    screen.messages.length = 0;
-
-    const refused = await legacyJoin(app, {
-      participantName: 'Bao',
-      participantRole: 'cashier',
-      meetingCode: 'WRONG1',
-    });
-    expect(refused.status).toBe(403);
-    expect(((await refused.json()) as { needsCode?: boolean }).needsCode).toBe(true);
-
-    expect(await legacyMeetingState(app)).toMatchObject({ meetingId: state.meetingId, started: true });
-    expect(meetingCode.value).toBe(code);
-    expect(app.tasks.get(task.id)?.title).toBe('Keep this card');
-    await settle();
-    expect(resetCount(screen)).toBe(0);
-  });
-
-  it('resets exactly once when a valid stranger joins the empty room', async () => {
-    const meeting = await legacyStartedMeeting();
-    await emptyRoom(meeting);
-    let subscriberResets = 0;
-    const unsubscribe = meeting.app.hub.subscribe((event) => {
-      if (event.type === 'MEETING_RESET') subscriberResets += 1;
-    });
-
-    try {
-      const joined = await legacyJoin(meeting.app, { participantName: 'Guest', participantRole: 'operations_director' });
-      expect(joined.status).toBe(200);
-      const body = (await joined.json()) as { meetingCode: string; started?: boolean };
-      expect(body.started).toBe(false);
-      expect(meeting.app.tasks.get(meeting.taskId)).toBeUndefined();
-
-      await waitForEvent(meeting.screen, (event) => event.type === 'MEETING_RESET', 'the one reset');
-      await settle();
-      expect(resetCount(meeting.screen)).toBe(1);
-      expect(subscriberResets).toBe(1);
-      expect((await legacyMeetingState(meeting.app)).meetingId).not.toBe(meeting.meetingId);
-      expect(body.meetingCode).toBe(meeting.meetingCode.value);
-      expect(body.meetingCode).not.toBe(meeting.code);
-    } finally {
-      unsubscribe();
-    }
-  });
-});
 
 interface RealStartedMeeting {
   app: TestAppWithMeeting;

@@ -5,7 +5,6 @@ import type { CreateAppOptions, KakiApp } from '../../src/app';
 import { createAuth } from '../../src/auth/module';
 import { hashToken } from '../../src/auth/password';
 import { createMemoryAuthStore, type AuthStore } from '../../src/auth/store';
-import { createMeetingCodeSource } from '../../src/meeting/meetingCode';
 import { createMeetingModule } from '../../src/host/meeting';
 import { createMemoryMeetingStore, type MeetingStore } from '../../src/meeting/registry';
 import type { MeetingRow } from '../../src/meeting/types';
@@ -27,7 +26,6 @@ import { testScenario } from '../fixtures/scenario';
 import { createPostgresTestSchema } from '../postgresTestSchema';
 
 const connectionString = process.env.POSTGRES_URL;
-const MEETING_CODE = 'K7M2Q9';
 
 class MemoryStore implements MeetingStateStore {
   saved: StoredMeeting | undefined;
@@ -192,7 +190,6 @@ describe('restoring a real team meeting from its own setup', () => {
     const auth = createAuth({
       store: authStore,
       offeredRoles: () => seats,
-      meetingCode: createMeetingCodeSource(MEETING_CODE),
     });
     const second = createMeetingPersistence({ store, saved: await store.load(), log: () => undefined });
     const app2 = await startApp(meetings, second, { auth });
@@ -266,7 +263,6 @@ describe('restoring a real team meeting from its own setup', () => {
     const auth = createAuth({
       store: authStore,
       offeredRoles: () => seats,
-      meetingCode: createMeetingCodeSource(MEETING_CODE),
     });
     const second = createMeetingPersistence({ store, saved: await store.load(), log: () => undefined });
     const app2 = await startApp(meetings, second, { auth });
@@ -339,7 +335,6 @@ describe.skipIf(connectionString === undefined)('restoring a team meeting from P
       const auth = createAuth({
         store: authStore,
         offeredRoles: () => seats,
-        meetingCode: createMeetingCodeSource(MEETING_CODE),
       });
       const second = createMeetingPersistence({ store, saved: await store.load(), log: () => undefined });
       const app2 = await startApp(meetings, second, { auth });

@@ -225,7 +225,7 @@ export function createWingmanModule(options: WingmanModuleOptions = {}): KakiMod
       let unknownGuestWarned = false;
       /**
        * A guest in a real meeting gets answers and notes from this meeting only: nothing the
-       * workspace holds may reach them. Practice and the legacy demo keep their sample workspace.
+       * workspace holds may reach them. Practice meetings keep their sample workspace.
        * An unknown identity fails closed as a guest, loudly once.
        */
       const isGuest = (role: Role): boolean => {

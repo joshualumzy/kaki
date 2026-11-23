@@ -10,8 +10,8 @@ interface Resolved {
 }
 
 /**
- * The public practice page. `/practice` and `/demo` keep their URLs; the meeting id is bound to
- * this browser by the server's cookie, so a shared link never puts two visitors in one room.
+ * The public practice page. The meeting id is bound to this browser by the server's cookie, so a
+ * shared link never puts two visitors in one room.
  */
 export function PracticePage() {
   const [resolved, setResolved] = useState<Resolved | undefined>();

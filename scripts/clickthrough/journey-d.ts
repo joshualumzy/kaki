@@ -156,12 +156,12 @@ async function main(): Promise<void> {
 
     await step(run, page, 'demo route', async () => {
       const demo = await guestPerson(browser, run);
-      await demo.page.goto(`${BASE}/demo`);
+      await demo.page.goto(`${BASE}/practice`);
       await demo.page.waitForTimeout(4_000);
       const shot = await run.shot(demo.page, 'demo-open');
       const body = (await demo.page.locator('body').innerText()).replace(/\s+/g, ' ').trim();
-      if (body === '') run.finding('DEAD-END', '/demo', 'blank page', shot);
-      else run.pass(`/demo opens a real page: "${body.slice(0, 120)}" (${shot}).`);
+      if (body === '') run.finding('DEAD-END', '/practice', 'blank page', shot);
+      else run.pass(`/practice opens a real page: "${body.slice(0, 120)}" (${shot}).`);
       await demo.context.close();
     });
   } finally {

@@ -6,7 +6,6 @@ import { createAuth } from '../src/auth/module';
 import { hashToken } from '../src/auth/password';
 import { createMemoryAuthStore } from '../src/auth/store';
 import type { EmailTransportFactory } from '../src/action/email';
-import { createMeetingCodeSource } from '../src/meeting/meetingCode';
 import {
   createPracticeTestApp,
   createTestApp,
@@ -330,11 +329,9 @@ describe('setup tool status and probes', () => {
       expiresAt: new Date(Date.now() + 60_000),
     });
     const owner = `kaki_session=${token}`;
-    const meetingCode = createMeetingCodeSource('K7M2Q9');
-    const auth = createAuth({ store, offeredRoles: () => ['chef', 'cashier'], meetingCode });
+    const auth = createAuth({ store, offeredRoles: () => ['chef', 'cashier']});
     app = await createTestApp({
       auth,
-      meetingCode,
       actionTools: { env: CONFIGURED_ENV, fetchImpl: healthyFetch() },
       roomRoster: async () => [],
     });

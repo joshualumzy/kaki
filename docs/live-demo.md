@@ -1,10 +1,10 @@
-# The live demo meeting (`/demo`)
+# The live practice meeting (`/practice`)
 
 A video-call style meeting where one person talks to AI attendees. One LLM (the **Director**) plays all of them from their
 scenario profiles and decides who speaks, one at a time. The person can talk over them and they stop. Every accepted line goes
 to Kaki as an ordinary transcript line, so the host, wingman and action agents work from the same conversation.
 
-Quick start: `cp .env.example .env` and fill the required keys, then `npm start`, then open http://localhost:5173/demo in Chrome or Edge.
+Quick start: `cp .env.example .env` and fill the required keys, then `npm start`, then open http://localhost:5173/practice in Chrome or Edge.
 Each visitor gets their own practice room: a refresh or a second tab returns to the same one, and when
 the practice cap is full the page shows a plain message with Retry.
 `npm stop` stops the server, web app and AI attendees; `npm stop -- --stack` also stops Docker.
@@ -25,7 +25,7 @@ first-chunk and between-chunk deadlines; `KAKI_LLM_TIMEOUT_MS` stays the whole-r
 
 Besides the practice demo, the same server runs the real product: Google sign-in, personal workspaces, the read-only sample
 workspace Nanyang Kopi, and real meetings with any number of people and no AI colleagues. Guests join by invite link without an
-account. Real meetings are opened from the workspace page; `/practice` and `/demo` work as above, with no sign-in.
+account. Real meetings are opened from the workspace page; `/practice` work as above, with no sign-in.
 
 Sign-in mode is on when `KAKI_AUTH=1`. Set these keys in `.env` (names only here; see `.env.example`):
 
@@ -39,7 +39,7 @@ Sign-in mode is on when `KAKI_AUTH=1`. Set these keys in `.env` (names only here
 | `KAKI_MAX_OPEN_MEETINGS` | How many real meetings the server keeps open at once (default 10). |
 | `KAKI_MAX_OPEN_MEETINGS_PER_USER` | How many real meetings one owner keeps open at once (default 2). |
 | `KAKI_MAX_MEETINGS_PER_DAY` | How many meetings one owner may create per day (default 20). |
-| `KAKI_MAX_PRACTICE` | How many practice meetings may run at once (default 5). They count toward `KAKI_MAX_OPEN_MEETINGS`, and so does the always-open legacy demo room, so real meetings keep `KAKI_MAX_OPEN_MEETINGS − KAKI_MAX_PRACTICE − 1` while it exists. |
+| `KAKI_MAX_PRACTICE` | How many practice meetings may run at once (default 5). They count toward `KAKI_MAX_OPEN_MEETINGS`, so real meetings keep `KAKI_MAX_OPEN_MEETINGS − KAKI_MAX_PRACTICE` slots. |
 | `KAKI_PRACTICE_UNLOAD_MS` | How long an empty practice meeting stays loaded for its visitor to return (default 5 min); an ended one is unloaded at once. |
 
 Sign-in mode refuses the dev routes. Approved posts are signed "Posted by Kaki for <name>, approved in <meeting title>"
@@ -56,7 +56,7 @@ Sign-in mode refuses the dev routes. Approved posts are signed "Posted by Kaki f
    over by name to that item's owner (`server/src/host/opening.ts`).
 4. **The item.** If the item is not the visitor's, the characters talk it through for a newcomer unless the visitor speaks first.
    If it is, Sam asks them for their call. If it is contested, two characters argue and Sam asks the visitor to decide (`itemMode` in
-   `shared/src/demo.ts`).
+   `shared/src/practice.ts`).
 5. **Tasks.** The notetaker spots action items; the host dispatches them, an AI colleague accepts or declines in their own words (or the visitor accepts/approves their own task in the Wingman dock),
    and accepted drafts are executed against Gitea, Mattermost, Mailpit, Wiki.js, or Radicale CalDAV (`taskResponder.ts`, `NPC_APPROVE_DELAY_MS`).
 6. **Wrap-up & Wiki minutes for approval.** After the final agenda item is settled, the host concludes the meeting and `server/src/action/wiki.ts` creates a **Publish meeting minutes to the team wiki** card with the full Markdown minutes already drafted. It is assigned to the visitor, never an AI seat, so the draft waits for their approval. Nothing is written yet: the person reviews and can edit the draft, then taps **Approve & publish**. Only then does Wiki.js get the page, surfacing the **Open meeting minutes in Wiki ↗** link in the dock.
@@ -74,7 +74,7 @@ Sign-in mode refuses the dev routes. Approved posts are signed "Posted by Kaki f
 | LiveKit wiring, who is in the room, the start gate | `server/src/npc/runner.ts`, `main.ts` |
 | Join form, start prompt, stage, captions, meeting controls | `web/src/meeting/room/` |
 
-Data topics (`shared/src/demo.ts`): `kaki.npc-state` (what the AI attendees are doing) and `kaki.control` (a legacy Start message the runner logs and ignores). Start is a server call.
+Data topics (`shared/src/practice.ts`): `kaki.npc-state` (what the AI attendees are doing) and `kaki.control` (an old Start message the runner logs and ignores). Start is a server call.
 
 ## How interruption works
 

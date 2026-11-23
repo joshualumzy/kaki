@@ -6,12 +6,10 @@ import { createApp, type KakiApp } from '../../src/app';
 import { createAuth } from '../../src/auth/module';
 import { hashPassword, hashToken } from '../../src/auth/password';
 import { createMemoryAuthStore } from '../../src/auth/store';
-import { createMeetingCodeSource } from '../../src/meeting/meetingCode';
 import { createWingmanModule } from '../../src/wingman/module';
 import { openRealMeeting, portOf, realModulesWith, settle, waitFor, type TestMeeting } from '../helpers';
 import { testScenario } from '../fixtures/scenario';
 
-const CODE = 'K7M2Q9';
 const HOST_EMAIL = 'host@example.com';
 const HOST_PASSWORD = 'host-password';
 
@@ -56,14 +54,11 @@ function connect(port: number, role: string, cookie?: string, meetingId?: string
 async function authApp(): Promise<{ app: KakiApp; port: number }> {
   const store = createMemoryAuthStore();
   await store.createUser({ email: HOST_EMAIL, passwordHash: await hashPassword(HOST_PASSWORD) });
-  const meetingCode = createMeetingCodeSource(CODE);
-  const auth = createAuth({ store, offeredRoles: () => ['chef', 'cashier'], meetingCode });
+  const auth = createAuth({ store, offeredRoles: () => ['chef', 'cashier']});
   const app = await createApp({
     scenario: testScenario,
     auth,
-    meetingCode,
-    modules: [createWingmanModule({ env: {}, askedCheckDelayMs: 0 })],
-    // Every practice instance gets its own Wingman, never the legacy instance's module.
+    // Every practice instance gets its own Wingman, never a shared module.
     practiceModules: () => ({ modules: [createWingmanModule({ env: {}, askedCheckDelayMs: 0 })] }),
     roomRoster: async () => [],
     speechRecognition: 'browser',
@@ -130,13 +125,10 @@ async function realWingmanApp(): Promise<RealWingmanApp> {
     userId: ownerUser.id,
     expiresAt: new Date(Date.now() + 60_000),
   });
-  const meetingCode = createMeetingCodeSource(CODE);
-  const auth = createAuth({ store, offeredRoles: () => ['chef', 'cashier'], meetingCode });
+  const auth = createAuth({ store, offeredRoles: () => ['chef', 'cashier']});
   const app = await createApp({
     scenario: testScenario,
     auth,
-    meetingCode,
-    modules: [createWingmanModule({ env: {}, askedCheckDelayMs: 0 })],
     meetingModules: realModulesWith([createWingmanModule({ env: {}, askedCheckDelayMs: 0 })]),
     roomRoster: async () => [],
     speechRecognition: 'browser',

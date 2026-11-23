@@ -149,11 +149,11 @@ describe('ConnectedStartPrompt', () => {
     const fetchMock = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ started: true }) }));
     vi.stubGlobal('fetch', fetchMock);
     const onStarted = vi.fn();
-    render(<ConnectedStartPrompt onStarted={onStarted} />);
+    render(<ConnectedStartPrompt onStarted={onStarted} meetingId="mtg-1" />);
     pressStart();
     expect(screen.getByText(/waiting for the room to confirm/i)).toBeTruthy();
     await waitFor(() => expect(onStarted).toHaveBeenCalledTimes(1));
-    expect(fetchMock).toHaveBeenCalledWith('/api/meeting/start', expect.objectContaining({ method: 'POST' }));
+    expect(fetchMock).toHaveBeenCalledWith('/api/meetings/mtg-1/meeting/start', expect.objectContaining({ method: 'POST' }));
   });
 
   it('fails closed with a recoverable message when the scenario is unavailable', () => {
@@ -161,7 +161,7 @@ describe('ConnectedStartPrompt', () => {
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
     const onStarted = vi.fn();
-    render(<ConnectedStartPrompt onStarted={onStarted} />);
+    render(<ConnectedStartPrompt onStarted={onStarted} meetingId="mtg-1" />);
     pressStart();
     expect(screen.getByText(/not ready yet/i)).toBeTruthy();
     expect(fetchMock).not.toHaveBeenCalled();
@@ -171,7 +171,7 @@ describe('ConnectedStartPrompt', () => {
   it('shows the server reason and lets the person try again', async () => {
     replyWith({ error: 'Join the meeting before starting it.' }, false, 409);
     const onStarted = vi.fn();
-    render(<ConnectedStartPrompt onStarted={onStarted} />);
+    render(<ConnectedStartPrompt onStarted={onStarted} meetingId="mtg-1" />);
     pressStart();
     expect(await screen.findByText(/Join the meeting before starting it/i)).toBeTruthy();
     expect(onStarted).not.toHaveBeenCalled();
@@ -184,7 +184,7 @@ describe('ConnectedStartPrompt', () => {
   it('does not send a second Start while the first is waiting', () => {
     const fetchMock = vi.fn(() => new Promise(() => undefined));
     vi.stubGlobal('fetch', fetchMock);
-    render(<ConnectedStartPrompt onStarted={vi.fn()} />);
+    render(<ConnectedStartPrompt onStarted={vi.fn()} meetingId="mtg-1" />);
     pressStart();
     pressStart();
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -202,7 +202,7 @@ describe('ConnectedStartPrompt', () => {
       ),
     );
     const onStarted = vi.fn();
-    render(<ConnectedStartPrompt onStarted={onStarted} />);
+    render(<ConnectedStartPrompt onStarted={onStarted} meetingId="mtg-1" />);
     pressStart();
     await act(async () => {
       vi.advanceTimersByTime(8000);
@@ -216,7 +216,7 @@ describe('ConnectedStartPrompt', () => {
     let resolveFetch: ((value: { ok: boolean; status: number; json: () => Promise<{ started: boolean }> }) => void) | undefined;
     vi.stubGlobal('fetch', vi.fn(() => new Promise((resolve) => { resolveFetch = resolve; })));
     const onStarted = vi.fn();
-    const { unmount } = render(<ConnectedStartPrompt onStarted={onStarted} />);
+    const { unmount } = render(<ConnectedStartPrompt onStarted={onStarted} meetingId="mtg-1" />);
     pressStart();
     unmount();
     await act(async () => {
@@ -230,7 +230,7 @@ describe('ConnectedStartPrompt', () => {
     replyWith({ error: 'The AI attendees are not connected.' }, false, 503);
     render(
       <StrictMode>
-        <ConnectedStartPrompt onStarted={vi.fn()} />
+        <ConnectedStartPrompt onStarted={vi.fn()} meetingId="mtg-1" />
       </StrictMode>,
     );
     pressStart();

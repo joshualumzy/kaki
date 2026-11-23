@@ -97,6 +97,7 @@ class FakeWebSocket {
 }
 
 let Meeting: typeof import('./Meeting').default;
+let MeetingScopeProvider: typeof import('../../kaki/meetingScope').MeetingScopeProvider;
 
 beforeEach(async () => {
   vi.resetModules();
@@ -107,7 +108,7 @@ beforeEach(async () => {
     'fetch',
     vi.fn(async (input: unknown) => {
       const url = String(input);
-      if (url.includes('/api/meeting/state')) {
+      if (url.includes('/meeting/state')) {
         return {
           ok: true,
           status: 200,
@@ -128,6 +129,7 @@ beforeEach(async () => {
     }),
   );
   Meeting = (await import('./Meeting')).default;
+  MeetingScopeProvider = (await import('../../kaki/meetingScope')).MeetingScopeProvider;
 });
 
 afterEach(() => {
@@ -137,7 +139,11 @@ afterEach(() => {
 
 describe('the meeting page', () => {
   it('opens exactly one Kaki socket per distinct feed and reconnects only the dropped feed', async () => {
-    render(<Meeting />);
+    render(
+      <MeetingScopeProvider meetingId="practice-1">
+        <Meeting practiceMeetingId="practice-1" />
+      </MeetingScopeProvider>,
+    );
     fireEvent.change(screen.getByLabelText('Your name'), { target: { value: 'Wei Ling' } });
     fireEvent.click(screen.getByRole('button', { name: /join with mic/i }));
 

@@ -3,13 +3,11 @@ import type { KakiEvent } from '@kaki/shared';
 import { createAuth } from '../../src/auth/module';
 import { hashPassword } from '../../src/auth/password';
 import { createMemoryAuthStore } from '../../src/auth/store';
-import { createMeetingCodeSource } from '../../src/meeting/meetingCode';
 import { createRunnerClient } from '../../src/npc/runnerClient';
 import { createRealTestApp, meetingUrl, portOf, type TestAppWithMeeting } from '../helpers';
 
 const HOST_EMAIL = 'host@example.com';
 const HOST_PASSWORD = 'correct-horse-battery';
-const MEETING_CODE = 'K7M2Q9';
 const SERVICE_TOKEN = 'runner-secret';
 
 const transcript = {
@@ -36,8 +34,7 @@ describe('the AI runner HTTP client', () => {
   async function authApp(): Promise<{ app: TestAppWithMeeting; baseUrl: string; meetingId: string }> {
     const store = createMemoryAuthStore();
     const owner = await store.createUser({ email: HOST_EMAIL, passwordHash: await hashPassword(HOST_PASSWORD) });
-    const meetingCode = createMeetingCodeSource(MEETING_CODE);
-    const auth = createAuth({ store, offeredRoles: () => ['chef', 'cashier'], meetingCode });
+    const auth = createAuth({ store, offeredRoles: () => ['chef', 'cashier']});
     app = await createRealTestApp(
       {
         auth,
@@ -107,6 +104,7 @@ describe('the AI runner HTTP client', () => {
     const sleep = vi.fn(async () => undefined);
     const client = createRunnerClient({
       baseUrl: 'http://127.0.0.1:1',
+      apiPrefix: '/api/meetings/meeting-1',
       fetch: fetchMock,
       sleep,
       humanLineRetryBaseMs: 10,
@@ -136,6 +134,7 @@ describe('the AI runner HTTP client', () => {
       .mockRejectedValueOnce(new Error('offline'));
     const client = createRunnerClient({
       baseUrl: 'http://127.0.0.1:1',
+      apiPrefix: '/api/meetings/meeting-1',
       fetch: fetchMock,
       sleep: async () => undefined,
     });
@@ -145,7 +144,7 @@ describe('the AI runner HTTP client', () => {
     const conflict = vi
       .fn<typeof fetch>()
       .mockResolvedValue(new Response(JSON.stringify({ error: 'That line belongs to a different meeting' }), { status: 409 }));
-    const second = createRunnerClient({ baseUrl: 'http://127.0.0.1:1', fetch: conflict, sleep: async () => undefined });
+    const second = createRunnerClient({ baseUrl: 'http://127.0.0.1:1', apiPrefix: '/api/meetings/meeting-1', fetch: conflict, sleep: async () => undefined });
     expect((await second.postHumanLine(line)).status).toBe(409);
     expect(conflict).toHaveBeenCalledTimes(1);
   });

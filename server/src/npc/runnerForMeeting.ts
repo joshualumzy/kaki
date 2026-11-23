@@ -78,11 +78,9 @@ if (fault !== undefined) log(`[fault] ${fault} active`);
 
 const loadedScenario = await loadScenario();
 const scenario = kind === 'practice' ? loadedScenario : { ...loadedScenario, npcs: [] };
-const isLegacy = meetingId === 'meeting';
-const apiPrefix = isLegacy ? '' : `/api/meetings/${meetingId}`;
 const runnerClient = createRunnerClient({
   baseUrl: kakiUrl,
-  apiPrefix,
+  apiPrefix: `/api/meetings/${meetingId}`,
   ...(serviceToken === undefined ? {} : { serviceToken }),
   log: logError,
 });
@@ -173,7 +171,7 @@ let runnerMeetingId: (() => string | undefined) | undefined;
 const commandSockets = createCommandSockets({
   baseUrl: kakiUrl,
   ...(serviceToken === undefined ? {} : { token: serviceToken }),
-  ...(isLegacy ? {} : { meetingId }),
+  meetingId,
   log,
   logError,
   // Queued commands are fenced to the meeting they were sent in, so a reconnect cannot replay
@@ -628,7 +626,7 @@ const serviceChannel = createServiceChannel({
   token: serviceToken,
   createSocket: () =>
     new WebSocket(
-      `${kakiUrl.replace(/^http/, 'ws')}/ws?audience=service${isLegacy ? '' : `&meeting=${encodeURIComponent(meetingId)}`}`,
+      `${kakiUrl.replace(/^http/, 'ws')}/ws?audience=service&meeting=${encodeURIComponent(meetingId)}`,
       serviceToken === undefined || serviceToken === ''
         ? undefined
         : { headers: { authorization: `Bearer ${serviceToken}` } },

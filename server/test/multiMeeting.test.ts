@@ -316,12 +316,6 @@ describe('many meetings at once', () => {
       control.once('open', () => resolve());
       control.once('error', reject);
     });
-    await waitFor(
-      () => controlMessages.find((message) => message.type === 'MEETING_OPENED' && message.meetingId === 'meeting'),
-      "the legacy meeting on the control channel",
-    );
-    expect(controlMessages.find((message) => message.meetingId === 'meeting')).toMatchObject({ kind: 'practice' });
-
     const meeting = await app.registry.create({ workspaceId: 'w1', ownerUserId: 'o1', title: 'Runner meeting' });
     await app.registry.get(meeting.id);
     const opened = await waitFor(
@@ -351,7 +345,7 @@ describe('many meetings at once', () => {
   it('refuses a seat from meeting A on meeting B, and an unknown meeting', async () => {
     const store: AuthStore = createMemoryAuthStore();
     const meetingCode = createMeetingCodeSource();
-    const auth = createAuth({ store, meetingCode });
+    const auth = createAuth({ store});
     const meetings = createMemoryMeetingStore();
     const app = await createApp({
       speechRecognition: 'browser',

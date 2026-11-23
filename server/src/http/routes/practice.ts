@@ -13,7 +13,7 @@ function practiceCookie(meetingId: string, capability: string): string {
   return `${PRACTICE_COOKIE}=${meetingId}.${capability}; Path=/; HttpOnly; SameSite=Lax${secure}`;
 }
 
-/** `<meetingId>.<capability>`; anything else (a truncated or legacy cookie) is treated as none. */
+/** `<meetingId>.<capability>`; anything else (a truncated or old cookie) is treated as none. */
 function parsePracticeCookie(raw: string): { meetingId: string; capability: string } | undefined {
   const dot = raw.indexOf('.');
   if (dot <= 0 || dot === raw.length - 1) return undefined;

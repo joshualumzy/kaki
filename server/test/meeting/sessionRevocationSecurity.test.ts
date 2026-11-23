@@ -1,17 +1,12 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { connect as netConnect } from 'node:net';
-import type { Pool } from 'pg';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
-import type { Scenario } from '@kaki/shared';
 import { createApp, type CreateAppOptions, type KakiApp } from '../../src/app';
 import { createAuth } from '../../src/auth/module';
 import { hashPassword, hashToken } from '../../src/auth/password';
-import { ensureAuthSchema } from '../../src/auth/schema';
 import { createMemoryAuthStore, type AuthStore, type UserRecord } from '../../src/auth/store';
-import { createMeetingCodeSource, type MeetingCodeSource } from '../../src/meeting/meetingCode';
 import { createMeetingModule } from '../../src/host/meeting';
-import type { KakiModule } from '../../src/core/modules';
 import type { MeetingPersistence } from '../../src/persist/persistence';
 import { testScenario } from '../fixtures/scenario';
 import {
@@ -28,7 +23,6 @@ import {
 
 const HOST_EMAIL = 'host@example.com';
 const HOST_PASSWORD = 'correct-horse-battery';
-const MEETING_CODE = 'K7M2Q9';
 
 type ConnectResult =
   | { ok: true; ws: WebSocket; closed: Promise<number> }
@@ -86,22 +80,10 @@ function connect(
   return connectWebSocket(meetingWsUrl(port, meetingId, query), headers);
 }
 
-function connectLegacy(
-  port: number,
-  role: string,
-  options: { cookie?: string; authorization?: string } = {},
-): Promise<ConnectResult> {
-  const headers: Record<string, string> = {};
-  if (options.cookie !== undefined) headers.cookie = options.cookie;
-  if (options.authorization !== undefined) headers.authorization = options.authorization;
-  return connectWebSocket(`ws://127.0.0.1:${port}/ws?role=${encodeURIComponent(role)}`, headers);
-}
-
 async function closeWithin(closed: Promise<number>, ms = 500): Promise<number | undefined> {
   return Promise.race([closed, new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), ms))]);
 }
 
-/** A client frame must be masked; the raw socket never answers the server's close frame. */
 function maskedFrame(text: string): Buffer {
   const payload = Buffer.from(text, 'utf8');
   const mask = randomBytes(4);
@@ -178,32 +160,6 @@ async function rawConnect(port: number, meetingId: string, role: string, cookie:
   };
 }
 
-/** A startable, AI-free meeting carrying private cards, for host seat powers. */
-function hostSeatScenario(): Scenario {
-  return {
-    ...testScenario,
-    roles: [
-      {
-        id: 'chef',
-        label: 'Chef',
-        card: { youAre: 'You run the kitchen.', facts: ['chef card secret'], responsibility: 'You order stock.' },
-      },
-      {
-        id: 'cashier',
-        label: 'Cashier',
-        card: { youAre: 'You run the till.', facts: ['cashier card secret'], responsibility: 'You count the float.' },
-      },
-    ],
-    agenda: [
-      {
-        ...testScenario.agenda[0]!,
-        directions: ['hidden direction'],
-        seatFacts: { chef: 'chef seat secret', cashier: 'cashier seat secret' },
-      },
-    ],
-  };
-}
-
 async function signInGoogle(store: AuthStore, name: string): Promise<SignedIn> {
   const email = `${randomUUID()}@example.com`;
   const user = await store.createGoogleUser({ googleSub: randomUUID(), name, email });
@@ -234,43 +190,6 @@ describe('security round 3', () => {
     return app;
   }
 
-  async function authApp({
-    scenario = testScenario,
-    serviceToken,
-    roomRoster,
-    code = MEETING_CODE,
-    devRoutes = false,
-    modules,
-    persistence,
-  }: {
-    scenario?: Scenario;
-    serviceToken?: string;
-    roomRoster?: (roomName: string) => Promise<Array<{ name: string; role?: string }> | undefined>;
-    code?: string;
-    devRoutes?: boolean;
-    modules?: KakiModule[];
-    persistence?: MeetingPersistence;
-  } = {}): Promise<{ app: KakiApp; store: AuthStore; meetingCode: MeetingCodeSource }> {
-    const store = createMemoryAuthStore();
-    await store.createUser({ email: HOST_EMAIL, passwordHash: await hashPassword(HOST_PASSWORD) });
-    const meetingCode = createMeetingCodeSource(code);
-    const auth = createAuth({ store, offeredRoles: () => ['chef', 'cashier'], meetingCode });
-    const app = track(
-      await createApp({
-        speechRecognition: 'browser',
-        scenario,
-        auth,
-        meetingCode,
-        roomRoster: roomRoster ?? (async () => []),
-        devRoutes,
-        modules,
-        persistence,
-        ...(serviceToken === undefined ? {} : { serviceToken }),
-      }),
-    );
-    return { app, store, meetingCode };
-  }
-
   function base(app: KakiApp): string {
     return `http://127.0.0.1:${portOf(app)}`;
   }
@@ -285,23 +204,6 @@ describe('security round 3', () => {
     return fetch(`${base(app)}${path}`, cookie === undefined ? undefined : { headers: { cookie } });
   }
 
-  async function signInAsHost(app: KakiApp, cookie?: string): Promise<string> {
-    const response = await post(
-      app,
-      '/api/auth/login',
-      { email: HOST_EMAIL, password: HOST_PASSWORD },
-      cookie,
-    );
-    expect(response.status).toBe(200);
-    return cookieFrom(response);
-  }
-
-  async function join(app: KakiApp, role: string): Promise<string> {
-    const response = await post(app, '/api/join', { code: MEETING_CODE, role });
-    expect(response.status).toBe(200);
-    return cookieFrom(response);
-  }
-
   async function meetingAuthApp(
     options: {
       store?: AuthStore;
@@ -314,9 +216,8 @@ describe('security round 3', () => {
   ): Promise<{ app: KakiApp; store: AuthStore }> {
     const store = options.store ?? createMemoryAuthStore();
     await store.createUser({ email: HOST_EMAIL, passwordHash: await hashPassword(HOST_PASSWORD) });
-    const meetingCode = createMeetingCodeSource(MEETING_CODE);
     const auth =
-      options.auth ?? createAuth({ store, offeredRoles: () => ['chef', 'cashier'], meetingCode });
+      options.auth ?? createAuth({ store, offeredRoles: () => ['chef', 'cashier']});
     const app = track(
       await createTestApp({
         auth,
@@ -353,41 +254,6 @@ describe('security round 3', () => {
     const body = (await seated.json()) as { participantRole: string };
     return { cookie: cookieFrom(seated), seat: body.participantRole };
   }
-
-  it('invalidates legacy participant sessions that have no meeting generation', async () => {
-    const queries: string[] = [];
-    const pool = {
-      query: async (sql: string) => {
-        queries.push(sql);
-        return { rows: [], rowCount: 0 };
-      },
-    } as unknown as Pool;
-    await ensureAuthSchema(pool);
-    expect(
-      queries.some(
-        (sql) =>
-          /delete\s+from\s+sessions/i.test(sql) &&
-          /meeting_id\s+is\s+null/i.test(sql) &&
-          /participant/i.test(sql),
-      ),
-    ).toBe(true);
-
-    const { app, store } = await meetingAuthApp();
-    const meeting = await openRealMeeting(app);
-    const token = `legacy-${randomBytes(8).toString('hex')}`;
-    await store.createSession({
-      tokenHash: hashToken(token),
-      kind: 'participant',
-      role: 'chef',
-      meetingCode: MEETING_CODE,
-      meetingId: null,
-      expiresAt: new Date(Date.now() + 60_000),
-    });
-    const cookie = `kaki_session=${encodeURIComponent(token)}`;
-    expect((await get(app, '/api/auth/me', cookie)).status).toBe(403);
-    const socket = await connect(portOf(app), meeting.id, 'role=chef', { cookie });
-    expect(socket.ok).toBe(false);
-  });
 
   it('checks that the seat claim still belongs to the session, not just its role', async () => {
     const store = createMemoryAuthStore();
@@ -436,68 +302,6 @@ describe('security round 3', () => {
     });
     expect(socket.ok).toBe(true);
     if (socket.ok) socket.ws.terminate();
-  });
-
-  it('runs /api/join inside the admission queue, so a lifecycle change cannot land mid-claim', async () => {
-    const baseStore = createMemoryAuthStore();
-    await baseStore.createUser({ email: HOST_EMAIL, passwordHash: await hashPassword(HOST_PASSWORD) });
-    let stalledHash: string | undefined;
-    let stalledLookups = 0;
-    let entered!: () => void;
-    let release!: () => void;
-    const lookupStarted = new Promise<void>((resolve) => { entered = resolve; });
-    const lookupGate = new Promise<void>((resolve) => { release = resolve; });
-    const store = {
-      ...baseStore,
-      async findSession(tokenHash: string) {
-        if (tokenHash === stalledHash) {
-          stalledLookups += 1;
-          // The first lookup resolves the request's principal; the second is the claim itself,
-          // which is where a lifecycle change could previously slip in.
-          if (stalledLookups === 2) {
-            stalledHash = undefined;
-            entered();
-            await lookupGate;
-          }
-        }
-        return baseStore.findSession(tokenHash);
-      },
-    } as AuthStore;
-    const meetingCode = createMeetingCodeSource(MEETING_CODE);
-    const auth = createAuth({ store, offeredRoles: () => ['chef', 'cashier'], meetingCode });
-    const app = track(
-      await createApp({ speechRecognition: 'browser', scenario: testScenario, auth, meetingCode, roomRoster: async () => [] }),
-    );
-
-    const host = await signInAsHost(app);
-    expect((await post(app, '/api/meeting/open', {}, host)).status).toBe(200);
-    const first = await post(app, '/api/join', { code: MEETING_CODE, role: 'chef' });
-    expect(first.status).toBe(200);
-    const cookie = cookieFrom(first);
-    stalledHash = hashToken(tokenFrom(cookie));
-
-    // This join has passed its kind/code/role checks and is awaiting the session lookup.
-    const stalled = post(app, '/api/join', { code: MEETING_CODE, role: 'cashier' }, cookie);
-    await lookupStarted;
-
-    // A close queued now must wait behind the join: the meeting it validated against cannot change.
-    const closed = post(app, '/api/meeting/close', {}, host);
-    try {
-      await settle(40);
-      expect(app.session.kind()).toBe('real');
-      expect(app.session.phase()).toBe('lobby');
-    } finally {
-      release();
-    }
-
-    const joined = await stalled;
-    expect(joined.status).toBe(200);
-    const joinedCookie = cookieFrom(joined);
-    expect((await closed).status).toBe(200);
-
-    // The close then rotates the meeting: the join entered the real meeting, and its session died with it.
-    expect(app.session.kind()).toBeUndefined();
-    expect((await get(app, '/api/auth/me', joinedCookie)).status).toBe(403);
   });
 
   it('stops a revoked socket sending commands before its close handshake finishes', async () => {
@@ -601,67 +405,9 @@ describe('security round 3', () => {
     screen.ws.terminate();
   });
 
-  it('refuses a join whose meeting changed after its seat was claimed', async () => {
-    const store = createMemoryAuthStore();
-    await store.createUser({ email: HOST_EMAIL, passwordHash: await hashPassword(HOST_PASSWORD) });
-    const meetingCode = createMeetingCodeSource(MEETING_CODE);
-    const baseAuth = createAuth({ store, offeredRoles: () => ['chef', 'cashier'], meetingCode });
-    let claimedSeat!: () => void;
-    let release!: () => void;
-    const claimed = new Promise<void>((resolve) => { claimedSeat = resolve; });
-    const gate = new Promise<void>((resolve) => { release = resolve; });
-    const auth = {
-      ...baseAuth,
-      async enterSeat(
-        request: Parameters<typeof baseAuth.enterSeat>[0],
-        response: Parameters<typeof baseAuth.enterSeat>[1],
-        role: string,
-        expectedMeetingId?: string,
-      ): Promise<boolean> {
-        const ok = await baseAuth.enterSeat(request, response, role, expectedMeetingId);
-        if (ok) {
-          claimedSeat();
-          await gate;
-        }
-        return ok;
-      },
-    };
-    const app = track(
-      await createApp({
-        speechRecognition: 'browser',
-        scenario: testScenario,
-        auth,
-        meetingCode,
-        roomRoster: async () => [],
-      }),
-    );
-    const host = await signInAsHost(app);
-    expect((await post(app, '/api/meeting/open', {}, host)).status).toBe(200);
-
-    const joining = post(app, '/api/livekit/token', {
-      participantName: 'Guest',
-      participantRole: 'chef',
-      meetingCode: MEETING_CODE,
-    });
-    await claimed;
-    // A lifecycle change lands after the claim but before this join finishes. It is not serialized
-    // here on purpose: the join must itself notice that the identity it claimed no longer exists.
-    app.session.reset();
-    release();
-
-    const response = await joining;
-    expect(response.status).toBe(409);
-    expect(await response.json()).toEqual({
-      error: 'The meeting changed while you were joining; try again in a moment.',
-      retryable: true,
-    });
-    expect(app.session.holders()).toEqual([]);
-  });
-
   it('rejects an upgrade whose session was revoked while it was authorizing', async () => {
     const store = createMemoryAuthStore();
-    const meetingCode = createMeetingCodeSource(MEETING_CODE);
-    const baseAuth = createAuth({ store, offeredRoles: () => ['chef', 'cashier'], meetingCode });
+    const baseAuth = createAuth({ store, offeredRoles: () => ['chef', 'cashier']});
     let didAuthorize: (() => void) | undefined;
     const authorized = new Promise<void>((resolve) => {
       didAuthorize = resolve;
@@ -706,70 +452,6 @@ describe('security round 3', () => {
     expect(code).toBe(4001);
   });
 
-  it('retires the old session and transfers its seat when a seated host signs in again', async () => {
-    const { app } = await authApp({
-      scenario: hostSeatScenario(),
-      roomRoster: async () => [{ name: 'Hosty', role: 'cashier' }],
-    });
-    const host = await signInAsHost(app);
-    expect((await post(app, '/api/meeting/open', {}, host)).status).toBe(200);
-    const seated = await post(
-      app,
-      '/api/livekit/token',
-      { participantName: 'Ada', participantRole: 'chef', meetingCode: MEETING_CODE },
-      host,
-    );
-    expect(seated.status).toBe(200);
-    const seatHost = cookieFrom(seated);
-    const port = portOf(app);
-    const screen = await connectLegacy(port, 'screen', { cookie: seatHost });
-    expect(screen.ok).toBe(true);
-    if (!screen.ok) return;
-
-    const again = await signInAsHost(app, seatHost);
-
-    const oldMe = await get(app, '/api/auth/me', seatHost);
-    expect(oldMe.status).toBe(200);
-    expect(await oldMe.json()).toEqual({ authEnabled: true, kind: null });
-    expect(await closeWithin(screen.closed)).toBe(4001);
-
-    const body = (await (await get(app, '/api/scenario', again)).json()) as Scenario;
-    expect(body.roles.find((role) => role.id === 'chef')?.card?.facts).toEqual(['chef card secret']);
-    expect(body.agenda[0]?.seatFacts).toEqual({ chef: 'chef seat secret' });
-
-    // The transferred claim still blocks another person from taking the seat.
-    expect((await post(app, '/api/join', { code: MEETING_CODE, role: 'chef' })).status).toBe(409);
-  });
-
-  it('keeps the first meeting generation when phones joined before the first LiveKit admission', async () => {
-    const { app } = await authApp();
-    const port = portOf(app);
-    const host = await signInAsHost(app);
-    expect((await post(app, '/api/meeting/open', {}, host)).status).toBe(200);
-    const phone = await join(app, 'chef');
-    const phoneSocket = await connectLegacy(port, 'chef', { cookie: phone });
-    expect(phoneSocket.ok).toBe(true);
-
-    const before = (await (await get(app, '/api/meeting/state')).json()) as { meetingId: string };
-    const desktop = await post(app, '/api/livekit/token', {
-      participantName: 'Ada',
-      participantRole: 'cashier',
-      meetingCode: MEETING_CODE,
-    });
-    expect(desktop.status).toBe(200);
-    expect(((await (await get(app, '/api/meeting/state')).json()) as { meetingId: string }).meetingId).toBe(
-      before.meetingId,
-    );
-
-    expect((await get(app, '/api/auth/me', phone)).status).toBe(200);
-    expect((await post(app, '/api/join', { code: MEETING_CODE, role: 'chef' })).status).toBe(409);
-    if (phoneSocket.ok) {
-      await settle(100);
-      expect(phoneSocket.ws.readyState).toBe(WebSocket.OPEN);
-      phoneSocket.ws.terminate();
-    }
-  });
-
   it('requires the service token on runner routes and sockets even with sign-in off', async () => {
     const { app } = await meetingAuthApp({ serviceToken: 'runner-secret' });
     const meeting = await openRealMeeting(app);
@@ -810,38 +492,33 @@ describe('security round 3', () => {
   it('refuses to start when https sign-in would downgrade Mattermost to http', async () => {
     vi.stubEnv('KAKI_PUBLIC_URL', 'https://kaki.example');
     vi.stubEnv('MATTERMOST_URL', 'http://127.0.0.1:8083');
-    const makeAuth = (code: MeetingCodeSource) =>
-      createAuth({ store: createMemoryAuthStore(), offeredRoles: () => ['chef', 'cashier'], meetingCode: code });
-
-    const code = createMeetingCodeSource(MEETING_CODE);
-    const auth = makeAuth(code);
-    await expect(createApp({ speechRecognition: 'browser', scenario: testScenario, auth, meetingCode: code })).rejects.toThrow(
+    const makeAuth = () =>
+      createAuth({ store: createMemoryAuthStore(), offeredRoles: () => ['chef', 'cashier'] });
+    const auth = makeAuth();
+    await expect(createApp({ speechRecognition: 'browser', scenario: testScenario, auth})).rejects.toThrow(
       /MATTERMOST_PUBLIC_URL/,
     );
     await auth.close();
 
     vi.stubEnv('MATTERMOST_PUBLIC_URL', 'http://mm.example');
-    const httpCode = createMeetingCodeSource(MEETING_CODE);
-    const httpAuth = makeAuth(httpCode);
+    const httpAuth = makeAuth();
     await expect(
-      createApp({ speechRecognition: 'browser', scenario: testScenario, auth: httpAuth, meetingCode: httpCode }),
+      createApp({ speechRecognition: 'browser', scenario: testScenario, auth: httpAuth}),
     ).rejects.toThrow(/MATTERMOST_PUBLIC_URL/);
     await httpAuth.close();
 
     vi.stubEnv('MATTERMOST_PUBLIC_URL', 'https://mm.example');
-    const httpsCode = createMeetingCodeSource(MEETING_CODE);
-    const httpsAuth = makeAuth(httpsCode);
+    const httpsAuth = makeAuth();
     const https = track(
-      await createApp({ speechRecognition: 'browser', scenario: testScenario, auth: httpsAuth, meetingCode: httpsCode }),
+      await createApp({ speechRecognition: 'browser', scenario: testScenario, auth: httpsAuth}),
     );
     expect(https.server.address()).not.toBeNull();
 
     vi.stubEnv('KAKI_ALLOW_OPEN', '1');
     vi.stubEnv('MATTERMOST_PUBLIC_URL', 'http://mm.example');
-    const allowedCode = createMeetingCodeSource(MEETING_CODE);
-    const allowedAuth = makeAuth(allowedCode);
+    const allowedAuth = makeAuth();
     const allowed = track(
-      await createApp({ speechRecognition: 'browser', scenario: testScenario, auth: allowedAuth, meetingCode: allowedCode }),
+      await createApp({ speechRecognition: 'browser', scenario: testScenario, auth: allowedAuth}),
     );
     expect(allowed.server.address()).not.toBeNull();
   });

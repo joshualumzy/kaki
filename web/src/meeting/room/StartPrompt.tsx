@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { AgendaItem, Scenario, ScenarioRole } from '@kaki/shared';
 import { useScenario } from '../../kaki';
 import { meetingApiPath } from '../../kaki/meetingScope';
-import './demo.css';
+import './practice.css';
 
 interface StartPromptProps {
   /** The person pressed the button: the meeting should begin. */
@@ -219,8 +219,8 @@ export function ConnectedStartPrompt({
   role?: ScenarioRole;
   viewerName?: string;
   seatName?: string;
-  /** The meeting this Start belongs to; absent keeps the legacy unprefixed path. */
-  meetingId?: string;
+  /** The meeting this Start belongs to. */
+  meetingId: string;
 }) {
   const scenario = safeUseScenario();
   const [phase, setPhase] = useState<'idle' | 'waiting' | 'failed'>('idle');

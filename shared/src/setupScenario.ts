@@ -1,4 +1,4 @@
-import { setMeetingAgenda } from './demo';
+import { setMeetingAgenda } from './practice';
 import { errorMessage } from './errors';
 import { isNonEmptyString } from './guards';
 import { parseScenario } from './scenario';

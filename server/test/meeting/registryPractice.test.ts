@@ -73,7 +73,6 @@ function build(options: {
   const closed: string[] = [];
   const opened: string[] = [];
   const registry = createMeetingRegistry({
-    legacy: fakeInstance('meeting', 'practice'),
     store,
     buildInstance: async (meetingRow) => {
       const instance = fakeInstance(meetingRow.id, 'real');
@@ -178,7 +177,7 @@ describe('registry practice instances', () => {
   });
 
   it('counts practice toward the open cap', async () => {
-    const built = build({ maxOpen: 2, maxPractice: 5 });
+    const built = build({ maxOpen: 1, maxPractice: 5 });
     registries.push(built);
     await built.registry.createPractice();
     await expect(built.registry.createPractice()).rejects.toBeInstanceOf(MeetingBusyError);
@@ -196,11 +195,11 @@ describe('registry practice instances', () => {
   });
 
   it('refuses a practice while the open cap is full even under the practice sub-cap', async () => {
-    const built = build({ maxOpen: 3, maxPractice: 5 });
+    const built = build({ maxOpen: 2, maxPractice: 5 });
     registries.push(built);
     await built.registry.createPractice();
     await built.registry.get('real-1');
-    // loaded: one practice + one real, plus the always-open legacy instance = 3.
+    // loaded: one practice + one real fill the open cap of 2.
     await expect(built.registry.createPractice()).rejects.toBeInstanceOf(MeetingBusyError);
   });
 

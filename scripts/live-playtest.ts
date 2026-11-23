@@ -843,7 +843,7 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks: PlaytestHo
       })();
     `);
     lastNavigationAt = Date.now();
-    await page.goto(`${BASE}/demo?mode=live`, { waitUntil: 'domcontentloaded', timeout: 15_000 });
+    await page.goto(`${BASE}/practice?mode=live`, { waitUntil: 'domcontentloaded', timeout: 15_000 });
     // The page has already asked for this visitor's own practice meeting and its id is on the
     // stage, so every read below follows that meeting, never another visitor's.
     const practiceNode = page.locator('[data-practice-meeting-id]').first();

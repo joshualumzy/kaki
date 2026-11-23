@@ -5,7 +5,6 @@ import type { KakiApp } from '../../src/app';
 import { createAuth } from '../../src/auth/module';
 import { hashPassword, hashToken, verifyPassword } from '../../src/auth/password';
 import { createMemoryAuthStore, type AuthStore, type UserRecord } from '../../src/auth/store';
-import { createMeetingCodeSource } from '../../src/meeting/meetingCode';
 import { createTestApp, meetingUrl, openRealMeeting, portOf, waitFor, type TestMeeting } from '../helpers';
 
 const HOST_EMAIL = 'host@example.com';
@@ -91,8 +90,7 @@ describe('auth', () => {
   beforeEach(async () => {
     store = createMemoryAuthStore();
     await store.createUser({ email: HOST_EMAIL, passwordHash: await hashPassword(HOST_PASSWORD) });
-    const meetingCode = createMeetingCodeSource('K7M2Q9');
-    const auth = createAuth({ store, offeredRoles: () => ['chef', 'cashier'], meetingCode });
+    const auth = createAuth({ store, offeredRoles: () => ['chef', 'cashier']});
     app = await createTestApp({ auth, serviceToken: 'runner-secret' });
     port = portOf(app);
     sockets = [];
@@ -438,84 +436,5 @@ describe('auth', () => {
     } finally {
       await plain.close();
     }
-  });
-});
-
-describe('legacy meeting code join', () => {
-  let app: KakiApp;
-  let store: AuthStore;
-  let port: number;
-
-  beforeEach(async () => {
-    store = createMemoryAuthStore();
-    await store.createUser({ email: HOST_EMAIL, passwordHash: await hashPassword(HOST_PASSWORD) });
-    const meetingCode = createMeetingCodeSource('K7M2Q9');
-    const auth = createAuth({ store, offeredRoles: () => ['chef', 'cashier'], meetingCode });
-    app = await createTestApp({ auth, meetingCode, serviceToken: 'runner-secret' });
-    port = portOf(app);
-  });
-
-  afterEach(async () => {
-    await app.close();
-  });
-
-  function post(path: string, body: unknown, cookie?: string): Promise<Response> {
-    const headers: Record<string, string> = { 'content-type': 'application/json' };
-    if (cookie !== undefined) headers.cookie = cookie;
-    return fetch(`http://127.0.0.1:${port}${path}`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body),
-    });
-  }
-
-  function get(path: string, cookie?: string): Promise<Response> {
-    return fetch(
-      `http://127.0.0.1:${port}${path}`,
-      cookie === undefined ? undefined : { headers: { cookie } },
-    );
-  }
-
-  async function signInAsHost(): Promise<string> {
-    const response = await post('/api/auth/login', { email: HOST_EMAIL, password: HOST_PASSWORD });
-    expect(response.status).toBe(200);
-    const cookie = cookieFrom(response);
-    if (cookie === undefined) throw new Error('Login did not set a cookie');
-    return cookie;
-  }
-
-  async function joinAs(role: string): Promise<string> {
-    const response = await post('/api/join', { code: 'K7M2Q9', role });
-    expect(response.status).toBe(200);
-    const cookie = cookieFrom(response);
-    if (cookie === undefined) throw new Error('Join did not set a cookie');
-    return cookie;
-  }
-
-  it('validates the meeting code and role before joining', async () => {
-    const host = await signInAsHost();
-    expect((await post('/api/meeting/open', {}, host)).status).toBe(200);
-    const noCode = await post('/api/join', { role: 'chef' });
-    expect(noCode.status).toBe(400);
-    expect(await noCode.json()).toEqual({ error: 'Enter the meeting code.' });
-
-    const wrongCode = await post('/api/join', { code: 'ZZZZZZ', role: 'chef' });
-    expect(wrongCode.status).toBe(403);
-    expect(await wrongCode.json()).toEqual({ error: 'That meeting code is not valid.' });
-
-    const noRole = await post('/api/join', { code: 'K7M2Q9' });
-    expect(noRole.status).toBe(400);
-    expect(await noRole.json()).toEqual({ error: 'Choose your role.' });
-
-    const unknownRole = await post('/api/join', { code: 'K7M2Q9', role: 'waiter' });
-    expect(unknownRole.status).toBe(403);
-    expect(await unknownRole.json()).toEqual({
-      error: 'That role is not a human seat in this meeting.',
-    });
-
-    const cookie = await joinAs('chef');
-    const me = await get('/api/auth/me', cookie);
-    expect(me.status).toBe(200);
-    expect(await me.json()).toEqual({ kind: 'participant', role: 'chef', authEnabled: true });
   });
 });

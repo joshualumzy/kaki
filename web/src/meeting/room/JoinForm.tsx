@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import type { AgendaItem, ScenarioRole, ToolPublicUrls } from '@kaki/shared';
 import { resolveArtifactUrl, toolLink } from '../../ui';
 import { MediaPreview, type MediaChoice } from './MediaPreview';
-import './demo.css';
+import './practice.css';
 
 const HERO_ART = '/scenario/kopitiam-hero.svg';
 

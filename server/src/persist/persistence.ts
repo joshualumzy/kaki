@@ -3,7 +3,6 @@ import { Pool } from 'pg';
 import { createPostgresMeetingStateStore, ensureMeetingStateSchema } from './postgres';
 import {
   assertCompatibleSavedMeeting,
-  MEETING_STATE_ID,
   MEETING_STATE_SCHEMA_VERSION,
   type MeetingSnapshot,
   type MeetingStateStore,
@@ -291,15 +290,15 @@ export function createMeetingPersistence({
  * startup with a clear message, the same way sign-in does.
  */
 export async function createMeetingPersistenceFromEnv({
-  id = MEETING_STATE_ID,
+  id,
   env = process.env,
   log = (message) => console.log(message),
 }: {
-  /** The meeting_state row this persistence reads and writes; legacy is 'meeting'. */
-  id?: string;
+  /** The meeting_state row this persistence reads and writes. */
+  id: string;
   env?: NodeJS.ProcessEnv;
   log?: (message: string) => void;
-} = {}): Promise<MeetingPersistence | undefined> {
+}): Promise<MeetingPersistence | undefined> {
   const connectionString = env.POSTGRES_URL?.trim();
   if (connectionString === undefined || connectionString === '') {
     log('kaki persist: POSTGRES_URL is not set; the meeting will not survive a restart');

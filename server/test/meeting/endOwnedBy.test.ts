@@ -27,12 +27,9 @@ function fakeInstance(
   } as unknown as MeetingInstance;
 }
 
-const legacy = fakeInstance('meeting');
-
 function buildRegistry(instance: (id: string) => MeetingInstance) {
   const store = createMemoryMeetingStore();
   const registry = createMeetingRegistry({
-    legacy,
     store,
     buildInstance: async (row) => instance(row.id),
     buildPracticeInstance: async () => {

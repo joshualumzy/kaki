@@ -6,7 +6,6 @@ import { createAuth } from '../../src/auth/module';
 import { hashToken } from '../../src/auth/password';
 import { createMemoryAuthStore, type AuthStore, type UserRecord } from '../../src/auth/store';
 import type { CalendarSettings } from '../../src/action/calendar';
-import { createMeetingCodeSource } from '../../src/meeting/meetingCode';
 import { createMemoryMeetingStore, type MeetingStore } from '../../src/meeting/registry';
 import { createFakeLlm, type LlmClient } from '../../src/services/llm';
 import { testScenario } from '../fixtures/scenario';
@@ -55,14 +54,12 @@ async function buildApp(options: BuildOptions = {}): Promise<{
   meetings: MeetingStore;
 }> {
   const store = createMemoryAuthStore();
-  const meetingCode = createMeetingCodeSource('K7M2Q9');
-  const auth = createAuth({ store, meetingCode });
+  const auth = createAuth({ store});
   const meetings = createMemoryMeetingStore();
   const app = await createApp({
     scenario: testScenario,
     speechRecognition: 'browser',
     auth,
-    meetingCode,
     meetings,
     ...options,
   });

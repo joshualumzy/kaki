@@ -9,7 +9,6 @@ import { createMemoryAuthStore, type AuthStore } from '../src/auth/store';
 import { createAgendaClock } from '../src/host/clock';
 import type { MeetingPauseControl } from '../src/host';
 import { createMeetingModule } from '../src/host/meeting';
-import { createMeetingCodeSource } from '../src/meeting/meetingCode';
 import type { MeetingRow } from '../src/meeting/types';
 import { testScenario } from './fixtures/scenario';
 import {
@@ -23,7 +22,6 @@ import {
   type TestAppWithMeeting,
 } from './helpers';
 
-const CODE = 'K7M2Q9';
 const TOKEN = 'local-test-runner-token';
 
 type SocketResult = { ok: true; ws: WebSocket; messages: KakiEvent[] } | { ok: false; status: number };
@@ -117,15 +115,13 @@ async function authOnApp(
   options: { people?: Array<{ name: string }> } = {},
 ): Promise<AuthSetup> {
   const owner = await signInGoogle(store, 'Ada Owner');
-  const meetingCode = createMeetingCodeSource(CODE);
-  const auth = createAuth({ store, offeredRoles: () => ['chef', 'cashier'], meetingCode });
+  const auth = createAuth({ store, offeredRoles: () => ['chef', 'cashier']});
   const clock = createAgendaClock({ agenda: testScenario.agenda });
   let people: Array<{ name: string }> = options.people ?? [];
   const app = (await createTestApp({
     speechRecognition: 'browser',
     scenario: testScenario,
     auth,
-    meetingCode,
     serviceToken: TOKEN,
     meetingModules: realModulesWith([createMeetingModule({ clock, notetakerIntervalMs: 60_000 })], {
       meetingAgendaIndex: () => (clock.snapshot().started ? clock.snapshot().agendaIndex : undefined),

@@ -6,7 +6,6 @@ import type { KakiApp } from '../../src/app';
 import { createAuth } from '../../src/auth/module';
 import { hashPassword, hashToken } from '../../src/auth/password';
 import { createMemoryAuthStore, type UserRecord } from '../../src/auth/store';
-import { createMeetingCodeSource } from '../../src/meeting/meetingCode';
 import {
   createRealTestApp,
   meetingWsUrl,
@@ -17,7 +16,6 @@ import {
 } from '../helpers';
 import { testScenario } from '../fixtures/scenario';
 
-const CODE = 'K7M2Q9';
 const HOST_EMAIL = 'host@example.com';
 const HOST_PASSWORD = 'host-password';
 
@@ -61,7 +59,7 @@ function connect(port: number, channel: 'screen' | 'participant' | string, cooki
 async function authApp(): Promise<{ app: TestAppWithMeeting; port: number; store: ReturnType<typeof createMemoryAuthStore>; host: UserRecord }> {
   const store = createMemoryAuthStore();
   const host = await store.createUser({ email: HOST_EMAIL, passwordHash: await hashPassword(HOST_PASSWORD) });
-  const auth = createAuth({ store, offeredRoles: () => ['chef', 'cashier'], meetingCode: createMeetingCodeSource(CODE) });
+  const auth = createAuth({ store, offeredRoles: () => ['chef', 'cashier']});
   const app = await createRealTestApp(
     {
       scenario: testScenario,

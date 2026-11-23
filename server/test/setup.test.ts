@@ -5,7 +5,6 @@ import type { KakiApp } from '../src/app';
 import { createAuth } from '../src/auth/module';
 import { hashToken } from '../src/auth/password';
 import { createMemoryAuthStore, type AuthStore } from '../src/auth/store';
-import { createMeetingCodeSource } from '../src/meeting/meetingCode';
 import { realBaseScenario } from '../src/meeting/realMeeting';
 import type { MeetingRow } from '../src/meeting/types';
 import {
@@ -54,11 +53,9 @@ interface RealSetup {
 
 async function realAuthApp(store: AuthStore): Promise<RealSetup> {
   const owner = await signInGoogle(store, 'Ada Owner');
-  const meetingCode = createMeetingCodeSource('K7M2Q9');
-  const auth = createAuth({ store, offeredRoles: () => ['chef', 'cashier'], meetingCode });
+  const auth = createAuth({ store, offeredRoles: () => ['chef', 'cashier']});
   const app = (await createTestApp({
     auth,
-    meetingCode,
     roomRoster: async () => [],
   })) as TestAppWithMeeting;
   const row = await app.registry.create({

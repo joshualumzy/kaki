@@ -5,7 +5,6 @@ import type { KakiApp } from '../../src/app';
 import { createAuth } from '../../src/auth/module';
 import { hashToken } from '../../src/auth/password';
 import { createMemoryAuthStore, type AuthStore, type UserRecord } from '../../src/auth/store';
-import { createMeetingCodeSource } from '../../src/meeting/meetingCode';
 import { createMemoryMeetingStore } from '../../src/meeting/registry';
 import { SAMPLE_WORKSPACE_ID } from '../../src/workspace/constants';
 import {
@@ -14,8 +13,6 @@ import {
   type WorkspaceToolStore,
 } from '../../src/workspace/tools';
 import { createTestApp, portOf } from '../helpers';
-
-const MEETING_CODE = 'K7M2Q9';
 
 interface SignedIn {
   user: UserRecord;
@@ -49,11 +46,9 @@ describe('delete account', () => {
     store = createMemoryAuthStore();
     meetings = createMemoryMeetingStore();
     workspaceTools = createMemoryWorkspaceToolStore();
-    const meetingCode = createMeetingCodeSource(MEETING_CODE);
-    const auth = createAuth({ store, offeredRoles: () => ['chef', 'cashier'], meetingCode });
+    const auth = createAuth({ store, offeredRoles: () => ['chef', 'cashier']});
     app = await createTestApp({
       auth,
-      meetingCode,
       meetings,
       workspaceTools,
       serviceToken: 'runner-secret',
@@ -271,20 +266,18 @@ describe('delete account', () => {
 
     const phoneToken = randomBytes(32).toString('base64url');
     const phoneHash = hashToken(phoneToken);
-    const stateResponse = await request('GET', '/api/meeting/state');
-    const { meetingId: currentMeetingId } = (await stateResponse.json()) as { meetingId: string };
     const seated = await store.enterSeat({
       session: {
         tokenHash: phoneHash,
         kind: 'participant',
         role: 'chef',
-        meetingCode: MEETING_CODE,
-        meetingId: currentMeetingId,
+        meetingCode: null,
+        meetingId,
         displayName: 'Phone',
         userId: null,
         expiresAt: new Date(Date.now() + 60_000),
       },
-      meetingId: currentMeetingId,
+      meetingId,
       role: 'chef',
     });
     expect(seated).toBe(true);
@@ -396,9 +389,7 @@ describe('delete account', () => {
       auth: createAuth({
         store,
         offeredRoles: () => ['chef', 'cashier'],
-        meetingCode: createMeetingCodeSource(MEETING_CODE),
       }),
-      meetingCode: createMeetingCodeSource(MEETING_CODE),
       meetings: withoutDelete,
       workspaceTools,
     });

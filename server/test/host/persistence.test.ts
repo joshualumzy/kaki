@@ -1,6 +1,6 @@
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { defaultMeetingSetup, type KakiEvent, type MeetingSetup, type Task } from '@kaki/shared';
-import { createApp, type KakiApp, type CreateAppOptions } from '../../src/app';
+import type { KakiApp, CreateAppOptions } from '../../src/app';
 import { createMeetingModule } from '../../src/host/meeting';
 import { loadScenario } from '../../src/core/loadScenario';
 import { createFakeLlm } from '../../src/services/llm';
@@ -8,7 +8,6 @@ import { createMemoryMeetingStore, type MeetingStore } from '../../src/meeting/r
 import type { MeetingRow } from '../../src/meeting/types';
 import type { KakiModule } from '../../src/core/modules';
 import { createMeetingPersistence, type MeetingPersistence } from '../../src/persist/persistence';
-import { createMeetingCodeSource } from '../../src/meeting/meetingCode';
 import {
   assertCompatibleSavedMeeting,
   MEETING_STATE_SCHEMA_VERSION,
@@ -785,50 +784,5 @@ describe('meeting persistence across a restart', () => {
       'the clear to succeed and saving to resume',
     );
     expect(store.events.filter((event) => event === 'clear')).toHaveLength(1);
-  });
-});
-
-describe('legacy pinned meeting code', () => {
-  async function startLegacyApp(
-    persistence: MeetingPersistence,
-    options: Omit<CreateAppOptions, 'persistence' | 'scenario' | 'modules'> = {},
-  ): Promise<KakiApp> {
-    const app = await createApp({
-      speechRecognition: 'browser',
-      scenario: testScenario,
-      modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
-      persistence,
-      ...options,
-    });
-    apps.push(app);
-    return app;
-  }
-
-  async function meetingState(app: KakiApp): Promise<{ meetingId: string; started: boolean; startedAt?: string }> {
-    const response = await fetch(`http://127.0.0.1:${portOf(app)}/api/meeting/state`);
-    expect(response.status).toBe(200);
-    return (await response.json()) as { meetingId: string; started: boolean; startedAt?: string };
-  }
-
-  it('lets KAKI_MEETING_CODE win over the saved code and says so', async () => {
-    const store = new MemoryStore();
-    store.saved = savedState({ agenda: ['Prep'] });
-    const persistence = createMeetingPersistence({ store, saved: store.saved, log: () => undefined });
-    const pinned = createMeetingCodeSource('K7QX');
-    const logs: string[] = [];
-    const log = vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
-      logs.push(args.map(String).join(' '));
-    });
-
-    try {
-      const app = await startLegacyApp(persistence, { meetingCode: pinned });
-      expect(pinned.value).toBe('K7QX');
-      expect(logs.some((line) => line.includes('KAKI_MEETING_CODE') && line.includes('saved meeting code'))).toBe(
-        true,
-      );
-      expect((await meetingState(app)).meetingId).toBe('meeting-1');
-    } finally {
-      log.mockRestore();
-    }
   });
 });

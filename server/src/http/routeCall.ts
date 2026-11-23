@@ -76,10 +76,7 @@ export interface RequestContext {
     MeetingRegistry,
     'findByCode' | 'create' | 'createPractice' | 'findPractice' | 'endOwnedBy'
   >;
-  /**
-   * The meeting a session must belong to, when this is not the legacy meeting. A phone session
-   * for meeting A resolves to nobody on meeting B's routes.
-   */
+  /** The meeting a session must belong to: a seat for meeting A resolves to nobody on B's routes. */
   authMeetingId?: string;
   /** The AI runner's shared secret, compared in the access layer; absent means no service channel. */
   serviceToken?: string;
@@ -111,7 +108,7 @@ export interface RequestContext {
   admit: <T>(task: () => Promise<T>) => Promise<T>;
   /** Remember the room someone joined and start watching it for the meeting's next empty spell. */
   watchRoom: (roomName: string) => void;
-  /** The LiveKit room this meeting uses right now: `kaki-<id>`, or the legacy demo room. */
+  /** The LiveKit room this meeting uses right now: `kaki-<id>`. */
   roomName(): string;
   /** The room a meeting generation uses, so a committed reset names its new room exactly. */
   roomNameFor(meetingId: string): string;
@@ -129,9 +126,9 @@ export interface RequestContext {
   meetingStateChanged(): void;
   /** The journey this meeting runs, read at the moment of use. */
   meetingKind(): 'real' | 'practice' | undefined;
-  /** True for a real product meeting, false for the legacy practice/owner instance. */
+  /** True for a real product meeting, false for a practice meeting. */
   realMeeting: boolean;
-  /** True when this is one visitor's own practice meeting (prefixed paths, not the legacy one). */
+  /** True when this is one visitor's own practice meeting. */
   perVisitorPractice: boolean;
   /** Show the people now in a real meeting, one plain seat under each person's name. */
   refreshRealPeople(): void;

@@ -26,8 +26,6 @@ import type { MediaChoice } from './MediaPreview';
 import { MeetingGrid } from './MeetingGrid';
 import { Dock } from './Dock';
 import { ConnectedStartPrompt } from './StartPrompt';
-import { OwnerLobby, WaitingOverlay } from '../MeetingOverlays';
-import { TeamJoinForm } from '../TeamJoinForm';
 import { AudioUnlockPrompt } from './AudioUnlock';
 import {
   clearStoredJoin,
@@ -42,15 +40,15 @@ import {
   type StoredJoin,
 } from './rejoinSession';
 import { RealRoomStateProvider } from './realRoom';
-import './demo.css';
+import './practice.css';
 
 /** Echo cancellation is what lets the server tell a person talking over the AI from the AI's own playback. */
 const ROOM_OPTIONS: RoomOptions = {
   audioCaptureDefaults: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
 };
 
-/** Which journey this page is: the practice demo, a team participant, or the meeting owner. */
-type MeetingVariant = 'practice' | 'participant' | 'owner' | 'real';
+/** Which journey this page is: the practice meeting or a real product meeting. */
+type MeetingVariant = 'practice' | 'real';
 
 interface Session {
   token: string;
@@ -121,8 +119,8 @@ function storedFromSession(session: Session): StoredJoin {
 }
 
 /**
- * The meeting page. Practice keeps the Kopitiam story and its own Start prompt; a team participant
- * waits for the owner; the owner gets the invite lobby. All three share the stage and the Dock.
+ * The meeting page. Practice keeps the Kopitiam story and its own Start prompt; a real meeting
+ * follows the owner's plan. Both share the stage and the Dock.
  */
 export default function Meeting({
   variant = 'practice',
@@ -146,11 +144,14 @@ export default function Meeting({
   const scenario = useScenario();
   const practice = variant === 'practice';
   const real = variant === 'real';
-  // The meeting id every prefixed path, room and socket follows: a real meeting's row, or this
-  // visitor's own practice. A legacy page has none and keeps the unprefixed paths.
-  const apiMeetingId = real ? meetingId : practice ? practiceMeetingId : undefined;
+  // The meeting id every path, room and socket follows: a real meeting's row, or this visitor's
+  // own practice. A page always names exactly one of them.
+  const apiMeetingId = (real ? meetingId : practiceMeetingId) ?? '';
+  if (apiMeetingId === '') {
+    throw new Error('Meeting needs its meeting id');
+  }
   // A stored join belongs to one practice meeting, so an old practice is never restored into a new one.
-  const joinVariant = practice && practiceMeetingId !== undefined ? `${variant}.${practiceMeetingId}` : variant;
+  const joinVariant = practice ? `${variant}.${apiMeetingId}` : variant;
   const auth = useMe(0, real);
   const refreshScenario = useRefreshScenario();
   // The same seats the server offers: the setup's person seats when it names them, else every
@@ -558,17 +559,7 @@ export default function Meeting({
         />
       );
     }
-    return (
-      <TeamJoinForm
-        meetingTitle={scenario.meetingTitle}
-        roles={offersSeats ? roles : []}
-        busy={busy}
-        error={offersSeats ? error : seatsError}
-        initialCode={linkCode}
-        owner={variant === 'owner'}
-        onJoin={(name, roleId, media, code) => void join(name, roleId, media, code)}
-      />
-    );
+    return null;
   }
 
   const seatRole = scenario.roles.find((candidate) => candidate.id === session.role);
@@ -579,9 +570,7 @@ export default function Meeting({
     ? isHost
       ? 'screen'
       : 'participant'
-    : variant === 'participant'
-      ? 'participant'
-      : 'screen';
+    : 'screen';
 
   const roomView = (
     <div className="kd-meeting" data-pane={pane} data-needs-start={needsStart} data-variant={variant}>
@@ -666,12 +655,6 @@ export default function Meeting({
               meetingId={apiMeetingId}
               onStarted={() => setStarted(true)}
             />
-          )}
-          {needsStart && variant === 'participant' && (
-            <WaitingOverlay meetingTitle={scenario.meetingTitle} />
-          )}
-          {needsStart && variant === 'owner' && (
-            <OwnerLobby initialCode={session.meetingCode} onStarted={markMeetingStarted} />
           )}
         </LiveKitRoom>
       </div>

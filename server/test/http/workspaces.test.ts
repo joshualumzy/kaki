@@ -4,7 +4,6 @@ import { createApp, type KakiApp } from '../../src/app';
 import { createAuth } from '../../src/auth/module';
 import { hashToken } from '../../src/auth/password';
 import { createMemoryAuthStore, type AuthStore, type UserRecord } from '../../src/auth/store';
-import { createMeetingCodeSource } from '../../src/meeting/meetingCode';
 import { createMemoryMeetingStore } from '../../src/meeting/registry';
 import { SAMPLE_WORKSPACE_ID } from '../../src/workspace/constants';
 import { testScenario } from '../fixtures/scenario';
@@ -40,13 +39,11 @@ async function signIn(store: AuthStore, name: string): Promise<SignedIn> {
 
 async function buildApp(): Promise<{ base: string; store: AuthStore }> {
   const store = createMemoryAuthStore();
-  const meetingCode = createMeetingCodeSource('K7M2Q9');
-  const auth = createAuth({ store, meetingCode });
+  const auth = createAuth({ store});
   const app = await createApp({
     scenario: testScenario,
     speechRecognition: 'browser',
     auth,
-    meetingCode,
     meetings: createMemoryMeetingStore(),
   });
   apps.push(app);

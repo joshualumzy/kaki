@@ -9,7 +9,7 @@ export const NPC_STATE_TOPIC = 'kaki.npc-state';
 /** LiveKit data topic on which the runner reports each person's microphone and recognition state. */
 export const SPEECH_STATUS_TOPIC = 'kaki.speech-status';
 
-/** LiveKit data topic for the browser's legacy control messages; only Start remains. */
+/** LiveKit data topic for the browser's old control messages; only Start remains. */
 export const CONTROL_TOPIC = 'kaki.control';
 
 /**

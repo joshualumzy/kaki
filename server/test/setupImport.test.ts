@@ -4,7 +4,6 @@ import type { KakiApp } from '../src/app';
 import type { CalendarSettings } from '../src/action/calendar';
 import { createAuth } from '../src/auth/module';
 import { createMemoryAuthStore } from '../src/auth/store';
-import { createMeetingCodeSource } from '../src/meeting/meetingCode';
 import {
   createPracticeTestApp,
   createTestApp,
@@ -138,9 +137,8 @@ describe('setup calendar import', () => {
 
   it('refuses a participant', async () => {
     const store = createMemoryAuthStore();
-    const meetingCode = createMeetingCodeSource('K7M2Q9');
-    const auth = createAuth({ store, offeredRoles: () => ['chef', 'cashier'], meetingCode });
-    app = await createTestApp({ auth, meetingCode, calendar: settings, calendarFetch: calendarFetch() });
+    const auth = createAuth({ store, offeredRoles: () => ['chef', 'cashier']});
+    app = await createTestApp({ auth, calendar: settings, calendarFetch: calendarFetch() });
     base = `http://127.0.0.1:${portOf(app)}`;
     const meeting = await openRealMeeting(app);
 

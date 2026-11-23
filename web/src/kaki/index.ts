@@ -2,7 +2,6 @@ export {
   ScenarioProvider,
   useRefreshScenario,
   useScenario,
-  viewForPath,
   type ScenarioView,
 } from './ScenarioContext';
 export {

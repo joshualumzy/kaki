@@ -140,10 +140,10 @@ export function accessProblem(
       return undefined;
 
     case 'dev': {
-      // The local dev routes answer both at the legacy `/dev/...` paths and under one meeting's
-      // own prefix, so a dev tool can name exactly which meeting it is poking.
+      // The local dev routes answer only under one meeting's own prefix, so a dev tool names
+      // exactly which meeting it is poking.
       const prefixedDev = /^\/api\/meetings\/[^/?#]+\/dev\//.test(context.rawPath);
-      if (!context.devRoutes || !context.loopback || !(context.rawPath.startsWith('/dev/') || prefixedDev)) {
+      if (!context.devRoutes || !context.loopback || !prefixedDev) {
         return { status: 404, error: 'Not found' };
       }
       if (context.authEnabled) return { status: 404, error: 'Not found' };

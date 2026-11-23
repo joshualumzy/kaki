@@ -146,12 +146,11 @@ afterEach(async () => {
 async function build(): Promise<{ app: KakiApp; base: string; store: AuthStore; meetingCode: ReturnType<typeof createMeetingCodeSource> }> {
   const store = createMemoryAuthStore();
   const meetingCode = createMeetingCodeSource();
-  const auth = createAuth({ store, meetingCode });
+  const auth = createAuth({ store});
   const app = await createApp({
     scenario: testScenario,
     speechRecognition: 'browser',
     auth,
-    meetingCode,
     meetings: createMemoryMeetingStore(),
     serviceToken: SERVICE_TOKEN,
     roomRoster: async () => [],

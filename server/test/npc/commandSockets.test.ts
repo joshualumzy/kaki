@@ -52,6 +52,7 @@ function setup(overrides: Partial<CommandSocketsOptions> = {}) {
   const socketsApi = createCommandSockets({
     baseUrl: 'http://127.0.0.1:3001',
     token: 'runner-secret',
+    meetingId: 'meeting-1',
     log: (message) => logs.push(message),
     logError: (message) => errors.push(message),
     reconnectDelayMs: () => 0,

@@ -7,7 +7,7 @@ import { ErrorBoundary } from './ErrorBoundary';
 import { RoleCard } from './RoleCard';
 import { SituationCard } from './SituationCard';
 import { useScenario } from '../../kaki';
-import './demo.css';
+import './practice.css';
 
 /**
  * The unified side dock: shows the visitor's collapsible briefing, any active task or company-record lookup

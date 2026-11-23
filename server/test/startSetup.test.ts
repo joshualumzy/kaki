@@ -20,7 +20,6 @@ import { createAuth } from '../src/auth/module';
 import { hashToken } from '../src/auth/password';
 import { createMemoryAuthStore, type AuthStore } from '../src/auth/store';
 import { createAgendaClock } from '../src/host/clock';
-import { createMeetingCodeSource } from '../src/meeting/meetingCode';
 import { createMeetingModule } from '../src/host/meeting';
 import { loadScenario } from '../src/core/loadScenario';
 import type { KakiModule } from '../src/core/modules';
@@ -187,7 +186,7 @@ function url(app: TestAppWithMeeting, path: string): string {
 /** A per-visitor practice meeting: the one place the pack and its draft still drive Start. */
 async function startApp(
   scenario: Scenario,
-  options: Omit<CreateAppOptions, 'scenario'> = {},
+  options: Omit<CreateAppOptions, 'scenario' | 'modules'> & { modules?: KakiModule[] } = {},
 ): Promise<TestAppWithMeeting> {
   const { modules = [], ...rest } = options;
   const app = await createPracticeTestApp({
@@ -1483,8 +1482,7 @@ describe('Start applies the validated setup', () => {
     const pack = await loadScenario('kopitiam');
     const store = createMemoryAuthStore();
     const owner = await signInGoogle(store, 'Ada Owner');
-    const meetingCode = createMeetingCodeSource('K7M2Q9');
-    const auth = createAuth({ store, meetingCode });
+    const auth = createAuth({ store});
     const meetings = createMemoryMeetingStore();
     const app = await startRealApp(
       meetings,
@@ -1493,7 +1491,7 @@ describe('Start applies the validated setup', () => {
         title: 'Lunch service readiness',
         agenda: [{ title: 'Prep', minutes: 5 }],
       },
-      { auth, meetingCode },
+      { auth },
     );
 
     const getScenarioAs = async (as: 'owner' | 'public'): Promise<Scenario> => {
@@ -1562,8 +1560,7 @@ describe('Start applies the validated setup', () => {
     });
     const authStore = createMemoryAuthStore();
     const owner = await signInGoogle(authStore, 'Alice');
-    const meetingCode = createMeetingCodeSource('K7M2Q9');
-    const auth = createAuth({ store: authStore, offeredRoles: () => [], meetingCode });
+    const auth = createAuth({ store: authStore, offeredRoles: () => []});
     const meetings = createMemoryMeetingStore();
     const app = await startRealApp(
       meetings,
@@ -1574,7 +1571,6 @@ describe('Start applies the validated setup', () => {
       },
       {
         auth,
-        meetingCode,
         modules: [
           createMeetingModule({ notetakerIntervalMs: 20 }),
           createWikiModule({

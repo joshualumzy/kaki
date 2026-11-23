@@ -2,12 +2,10 @@ import { randomUUID } from 'node:crypto';
 import {
   defaultMeetingSetup,
   demoPackNpcProfileIds,
-  demoRoomName,
   deriveMeetingScenario,
   hostIdentityOf,
   isHumanParticipant,
   isPackFreeMeeting,
-  joinSeatRoles,
   KAKI_LISTENER_IDENTITY,
   MEETING_ENDED_MESSAGE,
   meetingScenarioFromSetup,
@@ -49,7 +47,7 @@ import {
 } from './realMeeting';
 import type { MeetingCodeSource } from './meetingCode';
 import { assertReadableSavedMeeting, assertReadableSavedSetup } from '../persist/state';
-import { createRejoinGuard, createRoomPoll, departedSeatGraceMs, rejoinGraceMsFromEnv, roomPollIntervalMs, REJOIN_POLL_MS } from './rejoin';
+import { createRejoinGuard, createRoomPoll, rejoinGraceMsFromEnv, roomPollIntervalMs, REJOIN_POLL_MS } from './rejoin';
 import { findCrossSeatDuplicate, rememberSpeechLine, type SpeechLine } from './crossSeatBleed';
 import { buildRunnerMeetingSnapshot, hostIsHumanFromSession } from './runnerState';
 import { createMeetingSession, type MeetingSession } from './session';
@@ -71,13 +69,13 @@ export interface RunnerPresence {
 
 /** One meeting's live state: its own session, hub, task list, room and agenda clock. */
 export interface MeetingInstance {
-  /** The registry key: the meeting row id, or 'meeting' for the legacy practice instance. */
+  /** The registry key: the meeting row id, or a random id for a practice meeting. */
   id: string;
   /** The workspace this meeting belongs to. */
   workspaceId: string;
-  /** The kind this instance runs at the AI runner; the legacy instance runs everything. */
+  /** The kind this instance runs at the AI runner. */
   runnerKind: 'real' | 'practice';
-  /** True for a practice meeting that belongs to one visitor (prefixed paths, not the legacy one). */
+  /** True for a practice meeting that belongs to one visitor. */
   perVisitorPractice: boolean;
   session: MeetingSession;
   hub: MeetingHub;
@@ -105,15 +103,9 @@ export interface MeetingInstance {
 
 /** Everything one meeting needs from the server-wide app. */
 export interface MeetingInstanceDeps {
-  /** The registry key; new meetings use their row id, the legacy instance is 'meeting'. */
+  /** The registry key: the meeting row id, or a random id for a practice meeting. */
   id: string;
   workspaceId: string;
-  /**
-   * Where this instance's routes live: the legacy instance keeps today's unprefixed `/api/...`
-   * paths, the demo room and the sign-in seat binding; every other instance serves the same
-   * handlers under `/api/meetings/:id`.
-   */
-  paths: 'legacy' | 'prefixed';
   /** Which journey this instance is for: a real product meeting or a practice meeting. */
   kind: 'real' | 'practice';
   /** The pack this meeting runs; a practice instance always keeps it unchanged. */
@@ -152,7 +144,7 @@ export interface MeetingInstanceDeps {
   ownerName?: string;
   /** The runner's control channel, so a real meeting can say loudly when Kaki cannot hear. */
   runnerPresence?: RunnerPresence;
-  /** Record that this meeting's row is over; the legacy practice instance has no row. */
+  /** Record that this meeting's row is over. */
   onEnded?: (endedAt: string) => Promise<void>;
   /** Keep Kaki's own copy of the minutes with the meeting row; absent for the sample practice meeting. */
   onMinutes?: (archive: { minutes: string; todos: ArchivedMeetingTodo[] }) => Promise<void>;
@@ -163,7 +155,6 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
   const {
     id,
     workspaceId,
-    paths,
     kind,
     scenario,
     meetingRow,
@@ -197,9 +188,8 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
     onEnded,
     onMinutes,
   } = deps;
-  const legacyPaths = paths === 'legacy';
   const runnerKind: 'real' | 'practice' = kind;
-  const perVisitorPractice = kind === 'practice' && !legacyPaths;
+  const perVisitorPractice = kind === 'practice';
   let lastActivity = Date.now();
   let people = 0;
   const touch = (): void => {
@@ -207,10 +197,7 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
   };
   const agendaPick = process.env.KAKI_AGENDA_PICK?.trim();
   // A real product meeting owns its own empty scenario. A practice instance keeps today's pack.
-  const baseScenario =
-    legacyPaths || meetingRow === undefined
-      ? scenario
-      : realBaseScenario(meetingRow);
+  const baseScenario = meetingRow === undefined ? scenario : realBaseScenario(meetingRow);
   const fullScenario = {
     ...baseScenario,
     agenda: [...baseScenario.agenda],
@@ -227,7 +214,7 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
   let restoredRoles: Scenario['roles'] | undefined;
   if (savedMeeting !== undefined) {
     // A malformed save must give the friendly message before its roles are derived from it.
-    assertReadableSavedSetup(savedMeeting, fullScenario, !legacyPaths);
+    assertReadableSavedSetup(savedMeeting, fullScenario, kind === 'real');
     const sealed =
       savedMeeting.phase === 'running' || savedMeeting.phase === 'ended' ? savedMeeting.sealed : undefined;
     restoredRoles = sealed === undefined ? undefined : setupScenarioRoles(fullScenario, sealed);
@@ -239,7 +226,7 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
             ...fullScenario.roles,
             ...restoredRoles.filter((role) => !fullScenario.roles.some((packRole) => packRole.id === role.id)),
           ];
-    assertReadableSavedMeeting(savedMeeting, { ...fullScenario, roles: validationRoles }, !legacyPaths);
+    assertReadableSavedMeeting(savedMeeting, { ...fullScenario, roles: validationRoles }, kind === 'real');
     if (meetingCode.fixed) {
       if (savedMeeting.meetingCode !== meetingCode.value) {
         console.log('kaki persist: KAKI_MEETING_CODE replaced the saved meeting code');
@@ -250,10 +237,9 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
   }
   const restoredAgendaIndex =
     savedMeeting?.phase === 'running' ? savedMeeting.state.clock.agendaIndex : 0;
-  const meeting = { id: legacyPaths ? (savedMeeting?.meetingId ?? randomUUID()) : id };
-  /** The LiveKit room: the legacy demo room, or one room per meeting. */
-  const roomNameFor = (meetingId: string): string =>
-    legacyPaths ? demoRoomName(session.active(), meetingId) : `kaki-${id}`;
+  const meeting = { id };
+  /** One LiveKit room per registry meeting; a reset never moves it. */
+  const roomNameFor = (_meetingId: string): string => `kaki-${id}`;
   const roomName = (): string => roomNameFor(meeting.id);
   /** A fresh copy of the pack; the active scenario is a value, never the pack object itself. */
   function packScenario(): Scenario {
@@ -398,9 +384,8 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
     rejoin.close();
   };
   /**
-   * The practice visitor's capability, read from the cookie. A per-visitor practice cookie names
-   * its own meeting (`<meetingId>.<capability>`), so another practice's cookie is never accepted
-   * here. The legacy practice instance keeps its token-only cookie until it is removed.
+   * The practice visitor's capability, read from the cookie. The cookie names its own meeting
+   * (`<meetingId>.<capability>`), so another practice's cookie is never accepted here.
    */
   function practicePrincipal(request: IncomingMessage): Principal | undefined {
     if (session.kind() !== 'practice') return undefined;
@@ -409,13 +394,9 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
     if (session.practiceGeneration() !== session.generation()) return undefined;
     const raw = cookieValue(request, PRACTICE_COOKIE);
     if (raw === undefined) return undefined;
-    let given = raw;
-    if (perVisitorPractice) {
-      const dot = raw.indexOf('.');
-      if (dot === -1 || raw.slice(0, dot) !== id) return undefined;
-      given = raw.slice(dot + 1);
-    }
-    return tokenMatches(given, token) ? { kind: 'practice' } : undefined;
+    const dot = raw.indexOf('.');
+    if (dot === -1 || raw.slice(0, dot) !== id) return undefined;
+    return tokenMatches(raw.slice(dot + 1), token) ? { kind: 'practice' } : undefined;
   }
   let roomCleanupWarned = false;
   /**
@@ -477,7 +458,7 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
       if (auth === undefined) return isLoopbackAddress(request.socket.remoteAddress)
         ? { ok: true, principal: { kind: 'service' } }
         : { ok: false, message: 'Service sign-in required' };
-      return auth.authorize(request, audience, legacyPaths ? undefined : id);
+      return auth.authorize(request, audience, id);
     }
     if (runnerRequest) {
       if (audience.kind === 'screen') {
@@ -520,9 +501,7 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
       }
       return { ok: false, message: 'Practice access belongs to its practice meeting only' };
     }
-    return auth.authorize(request, audience, legacyPaths ? undefined : id, {
-      ...(legacyPaths ? {} : { anyOfferedSeat: true }),
-    });
+    return auth.authorize(request, audience, id, { anyOfferedSeat: true });
   };
   const authorizeUpgrade = async (
     request: IncomingMessage,
@@ -585,30 +564,10 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
       idle.recordAction();
     },
   });
-  // Sign-in and phone seats belong to the legacy meeting only until step 3/4 add guests to real
-  // meetings; binding them from a second instance would make one meeting answer as the other.
-  if (legacyPaths) {
-    auth?.bindMeetingIdentity(() => meeting.id);
-    auth?.bindOfferedSeats(() => joinSeatRoles(visibleScenario()).map((role) => role.id));
-    auth?.bindJoinGuard({
-      meetingKind: () => session.kind(),
-      practiceSeat: () => session.practiceSeat(),
-      hasPracticeCapability: (request) => practicePrincipal(request) !== undefined,
-      admit,
-      departedSeatGraceMs: (seat) =>
-        departedSeatGraceMs({
-          seat,
-          holders: session.holders(),
-          graceActive: rejoin.graceActive(),
-          graceMs: rejoin.graceMs(),
-        }),
-    });
-  }
   // A revoked session is gone, so every hub closes its sockets. A replaced one (the same person
-  // signed in again or took a seat) closes only here, on the legacy meeting, as it always has; a
-  // real meeting's owner keeps their screen when they take a seat with a new session.
-  auth?.onSessionEnded((sessionTokenHash, reason) => {
-    if (legacyPaths || reason === 'revoked') hub.endSession?.(sessionTokenHash);
+  // signed in again or took a seat) leaves an owner's screen open in a real meeting.
+  const stopSessionEnded = auth?.onSessionEnded((sessionTokenHash, reason) => {
+    if (reason === 'revoked') hub.endSession?.(sessionTokenHash);
   });
   const tasks = createTaskStore({ hub, scenario: () => session.active() });
   hub.onCommand(tasks.handleCommand);
@@ -792,8 +751,7 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
     ...(kind === 'real' ? { allowEmptyScenario: true } : {}),
     ...(persistence === undefined ? {} : { persistence }),
   });
-  // A real meeting is fixed at creation: it is never a practice meeting. A practice instance keeps
-  // today's journeys (an owner opens real, or a visitor starts practice) until step 6 removes them.
+  // A real meeting is fixed at creation: it is never a practice meeting.
   if (kind === 'real') {
     session.setKind('real');
     if (session.holders().length > 0) {
@@ -1012,7 +970,7 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
 
   hub.onCommand((command, sender) => {
     if (command.type !== 'SET_OFF_THE_RECORD') return;
-    // Off the record belongs to a real meeting only: the Kopitiam legacy instance keeps its flow.
+    // Off the record belongs to a real meeting only.
     if (runnerKind !== 'real' || session.kind() !== 'real') {
       throw new CommandError('Off the record is only available in a real meeting');
     }
@@ -1066,7 +1024,7 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
   }
   /** Broadcast the one state every participant reads; retained so a late joiner sees it at once. */
   function publishMeetingState(): void {
-    // The legacy practice instance keeps its own flow and takes no part in real-meeting state.
+    // A practice meeting takes no part in real-meeting state.
     if (runnerKind !== 'real') return;
     hub.publish(
       { type: 'MEETING_STATE', audience: { kind: 'all' }, payload: buildMeetingState() },
@@ -1783,7 +1741,7 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
       ...(pickedAgenda === undefined ? {} : { pickedAgenda }),
       devRoutes,
       ...(auth === undefined ? {} : { auth }),
-      ...(legacyPaths ? {} : { authMeetingId: id }),
+      authMeetingId: id,
       ...(serviceToken === undefined ? {} : { serviceToken }),
       routes,
       idle,
@@ -1846,7 +1804,6 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
         serializeChange: (task) => admit(async () => task()),
         onReset: session.onReset,
         session,
-        // Host cues are quiet only on a real product instance; the legacy demo keeps its scripted voice.
         meetingKind: () => (session.kind() === 'practice' ? 'practice' : runnerKind === 'real' ? 'real' : undefined),
         quietCue: (text: string) => {
           meetingCue = { text, at: new Date().toISOString() };
@@ -1882,6 +1839,7 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
       }
       closeRejoin();
       stopRunnerPresence?.();
+      stopSessionEnded?.();
       hub.close();
       await persistence
         ?.flush()
@@ -1965,6 +1923,7 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
       }
       closeRejoin();
       stopRunnerPresence?.();
+      stopSessionEnded?.();
       hub.close();
       await persistence
         ?.flush()

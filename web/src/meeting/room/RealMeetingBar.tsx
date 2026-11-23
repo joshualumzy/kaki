@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { CAMERA_BLOCKED_PROBLEM, MIC_BLOCKED_PROBLEM } from '../../net/plainFailure';
 import { useLocalParticipant, useRoomContext } from '@livekit/components-react';
 import { Avatar } from '../../ui';
-import { QrCode } from '../MeetingOverlays';
+import { QrCode } from '../QrCode';
 import { useRealRoom } from './realRoom';
 import { distinctDisplayNames } from './people';
 

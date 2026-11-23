@@ -30,9 +30,6 @@ import {
  */
 export const MEETING_STATE_SCHEMA_VERSION = 8;
 
-/** The one saved meeting. A single row: Kaki hosts one meeting at a time. */
-export const MEETING_STATE_ID = 'meeting';
-
 /** Why the meeting clock is paused: an empty room (auto) or a person's explicit Stop. */
 export type MeetingPauseKind = 'empty-room' | 'person';
 

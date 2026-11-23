@@ -8,7 +8,6 @@ import {
 } from '../../src/services/livekit';
 import { createAuth } from '../../src/auth/module';
 import { createMemoryAuthStore, type AuthStore } from '../../src/auth/store';
-import { createMeetingCodeSource } from '../../src/meeting/meetingCode';
 import {
   createPracticeTestApp,
   createTestApp,
@@ -97,9 +96,7 @@ describe('POST /api/livekit/token', () => {
             auth: createAuth({
               store: options.auth,
               offeredRoles: () => testScenario.roles.map((role) => role.id),
-              meetingCode: createMeetingCodeSource('K7M2Q9'),
             }),
-            meetingCode: createMeetingCodeSource('K7M2Q9'),
           }),
     })) as TestAppWithMeeting;
     apps.push(app);
