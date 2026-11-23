@@ -7,6 +7,7 @@ import type { Scenario } from '@kaki/shared';
 import { escapeRegExp } from '../core/text';
 import { cleanSpoken, type HumanInfo } from './director';
 import { contentWords } from './meetingState';
+import { isReplyControlLine } from './replyControl';
 
 interface OpeningSpeakerRequest {
   scenario: Scenario;
@@ -75,7 +76,10 @@ interface ReplySpeakerRequest {
   asksControl?: boolean;
 }
 
-const CONTROL_LINE_RE = /^\s*(?:KAKI_CONTROL|\[|\()/i;
+/** A hidden control line or a stage direction, never spoken. */
+function isMetaLine(line: string): boolean {
+  return isReplyControlLine(line) || /^\s*[\[(]/u.test(line);
+}
 /** Points at the game's follow-up card or the player's screen, not a table card or a loyalty card. */
 const CARD_OR_SCREEN_RE =
   /\b(?:follow[- ]up\s+card|card\s+on\s+your|on\s+your\s+(?:screen|phone)|panel|dashboard)\b/i;
@@ -149,13 +153,19 @@ export function openingSpeakerMessages(request: OpeningSpeakerRequest): Array<{ 
       `One short spoken sentence. Ask only one question. ${HEARD_ONLY_RULE} ${NO_SELF_WORK_RULE} Add no fact, no summary and no second question.`,
     ].join(' ');
   } else {
+    // The colleague may be adding a second detail to their own briefing. Showing them their last
+    // line then asking them to "link to that point" made the model say the same fact twice.
+    const continuingOwnBrief = request.previous !== undefined && request.previous.speaker === request.speaker;
     task = [
       `The meeting is on "${request.topicTitle}".`,
-      request.previous === undefined
-        ? 'The host has just handed you the topic.'
-        : `The room just heard ${request.previous.speaker}: "${request.previous.text}". Start by linking to that point in a way that is true from what you know, as it lands on your own side. Never claim their news caused or changed yours; your point is your own. Do not repeat their line.`,
+      continuingOwnBrief
+        ? 'You have already told the room your first point. Add only the new detail now, in your own words, and do not restate or summarise anything you just said.'
+        : request.previous === undefined
+          ? 'The host has just handed you the topic.'
+          : `The room just heard ${request.previous.speaker}: "${request.previous.text}". Start by linking to that point in a way that is true from what you know, as it lands on your own side. Never claim their news caused or changed yours; your point is your own. Do not repeat their line.`,
       `Tell only this, in your own words: "${request.facts.join(' ')}".`,
       'Use only these details. Do not ask the guest anything. Do not mention any other problem, cost or catch; the room will raise that later.',
+      ...(continuingOwnBrief ? ['Start with the new detail; never repeat an earlier figure or sentence.'] : []),
     ].join(' ');
   }
 
@@ -388,7 +398,7 @@ export function parsePlannedReply(reply: string, options: OpeningReplyOptions): 
   const stray: string[] = [];
   for (const raw of reply.replace(/\r/g, '').split('\n')) {
     const line = raw.trim();
-    if (line.length === 0 || CONTROL_LINE_RE.test(line)) continue;
+    if (line.length === 0 || isMetaLine(line)) continue;
     const tag = tagPattern.exec(line);
     if (tag !== null) {
       const name = tag[1] ?? '';
@@ -457,7 +467,7 @@ export function parseGateReply(reply: string, options: { speaker: string; guestN
   const stray: string[] = [];
   for (const raw of reply.replace(/\r/g, '').split('\n')) {
     const line = raw.trim();
-    if (line.length === 0 || CONTROL_LINE_RE.test(line)) continue;
+    if (line.length === 0 || isMetaLine(line)) continue;
     const tag = tagPattern.exec(line);
     if (tag !== null) {
       const name = tag[1] ?? '';

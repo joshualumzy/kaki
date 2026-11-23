@@ -22,6 +22,7 @@ export function Dock({
   sharedAudience = 'screen',
   practice = false,
   real = false,
+  onNewPractice,
   onWingmanBadgeChange,
 }: {
   role: ScenarioRole | undefined;
@@ -33,6 +34,8 @@ export function Dock({
   practice?: boolean;
   /** A real meeting has no pack briefing and shows each person's own name, never a role label. */
   real?: boolean;
+  /** Asks the practice page for a fresh practice meeting once this one is over. */
+  onNewPractice?: () => void;
   /** Reports the quiet Wingman note count for the room's Wingman badge. */
   onWingmanBadgeChange?(count: number): void;
 }) {
@@ -93,6 +96,7 @@ export function Dock({
             sharedAudience={sharedAudience}
             practice={practice}
             real={real}
+            {...(onNewPractice === undefined ? {} : { onNewPractice })}
             {...(onWingmanBadgeChange === undefined ? {} : { onWingmanBadgeChange })}
           />
         </ErrorBoundary>

@@ -57,6 +57,17 @@ if (postgresUrl !== undefined && postgresUrl !== '') {
   };
 }
 const host = createHostModules(scenario);
+/** Every practice meeting gets its own clock and modules; sharing one set would share their state. */
+const practiceModules = () => {
+  const practiceHost = createHostModules(scenario);
+  return {
+    modules: [...practiceHost.modules, ...createWingmanModules(), ...createActionModules()],
+    meetingElapsedSeconds: practiceHost.meetingElapsedSeconds,
+    meetingAgendaIndex: practiceHost.meetingAgendaIndex,
+    meetingPaused: practiceHost.meetingPaused,
+    meetingPause: practiceHost.meetingPause,
+  };
+};
 const meetingCode = createMeetingCodeSource();
 const authEnabled = process.env.KAKI_AUTH === '1';
 const auth = authEnabled ? await createAuthFromEnv({ meetingCode }) : undefined;
@@ -68,6 +79,7 @@ try {
     host: bindHost,
     scenario,
     modules: [...host.modules, ...createWingmanModules(), ...createActionModules()],
+    practiceModules,
     devRoutes: process.env.KAKI_DEV_ROUTES === '1',
     auth,
     calendar: calendarFromEnv(),

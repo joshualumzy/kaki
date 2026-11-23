@@ -536,14 +536,18 @@ export function roleLabel(scenario: Scenario, role: Role): string {
 export function assigneeLabel(
   scenario: Scenario,
   role: Role,
-  viewer?: { name: string; seatName?: string },
+  viewer?: { name: string; seatName?: string; seat?: string },
 ): string {
   const label = roleLabel(scenario, role);
   const attendee = scenario.attendees.find((candidate) => candidate.role === role);
   if (attendee === undefined) return label;
   const same = (a: string, b: string): boolean => a.trim().toLowerCase() === b.trim().toLowerCase();
-  const isViewer = viewer?.seatName !== undefined && same(attendee.name, viewer.seatName);
-  const name = isViewer ? viewer.name : attendee.name;
+  // The seat is exact; a display name is only a fallback, since two people can share one.
+  const isViewer =
+    viewer?.seat !== undefined && viewer.seat.trim() !== ''
+      ? same(role, viewer.seat)
+      : viewer?.seatName !== undefined && same(attendee.name, viewer.seatName);
+  const name = isViewer ? (viewer?.name ?? attendee.name) : attendee.name;
   // A team meeting's role label is the person's own name: never print it twice.
   const roleNote = same(label, name) ? undefined : label;
   if (isViewer) return roleNote === undefined ? `${name} (you)` : `${name} (you · ${roleNote})`;

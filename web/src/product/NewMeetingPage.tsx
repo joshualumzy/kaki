@@ -435,6 +435,10 @@ export function NewMeetingPage() {
                 ))}
                 <option value={CREATE_OPTION}>+ Create a workspace</option>
               </select>
+              <p className="product-hint">
+                A workspace holds your meetings, minutes and connected tools. The Nanyang Kopi
+                sample is read-only and has its tools ready.
+              </p>
             </div>
 
             {creating ? (

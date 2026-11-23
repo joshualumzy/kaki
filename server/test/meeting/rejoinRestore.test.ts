@@ -346,7 +346,7 @@ describe('an abandoned meeting never resumes after a restart', () => {
 });
 
 describe('a restored ended team meeting still under review', () => {
-  it('keeps practice out and lets the owner close the room', async () => {
+  it('keeps the room open for its minutes review until the owner closes it', async () => {
     const { app } = await startApp({
       saved: savedEnded(),
       roster: () => [{ name: 'Ada' }],
@@ -356,14 +356,6 @@ describe('a restored ended team meeting still under review', () => {
 
     expect(app.session.phase()).toBe('ended');
     expect(app.session.reviewingEndedTeamMeeting()).toBe(true);
-
-    const practice = await fetch(`http://127.0.0.1:${portOf(app)}/api/livekit/token`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ participantName: 'Ben', participantRole: 'chef', kind: 'practice' }),
-    });
-    expect(practice.status).toBe(409);
-    expect(await practice.json()).toMatchObject({ realInProgress: true });
 
     const close = await fetch(`http://127.0.0.1:${portOf(app)}/api/meeting/close`, { method: 'POST' });
     expect(close.status).toBe(200);
@@ -384,13 +376,5 @@ describe('a restored ended team meeting still under review', () => {
       () => (app.session.reviewingEndedTeamMeeting() === false ? true : undefined),
       'the empty-room expiry to finish the review',
     );
-
-    const practice = await fetch(`http://127.0.0.1:${portOf(app)}/api/livekit/token`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ participantName: 'Ben', participantRole: 'chef', kind: 'practice' }),
-    });
-    expect(practice.status).toBe(200);
-    expect(app.session.kind()).toBe('practice');
   });
 });

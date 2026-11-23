@@ -10,8 +10,18 @@ import type { AgendaItem, ArchivedMeetingTodo, MeetingMinutesArchive, MeetingRow
 /** A registry refusal the HTTP layer turns into a 503 with this exact message. */
 export class MeetingBusyError extends Error {
   readonly code = 'busy';
-  constructor() {
-    super('Kaki is running as many meetings as it can right now. Try again in a few minutes.');
+  constructor(message = 'Kaki is running as many meetings as it can right now. Try again in a few minutes.') {
+    super(message);
+  }
+}
+
+/** A practice request refused because every practice room is in use right now. */
+export class PracticeFullError extends Error {
+  readonly code = 'practice-full';
+  constructor(
+    message = 'All practice rooms are in use right now. Please try again in a few minutes.',
+  ) {
+    super(message);
   }
 }
 
@@ -27,6 +37,8 @@ export interface MeetingStore {
   }): Promise<MeetingRow>;
   get(id: string): Promise<MeetingRow | undefined>;
   list(workspaceId: string): Promise<MeetingRow[]>;
+  /** How many meetings this owner created at or after the given time, for the daily cap. */
+  countCreatedByOwnerSince(ownerUserId: string, since: Date): Promise<number>;
   /** Mark the row ended once the meeting finishes, so workspace pages show it as over. */
   markEnded?(id: string, endedAt: string): Promise<void>;
   /** Keep Kaki's own copy of the minutes and to-dos with the meeting row. */
@@ -55,8 +67,10 @@ export interface MeetingRegistry {
   }): Promise<MeetingRow>;
   /** The loaded instance, or one rebuilt from its row; undefined when no such meeting exists. */
   get(id: string): Promise<MeetingInstance | undefined>;
-  /** The practice/owner instance of today, always loaded. */
-  legacy(): MeetingInstance;
+  /** Open one fresh, memory-only practice meeting for a visitor. */
+  createPractice(): Promise<MeetingInstance>;
+  /** The loaded practice meeting with this id, or undefined when it is not a practice one. */
+  findPractice(id: string): MeetingInstance | undefined;
   list(workspaceId: string): Promise<MeetingRow[]>;
   /**
    * The id of the open or scheduled real meeting whose code this is, or undefined. A loaded meeting
@@ -66,6 +80,11 @@ export interface MeetingRegistry {
   findByCode(code: string): Promise<string | undefined>;
   /** Save and dispose one meeting; its row and saved state stay. */
   unload(id: string): Promise<void>;
+  /**
+   * A loaded meeting has ended: keep its instance for the room and minutes people may still be
+   * using, but stop counting it against its owner's open-meeting cap.
+   */
+  noteEnded(id: string): void;
   /** Every open meeting, for a runner connecting (or reconnecting) to the control channel. */
   openMeetings(): OpenMeeting[];
   close(): Promise<void>;
@@ -76,12 +95,22 @@ interface MeetingRegistryDeps {
   store: MeetingStore;
   /** Build an instance from its row; persistence is already loaded for it. */
   buildInstance(row: MeetingRow, persistence: MeetingPersistence | undefined): Promise<MeetingInstance>;
+  /** Build a fresh, memory-only practice instance with this registry id. */
+  buildPracticeInstance(id: string): Promise<MeetingInstance>;
   /** Load the meeting's saved state; absent means memory only. */
   persistenceFor?(id: string): Promise<MeetingPersistence | undefined>;
   /** The id of the meeting whose saved state holds this code; absent means loaded meetings only. */
   findSavedIdByCode?(code: string): Promise<string | undefined>;
   maxOpen?: number;
+  /** How many practice meetings may be open at once; the rest of `maxOpen` stays for real meetings. */
+  maxPractice?: number;
+  /** How many real meetings one owner may keep open at once. */
+  maxOpenPerUser?: number;
+  /** How many meetings one owner may create per day. */
+  maxMeetingsPerDay?: number;
   unloadMs?: number;
+  /** How long an empty practice meeting stays for its visitor to return; shorter than a real one. */
+  practiceUnloadMs?: number;
   sweepMs?: number;
   now?: () => number;
   log?: (message: string) => void;
@@ -94,7 +123,11 @@ interface MeetingRegistryDeps {
 }
 
 const DEFAULT_MAX_OPEN = 10;
+const DEFAULT_MAX_PRACTICE = 5;
+const DEFAULT_MAX_OPEN_PER_USER = 2;
+const DEFAULT_MAX_MEETINGS_PER_DAY = 20;
 const DEFAULT_UNLOAD_MS = 30 * 60_000;
+const DEFAULT_PRACTICE_UNLOAD_MS = 5 * 60_000;
 const DEFAULT_SWEEP_MS = 60_000;
 
 function positiveEnvNumber(name: string, fallback: number): number {
@@ -118,12 +151,35 @@ export function newMeetingId(): string {
 /** Create the registry over a meeting store; nothing is restored eagerly. */
 export function createMeetingRegistry(deps: MeetingRegistryDeps): MeetingRegistry {
   const maxOpen = deps.maxOpen ?? positiveEnvNumber('KAKI_MAX_OPEN_MEETINGS', DEFAULT_MAX_OPEN);
+  const maxPractice =
+    deps.maxPractice ?? positiveEnvNumber('KAKI_MAX_PRACTICE', DEFAULT_MAX_PRACTICE);
+  const maxOpenPerUser =
+    deps.maxOpenPerUser ??
+    positiveEnvNumber('KAKI_MAX_OPEN_MEETINGS_PER_USER', DEFAULT_MAX_OPEN_PER_USER);
+  const maxMeetingsPerDay =
+    deps.maxMeetingsPerDay ??
+    positiveEnvNumber('KAKI_MAX_MEETINGS_PER_DAY', DEFAULT_MAX_MEETINGS_PER_DAY);
   const unloadMs = deps.unloadMs ?? positiveEnvNumber('KAKI_MEETING_UNLOAD_MS', DEFAULT_UNLOAD_MS);
+  const practiceUnloadMs =
+    deps.practiceUnloadMs ??
+    positiveEnvNumber('KAKI_PRACTICE_UNLOAD_MS', DEFAULT_PRACTICE_UNLOAD_MS);
   const now = deps.now ?? Date.now;
   const log = deps.log ?? ((message: string) => console.log(message));
   const loaded = new Map<string, MeetingInstance>();
+  /**
+   * The owner of each loaded real meeting that still holds an open slot. An ended meeting keeps
+   * its instance (for its room and minutes) but is removed here, so it never counts against the
+   * per-owner cap; loading an already-ended one never adds it.
+   */
+  const owners = new Map<string, string>();
+  /** Loads in flight per owner, so two simultaneous opens cannot both slip under the cap. */
+  const loadingOwners = new Map<string, number>();
+  /** One in-flight create per owner, so simultaneous creates cannot both slip under the daily cap. */
+  const creating = new Map<string, Promise<unknown>>();
   const persistences = new Map<string, MeetingPersistence>();
   const loading = new Map<string, Promise<MeetingInstance | undefined>>();
+  /** Practice instances being built right now, so two simultaneous opens cannot both slip under the cap. */
+  let practiceCreating = 0;
   let closed = false;
 
   const openMeeting = (instance: MeetingInstance): OpenMeeting => ({
@@ -132,10 +188,48 @@ export function createMeetingRegistry(deps: MeetingRegistryDeps): MeetingRegistr
     roomName: instance.roomName,
   });
 
-  const openCount = (): number => loaded.size + 1; // the legacy instance is always open
+  /** An ended instance stays loaded for its room and minutes, but it holds no open slot. */
+  const isEnded = (instance: MeetingInstance): boolean => instance.session.phase() === 'ended';
+  const openCount = (): number =>
+    [...loaded.values()].filter((instance) => !isEnded(instance)).length + 1; // the legacy instance is always open
+  const practiceCount = (): number =>
+    [...loaded.values()].filter((instance) => instance.runnerKind === 'practice' && !isEnded(instance))
+      .length;
+
+  /** The start of the current UTC day, the boundary of the daily creation cap. */
+  const startOfDay = (): Date => {
+    const start = new Date(now());
+    start.setUTCHours(0, 0, 0, 0);
+    return start;
+  };
+
+  const openForOwner = (ownerUserId: string): number => {
+    let count = 0;
+    for (const id of loaded.keys()) {
+      if (owners.get(id) === ownerUserId) count += 1;
+    }
+    return count;
+  };
+
+  function dailyLimitMessage(limit: number): string {
+    return `You can create up to ${limit} meeting${limit === 1 ? '' : 's'} a day. Try again tomorrow.`;
+  }
+
+  /** Run one owner's creates in turn, so the daily count is checked against settled rows. */
+  async function serializedCreate<T>(ownerUserId: string, task: () => Promise<T>): Promise<T> {
+    const previous = creating.get(ownerUserId) ?? Promise.resolve();
+    const next = previous.catch(() => undefined).then(task);
+    creating.set(ownerUserId, next);
+    try {
+      return await next;
+    } finally {
+      if (creating.get(ownerUserId) === next) creating.delete(ownerUserId);
+    }
+  }
 
   async function closeInstance(instance: MeetingInstance): Promise<void> {
     loaded.delete(instance.id);
+    owners.delete(instance.id);
     const persistence = persistences.get(instance.id);
     persistences.delete(instance.id);
     try {
@@ -154,17 +248,44 @@ export function createMeetingRegistry(deps: MeetingRegistryDeps): MeetingRegistr
     if (closed) throw new Error('the meeting registry is closed');
     const row = await deps.store.get(id);
     if (row === undefined) return undefined;
-    if (openCount() >= maxOpen) {
+    // An ended meeting is served for its room and minutes; it never takes a server-wide slot.
+    if (row.status !== 'ended' && openCount() >= maxOpen) {
       log(`kaki meetings: refusing to open ${id}: ${openCount()} meetings are already open`);
       throw new MeetingBusyError();
     }
-    const persistence = await deps.persistenceFor?.(id);
-    if (persistence !== undefined) persistences.set(id, persistence);
-    const instance = await deps.buildInstance(row, persistence);
-    loaded.set(id, instance);
-    deps.onOpened?.(openMeeting(instance));
-    deps.onWorkspaceOpened?.(instance.workspaceId);
-    return instance;
+    const ownerUserId = row.ownerUserId;
+    // An ended meeting can still be opened for its room and minutes, but it holds no open slot:
+    // viewing it never takes one, and ending it frees the owner's.
+    const slotOwner = ownerUserId !== null && row.status !== 'ended' ? ownerUserId : undefined;
+    if (slotOwner !== undefined) {
+      const alreadyOpen =
+        openForOwner(slotOwner) + (loadingOwners.get(slotOwner) ?? 0);
+      if (alreadyOpen >= maxOpenPerUser) {
+        log(
+          `kaki meetings: refusing to open ${id}: its owner already has ${alreadyOpen} meetings open`,
+        );
+        throw new MeetingBusyError(
+          `You already have ${alreadyOpen} meeting${alreadyOpen === 1 ? '' : 's'} open. End one to start another.`,
+        );
+      }
+      loadingOwners.set(slotOwner, (loadingOwners.get(slotOwner) ?? 0) + 1);
+    }
+    try {
+      const persistence = await deps.persistenceFor?.(id);
+      if (persistence !== undefined) persistences.set(id, persistence);
+      const instance = await deps.buildInstance(row, persistence);
+      loaded.set(id, instance);
+      if (slotOwner !== undefined) owners.set(id, slotOwner);
+      deps.onOpened?.(openMeeting(instance));
+      deps.onWorkspaceOpened?.(instance.workspaceId);
+      return instance;
+    } finally {
+      if (slotOwner !== undefined) {
+        const next = (loadingOwners.get(slotOwner) ?? 1) - 1;
+        if (next <= 0) loadingOwners.delete(slotOwner);
+        else loadingOwners.set(slotOwner, next);
+      }
+    }
   }
 
   const registry: MeetingRegistry = {
@@ -175,14 +296,25 @@ export function createMeetingRegistry(deps: MeetingRegistryDeps): MeetingRegistr
       if (scheduledAt !== undefined && Number.isNaN(scheduledAt)) {
         throw new Error('a meeting scheduledFor must be a date');
       }
-      const status: MeetingStatus = scheduledAt !== undefined && scheduledAt > now() ? 'scheduled' : 'open';
-      return deps.store.create({
-        workspaceId,
-        ownerUserId,
-        title: cleanTitle,
-        status,
-        ...(scheduledFor === undefined ? {} : { scheduledFor }),
-        ...(agenda === undefined ? {} : { agenda }),
+      return serializedCreate(ownerUserId, async () => {
+        const createdToday = await deps.store.countCreatedByOwnerSince(ownerUserId, startOfDay());
+        if (createdToday >= maxMeetingsPerDay) {
+          log(
+            `kaki meetings: refusing to create a meeting for ${ownerUserId}: ` +
+              `${createdToday} already created today`,
+          );
+          throw new MeetingBusyError(dailyLimitMessage(maxMeetingsPerDay));
+        }
+        const status: MeetingStatus =
+          scheduledAt !== undefined && scheduledAt > now() ? 'scheduled' : 'open';
+        return deps.store.create({
+          workspaceId,
+          ownerUserId,
+          title: cleanTitle,
+          status,
+          ...(scheduledFor === undefined ? {} : { scheduledFor }),
+          ...(agenda === undefined ? {} : { agenda }),
+        });
       });
     },
 
@@ -217,7 +349,33 @@ export function createMeetingRegistry(deps: MeetingRegistryDeps): MeetingRegistr
       return (await isLive(savedId)) ? savedId : undefined;
     },
 
-    legacy: () => deps.legacy,
+    async createPractice() {
+      if (closed) throw new Error('the meeting registry is closed');
+      const practiceOpen = practiceCount() + practiceCreating;
+      if (practiceOpen >= maxPractice) {
+        log(`kaki meetings: refusing a practice meeting: ${practiceOpen} are already open`);
+        throw new PracticeFullError();
+      }
+      if (openCount() + practiceCreating >= maxOpen) {
+        log(`kaki meetings: refusing a practice meeting: ${openCount()} meetings are already open`);
+        throw new MeetingBusyError();
+      }
+      practiceCreating += 1;
+      try {
+        const instance = await deps.buildPracticeInstance(newMeetingId());
+        loaded.set(instance.id, instance);
+        deps.onOpened?.(openMeeting(instance));
+        deps.onWorkspaceOpened?.(instance.workspaceId);
+        return instance;
+      } finally {
+        practiceCreating -= 1;
+      }
+    },
+
+    findPractice(id) {
+      const instance = loaded.get(id);
+      return instance !== undefined && instance.runnerKind === 'practice' ? instance : undefined;
+    },
 
     list: (workspaceId) => deps.store.list(workspaceId),
 
@@ -230,6 +388,10 @@ export function createMeetingRegistry(deps: MeetingRegistryDeps): MeetingRegistr
       await closeInstance(instance);
     },
 
+    noteEnded(id) {
+      owners.delete(id);
+    },
+
     openMeetings() {
       return [openMeeting(deps.legacy), ...[...loaded.values()].map(openMeeting)];
     },
@@ -240,6 +402,7 @@ export function createMeetingRegistry(deps: MeetingRegistryDeps): MeetingRegistr
       if (sweep !== undefined) clearInterval(sweep);
       const instances = [...loaded.values()];
       loaded.clear();
+      owners.clear();
       await Promise.all(
         instances.map(async (instance) => {
           try {
@@ -261,8 +424,17 @@ export function createMeetingRegistry(deps: MeetingRegistryDeps): MeetingRegistr
     const at = now();
     for (const instance of [...loaded.values()]) {
       if (instance.connectedPeople() > 0) continue;
-      if (at - instance.lastActivityAt() < unloadMs) continue;
-      log(`kaki meetings: unloading ${instance.id}; nobody has been there for ${Math.round(unloadMs / 60_000)} min`);
+      const practice = instance.runnerKind === 'practice';
+      // An ended meeting is kept only while someone is still viewing its room or minutes, so once
+      // it is empty it is a throwaway: unload it at once rather than waiting out the idle time.
+      const ended = isEnded(instance);
+      const idleFor = practice ? practiceUnloadMs : unloadMs;
+      if (!ended && at - instance.lastActivityAt() < idleFor) continue;
+      log(
+        ended
+          ? `kaki meetings: unloading the ended meeting ${instance.id}`
+          : `kaki meetings: unloading ${instance.id}; nobody has been there for ${Math.round(idleFor / 60_000)} min`,
+      );
       void registry.unload(instance.id).catch((error: unknown) =>
         log(`kaki meetings: unloading ${instance.id} failed: ${String(error)}`),
       );
@@ -369,6 +541,14 @@ export function createPostgresMeetingStore(pool: Pool): MeetingStore {
       ]);
       return next;
     },
+    async countCreatedByOwnerSince(ownerUserId, since) {
+      await ensureMeetingsSchema(pool);
+      const result = await pool.query<{ count: string }>(
+        'select count(*)::text as count from meetings where owner_user_id = $1 and created_at >= $2',
+        [ownerUserId, since],
+      );
+      return Number(result.rows[0]?.count ?? '0');
+    },
     async list(workspaceId) {
       await ensureMeetingsSchema(pool);
       const result = await pool.query(
@@ -426,6 +606,12 @@ export function createMemoryMeetingStore(): MeetingStore & { rows: Map<string, M
       const todos = meeting.minutes.todos.map((todo) => (todo.id === taskId ? { ...todo, done } : todo));
       rows.set(id, { ...meeting, minutes: { ...meeting.minutes, todos } });
       return todos.map((todo) => ({ ...todo }));
+    },
+    async countCreatedByOwnerSince(ownerUserId, since) {
+      const from = since.getTime();
+      return [...rows.values()].filter(
+        (meeting) => meeting.ownerUserId === ownerUserId && Date.parse(meeting.createdAt) >= from,
+      ).length;
     },
     async list(workspaceId) {
       return [...rows.values()]

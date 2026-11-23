@@ -4,6 +4,7 @@ import { projectScenario } from '../../meeting/scenarioProjection';
 import { publicUrlIsHttps } from '../access';
 import { sendJson } from '../http';
 import type { RouteCall } from '../routeCall';
+import { SAMPLE_WORKSPACE_ID } from '../../workspace/constants';
 
 /**
  * Where a person's browser should open Mattermost. The server reaches it at MATTERMOST_URL
@@ -143,7 +144,15 @@ export async function handleCalendarEvent(call: RouteCall): Promise<void> {
 
 /** Redirects a Mattermost link onto the configured public server and signs the demo user in. */
 export async function handleMattermostOpen(call: RouteCall): Promise<void> {
-  const { response, url } = call;
+  const { response, url, context } = call;
+  // Only the shared sample workspace hands out the demo user's Mattermost cookies. A real
+  // workspace's people must use that workspace's own tool connection, never this shared identity.
+  if (context.workspaceId !== SAMPLE_WORKSPACE_ID) {
+    sendJson(response, 403, {
+      error: 'The shared demo sign-in is only available in the sample workspace.',
+    });
+    return;
+  }
   const query = url.searchParams;
   const rawTarget = query.get('url')?.trim() ?? '';
   let parsedTarget: URL;

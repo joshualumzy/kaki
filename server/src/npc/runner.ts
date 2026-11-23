@@ -311,6 +311,8 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
   let roomName =
     options.roomName ??
     demoRoomName(bootScenario, options.initialMeeting?.meetingId ?? meeting.meetingId() ?? 'boot');
+  /** A pinned room belongs to the identity the runner was opened for, not to every later identity. */
+  let pinnedRoomMeetingId = options.initialMeeting?.meetingId;
 
   // --- The listener joins every room; characters join one by one, each publishing its own microphone track. ---
   const characters = new Map<string, Character>();
@@ -1049,6 +1051,12 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
       // The room follows the snapshot (a prepare carries one from the server), so this placeholder
       // id alone does not move the runner.
       meeting.clear(request.meetingId);
+    } else if (openedLocally || endedTerminal) {
+      // A prepare is a Start request. The same id with a meeting the runner already opened (or ended)
+      // is the next practice meeting reusing it, even when this runner never saw the old end or reset:
+      // its paused conversation and briefed topics must not carry into the new one.
+      log(`the server is preparing a new meeting ${request.meetingId}; clearing the meeting the runner already ran`);
+      clearLocalMeeting();
     }
     prepared = undefined;
     endedTerminal = false;
@@ -1486,9 +1494,15 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
   if (listenerRoom === undefined) throw new Error('the technical listener did not join LiveKit');
   attachRoom(listenerRoom);
 
-  /** The fixed room for a meeting identity; a test may pin one room for every meeting. */
+  /**
+   * The room for a meeting identity. A real meeting's room is pinned when the runner is opened
+   * (its identity never changes), while a practice meeting can rotate its identity under the same
+   * runner and must follow the new identity's room instead of staying in the old one.
+   */
   function roomForMeeting(meetingId: string): string {
-    return options.roomName ?? demoRoomName(bootScenario, meetingId);
+    if (options.roomName === undefined) return demoRoomName(bootScenario, meetingId);
+    pinnedRoomMeetingId ??= meetingId;
+    return meetingId === pinnedRoomMeetingId ? options.roomName : demoRoomName(bootScenario, meetingId);
   }
 
   /** Join the permanent characters into `next`, retrying with backoff until it succeeds or the room moves on. */

@@ -19,6 +19,7 @@ import { HostCueCard } from './HostCueCard';
 import { TaskControls } from './TaskControls';
 import { WingmanPanel } from './WingmanPanel';
 import type { TranscriptViewer } from './captions';
+import { distinctDisplayNames } from './people';
 import { entryForEvent, entryForTask, type TimelineEntry } from './timeline';
 
 function downloadMinutes(title: string, body: string): void {
@@ -46,6 +47,7 @@ export function MeetingPanel({
   sharedAudience = 'screen',
   practice = false,
   real = false,
+  onNewPractice,
   onWingmanBadgeChange,
 }: {
   viewer: TranscriptViewer;
@@ -57,6 +59,8 @@ export function MeetingPanel({
   practice?: boolean;
   /** A real meeting's End lives in the room bar only, and an empty agenda has nothing to advance. */
   real?: boolean;
+  /** Asks the practice page for a fresh practice meeting once this one is over. */
+  onNewPractice?: () => void;
   /** Reports the quiet Wingman note count so the room can show it on the Wingman button. */
   onWingmanBadgeChange?(count: number): void;
 }) {
@@ -92,6 +96,12 @@ export function MeetingPanel({
   const seenEvents = useRef(new WeakSet<KakiEvent>());
   const taskStatus = useRef(new Map<string, Task['status']>());
   const end = useRef<HTMLDivElement>(null);
+  // The People list's disambiguated names, keyed by the seat a transcript line names, so the
+  // transcript says "Sam" and "Sam (2)" exactly as the People popover does.
+  const seatNames = useMemo(() => {
+    const shown = distinctDisplayNames(meetingState?.participants ?? []);
+    return new Map([...shown].map(([seat, name]) => [seat.trim().toLowerCase(), name]));
+  }, [meetingState?.participants]);
 
   useEffect(() => {
     if (events.length === 0 || (events.length === 1 && events[0]?.type === 'TRANSCRIPT_CHUNK')) {
@@ -109,7 +119,7 @@ export function MeetingPanel({
         setRecord(event);
         continue;
       }
-      const entry = entryForEvent(event, viewer, isHost, scenario);
+      const entry = entryForEvent(event, viewer, isHost, scenario, seatNames);
       if (entry === undefined) continue;
       if (seenKeys.current.has(entry.key)) {
         updated.set(entry.key, entry);
@@ -124,12 +134,15 @@ export function MeetingPanel({
           ? previous
           : previous.map((entry) => {
               const replacement = updated.get(entry.key);
-              return replacement === undefined || replacement.text === entry.text ? entry : replacement;
+              return replacement === undefined || replacement.text === entry.text
+                ? entry
+                // An update names no seat, so keep the exact label the original line was given.
+                : { ...replacement, who: entry.who ?? replacement.who };
             });
         return added.length === 0 ? next : [...next, ...added];
       });
     }
-  }, [events, viewer, isHost, scenario]);
+  }, [events, viewer, isHost, scenario, seatNames]);
 
   const facilitatorName = useMemo(() => {
     const hostRole = scenario.roles.find((r) => r.facilitator === true);
@@ -411,16 +424,29 @@ export function MeetingPanel({
                 </button>
               </>
             )}
-            <button
-              type="button"
-              className="kd-chip"
-              onClick={() => {
-                clearAllStoredJoins();
-                window.location.reload();
-              }}
-            >
-              Start new meeting / Switch role
-            </button>
+            {practice && onNewPractice !== undefined ? (
+              <button
+                type="button"
+                className="kd-chip"
+                onClick={() => {
+                  clearAllStoredJoins();
+                  onNewPractice();
+                }}
+              >
+                Start a new practice
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="kd-chip"
+                onClick={() => {
+                  clearAllStoredJoins();
+                  window.location.reload();
+                }}
+              >
+                Start new meeting / Switch role
+              </button>
+            )}
           </div>
           {minutesCopyNote === null ? null : (
             <p className="task-meta" role="status">{minutesCopyNote}</p>

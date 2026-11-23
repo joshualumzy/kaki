@@ -3,7 +3,7 @@ import { aiCast, humanRoles, type Scenario } from '@kaki/shared';
 import type { ChatMessage } from '../../src/services/llm';
 import { NpcConversation, type NpcPorts } from '../../src/npc/conversation';
 import type { Utterance } from '../../src/npc/director';
-import { gateSpeakerMessages, parseGateReply, parsePlannedReply, replySpeakerMessages } from '../../src/npc/openingWriter';
+import { gateSpeakerMessages, openingSpeakerMessages, parseGateReply, parsePlannedReply, replySpeakerMessages } from '../../src/npc/openingWriter';
 import { loadScenario } from '../../src/core/loadScenario';
 
 interface LlmCall {
@@ -1070,6 +1070,43 @@ describe('one-speaker topic opening', () => {
     ]) {
       expect(parse('Arjun', text)).toEqual({ ok: false, reason: 'pointed at the card or screen' });
     }
+  });
+
+  it('never speaks a hidden control line, whatever separator the model used', () => {
+    const names = (KOPITIAM.npcs ?? []).map((npc) => npc.attendee);
+    const parse = (line: string) => parsePlannedReply(`Arjun: The till login still needs doing.\n${line}`, {
+      expectedSpeaker: 'Arjun',
+      names,
+      guestName: 'Josh',
+      purpose: 'brief',
+    });
+
+    for (const control of [
+      'KAKI_CONTROL {"state":"open"}',
+      'KAKI CONTROL {"state":"open"}',
+      'KAKI\tCONTROL {"state":"open"}',
+      'KAKI-CONTROL {"state":"open"}',
+    ]) {
+      expect(parse(control)).toMatchObject({ ok: true, text: 'The till login still needs doing.' });
+    }
+    // A control line written on the same line as speech is dropped whole: it must never reach the room.
+    expect(parse('KAKI CONTROL {"state":"open"} The till login still needs doing.'))
+      .toMatchObject({ ok: true, text: 'The till login still needs doing.' });
+  });
+
+  it('adds a colleague\'s second briefing detail without showing their own last line back to them', () => {
+    const messages = openingSpeakerMessages({
+      scenario: KOPITIAM,
+      speaker: 'Mei',
+      topicTitle: TOPICS[0]!,
+      purpose: 'brief',
+      facts: ['The shop has only 30 large trays.'],
+      previous: { speaker: 'Mei', text: 'The fridge was off for three hours overnight.' },
+    }).map((message) => message.content).join('\n');
+
+    expect(messages).toContain('already told the room your first point');
+    expect(messages).toContain('The shop has only 30 large trays.');
+    expect(messages).not.toContain('The fridge was off for three hours overnight.');
   });
 
   it('asks the writer for a direct answer with no question back, and only a real gap for clarify', () => {

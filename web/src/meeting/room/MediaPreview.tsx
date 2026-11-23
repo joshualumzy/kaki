@@ -18,8 +18,16 @@ interface MediaPreviewProps {
 
 function describeFailure(kind: 'microphone' | 'camera', error: unknown): string {
   const name = error instanceof DOMException ? error.name : '';
-  if (name === 'NotFoundError') return `No ${kind} was found.`;
-  if (name === 'NotAllowedError' || name === 'SecurityError') return `Allow the ${kind} in your browser to turn it on.`;
+  if (name === 'NotFoundError') {
+    return kind === 'microphone'
+      ? 'No microphone was found. You can join to type instead.'
+      : 'No camera was found.';
+  }
+  if (name === 'NotAllowedError' || name === 'SecurityError') {
+    return kind === 'microphone'
+      ? "Your microphone is blocked. Allow it in your browser's site settings, or join to type instead."
+      : "Your camera is blocked. Allow it in your browser's site settings to use it.";
+  }
   return `The ${kind} could not be started.`;
 }
 

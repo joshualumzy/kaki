@@ -197,6 +197,8 @@ async function buildApp(
     scenario?: Scenario;
     startAckTimeoutMs?: number;
     modules?: MeetingModules['modules'];
+    maxOpenMeetings?: number;
+    maxOpenMeetingsPerUser?: number;
   } = {},
 ): Promise<Built> {
   const store = createMemoryAuthStore();
@@ -216,6 +218,10 @@ async function buildApp(
     serviceToken: SERVICE_TOKEN,
     roomRoster: async () => [],
     ...(options.startAckTimeoutMs === undefined ? {} : { startAckTimeoutMs: options.startAckTimeoutMs }),
+    ...(options.maxOpenMeetings === undefined ? {} : { maxOpenMeetings: options.maxOpenMeetings }),
+    ...(options.maxOpenMeetingsPerUser === undefined
+      ? {}
+      : { maxOpenMeetingsPerUser: options.maxOpenMeetingsPerUser }),
     meetingModules: () => {
       const built = fakeModules(clock, options.meetingModule);
       return {
@@ -457,6 +463,110 @@ describe('real meeting controls', () => {
     const row = await built.meetings.get(meetingId);
     expect(row?.status).toBe('ended');
     expect(row?.endedAt).not.toBeNull();
+  });
+
+  it("frees the owner's open slot as soon as a meeting ends, so the next opens without an unload", async () => {
+    const built = await buildApp();
+    const owner = await signIn(built.store, 'Ada');
+    const first = await createAndOpen(built, owner);
+    await createAndOpen(built, owner); // the owner's second slot
+    const third = await built.app.registry.create({
+      workspaceId: 'workspace-1',
+      ownerUserId: owner.user.id,
+      title: 'Third',
+    });
+
+    // At the cap, the join the web client makes fails first with the plain message its join page
+    // shows. A refused WebSocket upgrade cannot carry a body the browser can read, so it is not
+    // the message the person ever sees.
+    const refused = await request(built.base, `/api/meetings/${third.id}/livekit/token`, {
+      method: 'POST',
+      cookie: owner.cookie,
+      body: { participantName: 'Ada', participantRole: 'chef' },
+    });
+    expect(refused.status).toBe(503);
+    expect(await refused.json()).toEqual({
+      error: 'busy',
+      message: 'You already have 2 meetings open. End one to start another.',
+    });
+
+    // End the first through the real path: start it, then the shared screen sends END.
+    const joined = await join(built, first, owner.cookie, 'Ada', 'chef');
+    expect(joined.response.status).toBe(200);
+    expect(
+      (await request(built.base, `/api/meetings/${first}/meeting/start`, {
+        method: 'POST',
+        cookie: joined.cookie,
+      })).status,
+    ).toBe(200);
+    const screen = await connect(built.port, first, { audience: 'screen' }, joined.cookie);
+    sockets.push(screen);
+    screen.ws.send(JSON.stringify({ type: 'END_MEETING' }));
+    await waitFor(
+      () => screen.messages.find((event) => event.type === 'MEETING_STATE' && event.payload.phase === 'ended'),
+      'the first meeting to end',
+    );
+    await vi.waitFor(async () => {
+      expect((await built.meetings.get(first))?.status).toBe('ended');
+    });
+
+    // Its slot is free at once: no unload, no idle sweep, the third opens straight away.
+    const opened = await request(built.base, `/api/meetings/${third.id}/meeting/open`, {
+      method: 'POST',
+      cookie: joined.cookie,
+    });
+    expect(opened.status).toBe(200);
+  });
+
+  it('frees an ended meeting’s share of the server-wide cap yet keeps serving its ended room', async () => {
+    // The legacy practice instance plus one loaded real meeting fill a cap of two.
+    const built = await buildApp({ maxOpenMeetings: 2, maxOpenMeetingsPerUser: 5 });
+    const owner = await signIn(built.store, 'Ada');
+    const first = await createAndOpen(built, owner);
+    const second = await built.app.registry.create({
+      workspaceId: 'workspace-1',
+      ownerUserId: owner.user.id,
+      title: 'Second',
+    });
+
+    const refused = await request(built.base, `/api/meetings/${second.id}/meeting/open`, {
+      method: 'POST',
+      cookie: owner.cookie,
+    });
+    expect(refused.status).toBe(503);
+
+    // End the first through the real path: start it, then the shared screen sends END.
+    const joined = await join(built, first, owner.cookie, 'Ada', 'chef');
+    expect(joined.response.status).toBe(200);
+    expect(
+      (await request(built.base, `/api/meetings/${first}/meeting/start`, {
+        method: 'POST',
+        cookie: joined.cookie,
+      })).status,
+    ).toBe(200);
+    const screen = await connect(built.port, first, { audience: 'screen' }, joined.cookie);
+    sockets.push(screen);
+    screen.ws.send(JSON.stringify({ type: 'END_MEETING' }));
+    await waitFor(
+      () => screen.messages.find((event) => event.type === 'MEETING_STATE' && event.payload.phase === 'ended'),
+      'the first meeting to end',
+    );
+    await vi.waitFor(async () => {
+      expect((await built.meetings.get(first))?.status).toBe('ended');
+    });
+
+    // The ended room is still served to the person viewing it: it was not unloaded.
+    const endedState = await request(built.base, `/api/meetings/${first}/meeting/state`);
+    expect(endedState.status).toBe(200);
+    expect(await endedState.json()).toMatchObject({ meetingId: first, started: false });
+    expect((await built.app.registry.get(first))?.session.phase()).toBe('ended');
+
+    // Its server-wide slot is free at once: the second opens without an unload or idle sweep.
+    const opened = await request(built.base, `/api/meetings/${second.id}/meeting/open`, {
+      method: 'POST',
+      cookie: joined.cookie,
+    });
+    expect(opened.status).toBe(200);
   });
 
   it('persists off-the-record spans with the meeting and restores them after a restart', async () => {

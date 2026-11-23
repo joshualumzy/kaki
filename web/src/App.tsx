@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { ScenarioProvider, viewForPath } from './kaki';
 import { LandingPage } from './landing/LandingPage';
-import Meeting from './meeting/room/Meeting';
+import { PracticePage } from './meeting/PracticePage';
 import { JoinPage } from './product/JoinPage';
 import { NewMeetingPage } from './product/NewMeetingPage';
 import { RealMeetingRoom } from './product/RealMeetingRoom';
@@ -17,13 +17,11 @@ function ScenarioShell({ children }: { children: ReactNode }) {
   return <ScenarioProvider view={viewForPath(location.pathname)}>{children}</ScenarioProvider>;
 }
 
-/** The front page and the practice meeting; practice needs the practice scenario. Any other address goes home. */
+/** The front page. Any other unhandled address goes home. */
 function LegacyRoutes() {
   return (
     <Routes>
       <Route path="/" element={<LandingPage />} />
-      <Route path="/practice" element={<Meeting variant="practice" />} />
-      <Route path="/demo" element={<Meeting variant="practice" />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
@@ -40,6 +38,9 @@ export function App() {
         <Route path="/workspaces/:id/meetings/:meetingId" element={<MeetingHistoryPage />} />
         <Route path="/m/:id/room" element={<RealMeetingRoom />} />
         <Route path="/m/:id" element={<JoinPage />} />
+        {/* The public practice URLs stay; each visitor's room is resolved from their own cookie. */}
+        <Route path="/practice" element={<PracticePage />} />
+        <Route path="/demo" element={<PracticePage />} />
         <Route
           path="*"
           element={

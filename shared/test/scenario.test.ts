@@ -498,4 +498,22 @@ describe('assigneeLabel', () => {
     const attendee = testScenario.attendees.find((a) => a.role === role.id)!;
     expect(assigneeLabel(testScenario, role.id)).toBe(`${attendee.name} (${role.label})`);
   });
+
+  it('marks only the viewer whose seat matches when two people share a name', () => {
+    const twins = {
+      ...testScenario,
+      roles: [
+        { id: 'seat_a', label: 'Sam' },
+        { id: 'seat_b', label: 'Sam' },
+      ],
+      attendees: [
+        { name: 'Sam', displayName: 'Sam', role: 'seat_a' },
+        { name: 'Sam', displayName: 'Sam', role: 'seat_b' },
+      ],
+    } as unknown as typeof testScenario;
+    const firstSam = { name: 'Sam', seatName: 'Sam', seat: 'seat_a' };
+
+    expect(assigneeLabel(twins, 'seat_a', firstSam)).toBe('Sam (you)');
+    expect(assigneeLabel(twins, 'seat_b', firstSam)).toBe('Sam');
+  });
 });

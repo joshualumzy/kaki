@@ -320,6 +320,36 @@ describe('a renamed person seat keeps its role', () => {
   });
 });
 
+describe('a practice room matches speech by the name identity its token issues', () => {
+  it('accepts a server-recognised practice line under its display name', async () => {
+    const { port } = await humanOnlyMeeting();
+    const screen = await connect(port, 'screen');
+    if (!screen.ok) throw new Error('screen socket did not open');
+    sockets.push(screen.ws);
+    const meetingId = ((await (await fetch(`http://127.0.0.1:${port}/api/meeting/state`)).json()) as { meetingId: string })
+      .meetingId;
+    const text = 'The practice line still lands.';
+    const response = await fetch(`http://127.0.0.1:${port}/api/runner/human-line`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${TOKEN}` },
+      body: JSON.stringify({
+        meetingId,
+        participantIdentity: 'Alice',
+        seat: 'operations_director',
+        text,
+        source: 'speech',
+        clientLineId: 'practice-speech',
+      }),
+    });
+    expect(response.status).toBe(200);
+    const chunk = await waitFor(
+      () => screen.messages.find((event) => event.type === 'TRANSCRIPT_CHUNK' && event.payload.text === text),
+      'the practice speech line',
+    );
+    expect(chunk).toMatchObject({ payload: { speaker: 'Alice', speakerRole: 'operations_director' } });
+  });
+});
+
 describe('speech recording needs the runner when recognition is server-side', () => {
   it('refuses Start in a human-only meeting with no runner, with a clear reason', async () => {
     const { app, port } = await humanOnlyApp('server');

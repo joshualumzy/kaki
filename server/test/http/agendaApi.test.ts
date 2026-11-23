@@ -46,6 +46,7 @@ interface BuildOptions {
   llm?: LlmClient;
   calendar?: CalendarSettings;
   calendarFetch?: typeof fetch;
+  llmRequestsPerMinute?: number;
 }
 
 async function buildApp(options: BuildOptions = {}): Promise<{
@@ -265,6 +266,23 @@ describe('Tell Kaki API', () => {
     expect(response.status).toBe(400);
   });
 
+  it('rate-limits paid requests per account and per address', async () => {
+    const llm = createFakeLlm(() => '{"title":null,"agenda":[]}');
+    const { base, store } = await buildApp({ llm, llmRequestsPerMinute: 2 });
+    const ada = await signIn(store, 'Ada');
+    const ben = await signIn(store, 'Ben');
+    const ask = (cookie: string) =>
+      request(base, '/api/tell-kaki', { method: 'POST', cookie, body: { text: 'Budget' } });
+
+    expect((await ask(ada.cookie)).status).toBe(200);
+    expect((await ask(ada.cookie)).status).toBe(200);
+    const overUser = await ask(ada.cookie);
+    expect(overUser.status).toBe(429);
+    expect(await overUser.json()).toEqual({ error: 'Too many requests, try again in a minute' });
+    // The address key already used both its attempts, so even another account waits.
+    expect((await ask(ben.cookie)).status).toBe(429);
+  });
+
   it('needs a signed-in user', async () => {
     const { base } = await buildApp({ llm: createFakeLlm(() => '{"title":null,"agenda":[]}') });
     expect(
@@ -367,6 +385,25 @@ describe('agenda from calendar API', () => {
     expect(((await response.json()) as { errors: Array<{ field: string }> }).errors).toContainEqual(
       expect.objectContaining({ field: 'agenda[0].minutes' }),
     );
+  });
+
+  it('rate-limits calendar reads per account and per address', async () => {
+    const { base, store } = await buildApp({
+      calendar: CALENDAR,
+      calendarFetch: calendarFetch(),
+      llmRequestsPerMinute: 2,
+    });
+    const ada = await signIn(store, 'Ada');
+    const ben = await signIn(store, 'Ben');
+    const read = (cookie: string) =>
+      request(base, '/api/agenda/from-calendar', { method: 'POST', cookie });
+
+    expect((await read(ada.cookie)).status).toBe(200);
+    expect((await read(ada.cookie)).status).toBe(200);
+    const overUser = await read(ada.cookie);
+    expect(overUser.status).toBe(429);
+    expect(await overUser.json()).toEqual({ error: 'Too many requests, try again in a minute' });
+    expect((await read(ben.cookie)).status).toBe(429);
   });
 
   it('needs a signed-in user', async () => {

@@ -156,7 +156,7 @@ Follow-ups are to-do cards. The owner can press Do it for me (tool), review the 
 
 Questions and follow-ups are proposed only from transcript lines, and a second model pass judges whether the meaning matches. A doubtful case is left unresolved.
 
-In a practice meeting, one person sits with four AI colleagues who speak in their own voices, take turns, react to what is said and stop when interrupted. The practice meeting still runs at `/practice` and `/demo`.
+In a practice meeting, one person sits with four AI colleagues who speak in their own voices, take turns, react to what is said and stop when interrupted. The practice meeting still runs at `/practice` and `/demo`, and each visitor gets their own room.
 
 ## Front-end features
 
@@ -172,7 +172,7 @@ Screen map:
 - `/workspaces/:id` lists the workspace's meetings and tools. An admin can connect, test and disconnect tools.
 - `/workspaces/:id/meetings/:meetingId` shows the minutes and to-dos of an ended meeting, with Copy and Download.
 - `/m/:id` is the guest join page, and `/m/:id/room` is the real meeting room.
-- `/practice` and `/demo` open the practice meeting. Any other path redirects to `/`.
+- `/practice` and `/demo` open this visitor's own practice meeting. Any other path redirects to `/`.
 
 ### Plan the meeting (front end)
 

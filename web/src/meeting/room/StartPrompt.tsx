@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { AgendaItem, Scenario, ScenarioRole } from '@kaki/shared';
 import { useScenario } from '../../kaki';
+import { meetingApiPath } from '../../kaki/meetingScope';
 import './demo.css';
 
 interface StartPromptProps {
@@ -215,11 +216,14 @@ export function ConnectedStartPrompt({
   role,
   viewerName,
   seatName,
+  meetingId,
 }: {
   onStarted(): void;
   role?: ScenarioRole;
   viewerName?: string;
   seatName?: string;
+  /** The meeting this Start belongs to; absent keeps the legacy unprefixed path. */
+  meetingId?: string;
 }) {
   const scenario = safeUseScenario();
   const [phase, setPhase] = useState<'idle' | 'waiting' | 'failed'>('idle');
@@ -252,7 +256,7 @@ export function ConnectedStartPrompt({
     setPhase('waiting');
     const timer = setTimeout(() => controller.abort(), START_TIMEOUT_MS);
     console.info('[kaki:start] browser asking the server to start the meeting');
-    void fetch('/api/meeting/start', { method: 'POST', signal: controller.signal })
+    void fetch(meetingApiPath(meetingId, '/api/meeting/start'), { method: 'POST', signal: controller.signal })
       .then(async (response) => {
         const body = (await response.json().catch(() => ({}))) as { error?: unknown; started?: unknown };
         if (!response.ok || body.started !== true) {
@@ -280,7 +284,7 @@ export function ConnectedStartPrompt({
         setError(message);
       })
       .finally(() => clearTimeout(timer));
-  }, [scenario, onStarted]);
+  }, [scenario, onStarted, meetingId]);
 
   return (
     <StartPrompt

@@ -299,6 +299,8 @@ const initialMeeting = await runnerClient.fetchMeetingState().catch((error: unkn
 });
 const runner = await startNpcRunner({
   scenario,
+  // The server announces the exact room. Pinning it keeps a per-visitor practice in its own room;
+  // a practice meeting that rotates its identity still moves to the new identity's room.
   roomName,
   livekitUrl: process.env.LIVEKIT_URL || 'ws://127.0.0.1:7880',
   stream: streamWithFault,

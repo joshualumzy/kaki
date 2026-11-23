@@ -33,6 +33,22 @@ describe('timeline entries', () => {
     expect(hostName({ ...scenario, npcs: [] } as Scenario)).toBe('Host');
   });
 
+  it('labels a real line by its seat so two people with one name are told apart', () => {
+    const seatNames = new Map([
+      ['person_a', 'Sam'],
+      ['person_b', 'Sam (2)'],
+    ]);
+    const fromSeat = (seat: string): KakiEvent => ({
+      type: 'TRANSCRIPT_CHUNK',
+      audience: { kind: 'all' },
+      payload: { speaker: 'Sam', text: 'Hello.', timestamp: '2026-11-05T10:00:00Z', speakerRole: seat },
+    });
+    const firstSam = { name: 'Sam', seatName: 'Sam', seat: 'person_a' };
+
+    expect(entryForEvent(fromSeat('person_a'), firstSam, false, undefined, seatNames)?.who).toBe('Sam (you)');
+    expect(entryForEvent(fromSeat('person_b'), firstSam, false, undefined, seatNames)?.who).toBe('Sam (2)');
+  });
+
   it('marks a line that began while the previous person was still speaking', () => {
     const overlapping: KakiEvent = {
       type: 'TRANSCRIPT_CHUNK',

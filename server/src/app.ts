@@ -7,6 +7,7 @@ import {
   assertSafeBind,
   assertSafeMattermost,
   bearerToken,
+  isCrossSiteRequest,
   isLoopbackAddress,
   matchRoute,
   tokenMatches,
@@ -35,6 +36,7 @@ import { buildMeetingRouteTable } from './http/meetingRoutes';
 import { handleRoutedRequest } from './http/dispatch';
 import type { RequestContext, RoutedRoute } from './http/routeCall';
 import { handleAuthRoutes } from './http/routes/auth';
+import { handlePractice } from './http/routes/practice';
 import { handleIdle } from './http/routes/idle';
 import { handleHealth } from './http/routes/meeting';
 import { handleAgendaFromCalendar, handleTellKaki } from './http/routes/agenda';
@@ -126,10 +128,22 @@ export interface CreateAppOptions {
   llm?: LlmClient;
   /** Fresh modules for a new meeting's instance; defaults to this pack's Host, Wingman and Action modules. */
   meetingModules?: (meeting: MeetingRow) => MeetingModules;
+  /** Fresh modules for one practice instance; every practice must get its own clock and modules. */
+  practiceModules?: () => Partial<MeetingModules> & { modules: MeetingModules['modules'] };
   /** How many meetings may be open at once; defaults to KAKI_MAX_OPEN_MEETINGS or 10. */
   maxOpenMeetings?: number;
+  /** How many practice meetings may be open at once; defaults to KAKI_MAX_PRACTICE or 5. */
+  maxPracticeMeetings?: number;
+  /** How many real meetings one owner may keep open at once; defaults to KAKI_MAX_OPEN_MEETINGS_PER_USER or 2. */
+  maxOpenMeetingsPerUser?: number;
+  /** How many meetings one owner may create per day; defaults to KAKI_MAX_MEETINGS_PER_DAY or 20. */
+  maxMeetingsPerDay?: number;
+  /** How many paid model or calendar requests one user or address may make a minute; defaults to 10. */
+  llmRequestsPerMinute?: number;
   /** How long a meeting with nobody connected stays loaded; defaults to KAKI_MEETING_UNLOAD_MS or 30 min. */
   meetingUnloadMs?: number;
+  /** How long an empty practice meeting stays loaded; defaults to KAKI_PRACTICE_UNLOAD_MS or 5 min. */
+  practiceUnloadMs?: number;
   /** How often the registry looks for idle meetings; defaults to 60 s. */
   meetingSweepMs?: number;
   /** How long an empty meeting is kept for the same person to return; defaults to KAKI_REJOIN_GRACE_MS or 2 minutes. */
@@ -181,6 +195,8 @@ function buildServerRouteTable({ auth }: { auth: Auth | undefined }): RoutedRout
     { method: 'GET', path: '/health', access: 'public', handle: handleHealth },
     // Deliberately outside the proxied prefixes: only the VM's own idle checker may read it.
     { method: 'GET', path: '/idle', access: 'loopback', handle: handleIdle },
+    // One practice meeting per visitor; no sign-in, identified by its own cookie.
+    { method: 'POST', path: '/api/practice', access: 'public', handle: handlePractice },
   ];
   if (auth === undefined) {
     routes.push({ method: 'GET', path: '/api/auth/me', access: 'public', handle: handleAuthRoutes });
@@ -378,8 +394,14 @@ export async function createApp({
   meetings = createMemoryMeetingStore(),
   llm: llmOption,
   meetingModules,
+  practiceModules,
   maxOpenMeetings,
+  maxPracticeMeetings,
+  maxOpenMeetingsPerUser,
+  maxMeetingsPerDay,
+  llmRequestsPerMinute = 10,
   meetingUnloadMs,
+  practiceUnloadMs,
   meetingSweepMs,
   rejoinGraceMs,
   rejoinPollMs,
@@ -439,7 +461,8 @@ export async function createApp({
   workspaceIndexScheduler.opened(SAMPLE_WORKSPACE_ID);
   const serverRoutes = buildServerRouteTable({ auth });
   const legacyRoutes = buildMeetingRouteTable({ devRoutes });
-  const newMeetingRoutes = buildMeetingRouteTable({ devRoutes: false });
+  // Every prefixed meeting answers the same dev routes under its own id when the app has them on.
+  const newMeetingRoutes = buildMeetingRouteTable({ devRoutes });
   const meetingCode = meetingCodeOption ?? createMeetingCodeSource();
   const meetingCodeAttempts =
     auth?.meetingCodeLimiter ??
@@ -448,6 +471,10 @@ export async function createApp({
       windowMs: MEETING_CODE_WINDOW_MS,
     });
   const guestJoinAttempts = createAttemptLimiter({ limit: 20, windowMs: 60_000 });
+  // Paid work: one bucket per endpoint, keyed by both the account and the address that asked.
+  const llmRequestLimit = Number.isFinite(llmRequestsPerMinute) && llmRequestsPerMinute > 0 ? llmRequestsPerMinute : 10;
+  const tellKakiAttempts = createAttemptLimiter({ limit: llmRequestLimit, windowMs: 60_000 });
+  const agendaFromCalendarAttempts = createAttemptLimiter({ limit: llmRequestLimit, windowMs: 60_000 });
 
   if (auth !== undefined) {
     auth.bindMeetingHost(async (meetingId, userId) => {
@@ -470,7 +497,8 @@ export async function createApp({
   const legacy = await createMeetingInstance({
     id: LEGACY_MEETING_ID,
     workspaceId: SAMPLE_WORKSPACE_ID,
-    legacy: true,
+    paths: 'legacy',
+    kind: 'practice',
     scenario,
     modules,
     tools: () => toolSource.toolsFor(SAMPLE_WORKSPACE_ID),
@@ -512,13 +540,14 @@ export async function createApp({
     return createMeetingInstance({
       id: row.id,
       workspaceId: row.workspaceId,
-      legacy: false,
+      paths: 'prefixed',
+      kind: 'real',
       scenario,
       meetingRow: row,
       modules: built.modules,
       tools: built.tools ?? (() => toolSource.toolsFor(row.workspaceId)),
       routes: newMeetingRoutes,
-      devRoutes: false,
+      devRoutes,
       ...(rowPersistence === undefined ? {} : { persistence: rowPersistence }),
       ...(auth === undefined ? {} : { auth }),
       ...(serviceToken === undefined ? {} : { serviceToken }),
@@ -547,6 +576,9 @@ export async function createApp({
       ...(owner === undefined ? {} : { ownerName: owner.name ?? owner.email }),
       runnerPresence: runnerControl.presence,
       onEnded: async (endedAt: string) => {
+        // Ending frees the owner's open slot at once; the instance stays loaded for anyone still
+        // in the room and for its minutes. The row still records that the meeting is over.
+        registry.noteEnded(row.id);
         await meetings.markEnded?.(row.id, endedAt);
       },
       onMinutes: async (archive) => {
@@ -555,14 +587,66 @@ export async function createApp({
     });
   }
 
+  async function buildPracticeInstance(id: string): Promise<MeetingInstance> {
+    // A practice is memory-only: it has no meetings row and is gone after a restart, so the next
+    // POST /api/practice simply creates a fresh one.
+    const built = practiceModules?.() ?? {
+      modules,
+      ...(meetingElapsedSeconds === undefined ? {} : { meetingElapsedSeconds }),
+      ...(meetingAgendaIndex === undefined ? {} : { meetingAgendaIndex }),
+      ...(meetingPaused === undefined ? {} : { meetingPaused }),
+      ...(meetingPause === undefined ? {} : { meetingPause }),
+    };
+    return createMeetingInstance({
+      id,
+      workspaceId: SAMPLE_WORKSPACE_ID,
+      paths: 'prefixed',
+      kind: 'practice',
+      scenario,
+      modules: built.modules,
+      tools: () => toolSource.toolsFor(SAMPLE_WORKSPACE_ID),
+      routes: newMeetingRoutes,
+      devRoutes,
+      ...(auth === undefined ? {} : { auth }),
+      ...(serviceToken === undefined ? {} : { serviceToken }),
+      ...(calendar === undefined ? {} : { calendar }),
+      ...(calendarFetch === undefined ? {} : { calendarFetch }),
+      actionTools,
+      roomRoster,
+      draftOnly,
+      meetingCode: createMeetingCodeSource(''),
+      meetingCodeAttempts: createAttemptLimiter({
+        limit: MEETING_CODE_FAILURE_LIMIT,
+        windowMs: MEETING_CODE_WINDOW_MS,
+      }),
+      ...(rejoinGraceMs === undefined ? {} : { rejoinGraceMs }),
+      ...(rejoinPollMs === undefined ? {} : { rejoinPollMs }),
+      ...(emptyRoomPauseMs === undefined ? {} : { emptyRoomPauseMs }),
+      admissionReservationMs,
+      startAckTimeoutMs,
+      ...(built.meetingElapsedSeconds === undefined ? {} : { meetingElapsedSeconds: built.meetingElapsedSeconds }),
+      ...(built.meetingAgendaIndex === undefined ? {} : { meetingAgendaIndex: built.meetingAgendaIndex }),
+      ...(built.meetingPaused === undefined ? {} : { meetingPaused: built.meetingPaused }),
+      ...(built.meetingPause === undefined ? {} : { meetingPause: built.meetingPause }),
+      speechRecognition,
+      idle,
+      runnerPresence: runnerControl.presence,
+    });
+  }
+
   const registry = createMeetingRegistry({
     legacy,
     store: meetings,
     buildInstance: buildRowInstance,
+    buildPracticeInstance,
     ...(persistenceFor === undefined ? {} : { persistenceFor }),
     ...(findSavedIdByCode === undefined ? {} : { findSavedIdByCode }),
     ...(maxOpenMeetings === undefined ? {} : { maxOpen: maxOpenMeetings }),
+    ...(maxPracticeMeetings === undefined ? {} : { maxPractice: maxPracticeMeetings }),
+    ...(maxOpenMeetingsPerUser === undefined ? {} : { maxOpenPerUser: maxOpenMeetingsPerUser }),
+    ...(maxMeetingsPerDay === undefined ? {} : { maxMeetingsPerDay }),
     ...(meetingUnloadMs === undefined ? {} : { unloadMs: meetingUnloadMs }),
+    ...(practiceUnloadMs === undefined ? {} : { practiceUnloadMs }),
     ...(meetingSweepMs === undefined ? {} : { sweepMs: meetingSweepMs }),
     onOpened: (meeting) => runnerControl.opened(meeting),
     onClosed: (meetingId) => runnerControl.closed(meetingId),
@@ -582,6 +666,8 @@ export async function createApp({
     toolSource,
     indexWorkspaceTool,
     guestJoinAttempts,
+    tellKakiAttempts,
+    agendaFromCalendarAttempts,
     registry,
     serviceToken,
     routes: serverRoutes,
@@ -646,6 +732,13 @@ export async function createApp({
     const url = new URL(request.url ?? '/', 'http://localhost');
     if (url.pathname !== '/ws') {
       refuseUpgrade(socket, 404, 'Not Found');
+      return;
+    }
+    // A browser's WebSocket handshake carries its Origin; a runner or other non-browser client
+    // sends none and may pass. A cross-site page may not open a socket with a person's cookie.
+    if (auth !== undefined && isCrossSiteRequest(request)) {
+      console.warn('kaki server: refused a cross-site WebSocket upgrade');
+      refuseUpgrade(socket, 403, 'Forbidden');
       return;
     }
     if (url.searchParams.get('audience') === 'service-control') {
@@ -714,6 +807,8 @@ export async function createApp({
         console.error('kaki server: the meetings store failed to stop', error),
       );
       guestJoinAttempts.clearAll();
+      tellKakiAttempts.clearAll();
+      agendaFromCalendarAttempts.clearAll();
       runnerControl.close();
       await closeServer(server);
       await auth?.close().catch((error: unknown) =>

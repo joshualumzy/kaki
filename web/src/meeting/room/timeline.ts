@@ -23,24 +23,27 @@ export function entryForEvent(
   /** True when a person hosts: the host's cues are not spoken, they are lines for that person to say. */
   hostIsViewer = false,
   scenario?: Scenario,
+  /** Disambiguated names keyed by seat, from the People list, so two people with one name stay apart. */
+  seatNames?: ReadonlyMap<string, string>,
 ): TimelineEntry | undefined {
   switch (event.type) {
     case 'TRANSCRIPT_CHUNK': {
-      const { speaker, text, timestamp, lineId, overlap } = event.payload;
+      const { speaker, text, timestamp, lineId, overlap, speakerRole } = event.payload;
       return {
         // A later cut or restore carries the same line id, so it replaces the line instead of listing it twice.
         key: lineId === undefined ? `said|${timestamp}|${speaker}|${text}` : `said|${lineId}`,
         kind: 'said',
-        who: speakerLabel(speaker, viewer, scenario),
+        who: speakerLabel(speaker, viewer, scenario, speakerRole, seatNames),
         text: overlap === true ? `${text} (overlapping speech)` : text,
       };
     }
     case 'TRANSCRIPT_LINE_UPDATED': {
       const { speaker, lineId, text, cut } = event.payload;
+      // An update names the line but not its seat; the panel keeps the label the original line had.
       return {
         key: `said|${lineId}`,
         kind: 'said',
-        who: speakerLabel(speaker, viewer, scenario),
+        who: speakerLabel(speaker, viewer, scenario, undefined, seatNames),
         text: cut ? cutLineText(text) : text,
       };
     }

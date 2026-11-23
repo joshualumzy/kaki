@@ -396,36 +396,4 @@ describe('many meetings at once', () => {
     await expect(connect(port, 'does-not-exist', 'chef')).rejects.toThrow();
   });
 
-  it('refuses a second practice start while the legacy practice meeting is running', async () => {
-    const app = await createApp({
-      speechRecognition: 'browser',
-      scenario: testScenario,
-      serviceToken: SERVICE_TOKEN,
-      roomRoster: async () => [],
-    });
-    apps.push(app);
-    const port = portOf(app);
-
-    const first = await request(port, '/api/livekit/token', 'POST', {
-      participantName: 'Ana',
-      participantRole: 'chef',
-      kind: 'practice',
-    });
-    expect(first.status).toBe(200);
-    // This app has sign-in off; a practice meeting can start without a runner because browser
-    // recognition is enabled.
-    expect((await request(port, '/api/meeting/start', 'POST')).status).toBe(200);
-
-    const second = await request(port, '/api/livekit/token', 'POST', {
-      participantName: 'Ben',
-      participantRole: 'chef',
-      kind: 'practice',
-    });
-    expect(second.status).toBe(409);
-    expect(await second.json()).toMatchObject({
-      error: 'practice-busy',
-      message:
-        'Someone is using the practice meeting right now. It frees up when they finish, usually within 15 minutes.',
-    });
-  });
 });

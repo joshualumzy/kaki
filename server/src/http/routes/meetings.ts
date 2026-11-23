@@ -3,7 +3,8 @@ import { accountUserId, clientAddress } from '../access';
 import { readJsonBody, sendJson } from '../http';
 import type { RouteCall } from '../routeCall';
 import { parseAgendaInput } from '../../meeting/agenda';
-import type { AgendaItem, MeetingStatus } from '../../meeting/types';
+import { MeetingBusyError } from '../../meeting/registry';
+import type { AgendaItem } from '../../meeting/types';
 import { SAMPLE_WORKSPACE_ID } from '../../workspace/constants';
 import { SAMPLE_WORKSPACE } from '../../workspace/sample';
 
@@ -34,8 +35,8 @@ function meetingIdFrom(path: string, suffix: string): string | undefined {
 export async function handleCreateMeeting(call: RouteCall): Promise<void> {
   const { request, response, context, principal } = call;
   const store = context.authStore;
-  const meetings = context.meetings;
-  if (store === undefined || meetings === undefined) {
+  const registry = context.registry;
+  if (store === undefined || registry === undefined) {
     sendJson(response, 500, { error: 'Meeting storage is unavailable.' });
     return;
   }
@@ -93,17 +94,22 @@ export async function handleCreateMeeting(call: RouteCall): Promise<void> {
     }
   }
 
-  const status: MeetingStatus =
-    scheduledFor !== undefined && Date.parse(scheduledFor) > Date.now() ? 'scheduled' : 'open';
-  const meeting = await meetings.create({
-    workspaceId,
-    ownerUserId: creatorId,
-    title,
-    status,
-    agenda,
-    ...(scheduledFor === undefined ? {} : { scheduledFor }),
-  });
-  sendJson(response, 200, { id: meeting.id, link: `/m/${meeting.id}` });
+  try {
+    const meeting = await registry.create({
+      workspaceId,
+      ownerUserId: creatorId,
+      title,
+      agenda,
+      ...(scheduledFor === undefined ? {} : { scheduledFor }),
+    });
+    sendJson(response, 200, { id: meeting.id, link: `/m/${meeting.id}` });
+  } catch (error) {
+    if (error instanceof MeetingBusyError) {
+      sendJson(response, 503, { error: 'busy', message: error.message });
+      return;
+    }
+    throw error;
+  }
 }
 
 /** The public facts a visitor may see from a meeting link; the id is the capability. */

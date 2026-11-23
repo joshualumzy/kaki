@@ -121,6 +121,30 @@ describe('WorkspacePage', () => {
     expect(screen.queryByRole('link', { name: 'Scheduled sync' })).toBeNull();
   });
 
+  it('tells a new workspace owner how to start and share a meeting', async () => {
+    installFetch({
+      'GET /api/workspaces': () => reply(workspaces),
+      'GET /api/workspaces/ws-1': () =>
+        reply({
+          id: 'ws-1',
+          name: 'Team workspace',
+          readOnly: false,
+          people: [{ name: 'Ada Lovelace', role: 'admin' }],
+          tools: [],
+          meetings: [],
+          counts: { meetings: 0, todos: 0, records: 0 },
+        }),
+    });
+    renderPage('ws-1');
+
+    expect(await screen.findByRole('heading', { name: 'Team workspace' })).toBeTruthy();
+    expect(
+      screen.getByText(/No meetings yet. Start one with/),
+    ).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'New meeting' }).getAttribute('href')).toBe('/new');
+    expect(screen.getByText(/share its link or QR code so people can join/)).toBeTruthy();
+  });
+
   it('shows the sample workspace as read-only with built-in tools', async () => {
     installFetch({
       'GET /api/workspaces': () => reply(workspaces),

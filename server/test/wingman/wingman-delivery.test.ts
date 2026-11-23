@@ -31,11 +31,12 @@ function cookieFrom(response: Response): string {
   return value;
 }
 
-function connect(port: number, role: string, cookie?: string): Promise<SocketResult> {
+function connect(port: number, role: string, cookie?: string, meetingId?: string): Promise<SocketResult> {
   const headers: Record<string, string> = {};
   if (cookie !== undefined) headers.cookie = cookie;
+  const meetingQuery = meetingId === undefined ? '' : `&meeting=${encodeURIComponent(meetingId)}`;
   const ws = new WebSocket(
-    `ws://127.0.0.1:${port}/ws?role=${encodeURIComponent(role)}`,
+    `ws://127.0.0.1:${port}/ws?role=${encodeURIComponent(role)}${meetingQuery}`,
     Object.keys(headers).length === 0 ? undefined : { headers },
   );
   const messages: KakiEvent[] = [];
@@ -61,6 +62,8 @@ async function authApp(): Promise<{ app: KakiApp; port: number }> {
     auth,
     meetingCode,
     modules: [createWingmanModule({ env: {}, askedCheckDelayMs: 0 })],
+    // Every practice instance gets its own Wingman, never the legacy instance's module.
+    practiceModules: () => ({ modules: [createWingmanModule({ env: {}, askedCheckDelayMs: 0 })] }),
     roomRoster: async () => [],
     speechRecognition: 'browser',
   });
@@ -135,18 +138,24 @@ describe('Wingman note delivery', () => {
 
   it('reaches the practice screen of that seat only', async () => {
     const { app, port } = await authApp();
-    const practice = await request(port, '/api/livekit/token', 'POST', {
-      participantName: 'Ada',
-      participantRole: 'chef',
-      kind: 'practice',
-    });
+    const created = await request(port, '/api/practice', 'POST');
+    const practiceCookie = cookieFrom(created);
+    const { meetingId } = (await created.json()) as { meetingId: string };
+    const practice = await request(
+      port,
+      `/api/meetings/${meetingId}/livekit/token`,
+      'POST',
+      { participantName: 'Ada', participantRole: 'chef', kind: 'practice' },
+      practiceCookie,
+    );
     expect(practice.status).toBe(200);
-    const practiceCookie = cookieFrom(practice);
+    const instance = app.registry.findPractice(meetingId);
+    if (instance === undefined) throw new Error('the practice meeting did not load');
 
-    const practiceScreen = await connect(port, 'screen', practiceCookie);
+    const practiceScreen = await connect(port, 'screen', practiceCookie, meetingId);
     if (!practiceScreen.ok) throw new Error('the practice screen did not open');
 
-    app.hub.publish(note, { retainKey: 'wingman:practice:chef' });
+    instance.hub.publish(note, { retainKey: 'wingman:practice:chef' });
 
     const received = await waitFor(() => notes(practiceScreen.messages)[0], 'the practice note');
     expect(received.payload.text).toBe('Ada only.');

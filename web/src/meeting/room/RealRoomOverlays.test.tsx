@@ -14,7 +14,12 @@ const mocks = vi.hoisted(() => ({
     waitingForOwner: true,
     ownerName: 'Ada',
     offTheRecord: null as { since: string } | null,
-    participants: [],
+    participants: [] as Array<{
+      name: string;
+      displayName: string;
+      seat: string;
+      photoUrl: string | null;
+    }>,
     notesPaused: null as string | null,
     cue: null as { text: string; at: string } | null,
   },
@@ -45,6 +50,8 @@ beforeEach(() => {
   mocks.meetingState.cue = null;
   mocks.meetingState.waitingForOwner = true;
   mocks.meetingState.ownerName = 'Ada';
+  mocks.meetingState.phase = 'lobby';
+  mocks.meetingState.participants = [];
 });
 
 afterEach(() => {
@@ -71,6 +78,38 @@ describe('real meeting notices', () => {
 
     expect(screen.getByRole('alert').textContent).toBe("Kaki can't hear the room right now");
     expect(screen.getByText('5 min left on Budget')).toBeTruthy();
+  });
+
+  it('points a lone person at Invite, then hides once someone else joins', () => {
+    mocks.meetingState.phase = 'running';
+    mocks.meetingState.waitingForOwner = false;
+    mocks.meetingState.participants = [
+      { name: 'ada', displayName: 'Ada', seat: 'chef', photoUrl: null },
+    ];
+    render(<RealRoomBanners />);
+
+    expect(screen.getByText(/You're the only one here/)).toBeTruthy();
+    expect(screen.getByText(/Tap Invite to share the link or QR code/)).toBeTruthy();
+
+    cleanup();
+    mocks.meetingState.participants = [
+      { name: 'ada', displayName: 'Ada', seat: 'chef', photoUrl: null },
+      { name: 'sam', displayName: 'Sam', seat: 'cashier', photoUrl: null },
+    ];
+    render(<RealRoomBanners />);
+
+    expect(screen.queryByText(/You're the only one here/)).toBeNull();
+  });
+
+  it('does not point at Invite before the meeting starts', () => {
+    mocks.meetingState.phase = 'lobby';
+    mocks.meetingState.waitingForOwner = true;
+    mocks.meetingState.participants = [
+      { name: 'ada', displayName: 'Ada', seat: 'chef', photoUrl: null },
+    ];
+    render(<RealRoomBanners />);
+
+    expect(screen.queryByText(/You're the only one here/)).toBeNull();
   });
 
   it('waits for the owner and offers Start only to the host', async () => {

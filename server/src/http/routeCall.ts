@@ -63,8 +63,12 @@ export interface RequestContext {
   }) => Promise<void>;
   /** Guest-join attempts per client address, owned by the app. */
   guestJoinAttempts?: AttemptLimiter;
-  /** The meeting registry, for the server-wide lookup of a meeting by its code. */
-  registry?: Pick<MeetingRegistry, 'findByCode'>;
+  /** Paid model requests for Tell Kaki, per account and address, owned by the app. */
+  tellKakiAttempts?: AttemptLimiter;
+  /** Paid calendar reads for agenda import, per account and address, owned by the app. */
+  agendaFromCalendarAttempts?: AttemptLimiter;
+  /** The meeting registry, for the server-wide lookup and creation of meetings and practices. */
+  registry?: Pick<MeetingRegistry, 'findByCode' | 'create' | 'createPractice' | 'findPractice'>;
   /**
    * The meeting a session must belong to, when this is not the legacy meeting. A phone session
    * for meeting A resolves to nobody on meeting B's routes.
@@ -104,11 +108,6 @@ export interface RequestContext {
   roomName(): string;
   /** The room a meeting generation uses, so a committed reset names its new room exactly. */
   roomNameFor(meetingId: string): string;
-  /**
-   * True when the legacy practice meeting cannot take another visitor: it is starting/running, or
-   * a practice visitor is seated. Always false for a meeting that is not the legacy instance.
-   */
-  practiceBusy(): boolean;
   /** A person used this meeting; the registry keeps such an instance loaded. */
   onActivity?(): void;
   /** Seconds since the meeting started, read when a settled card is created or revised. */
@@ -125,6 +124,8 @@ export interface RequestContext {
   meetingKind(): 'real' | 'practice' | undefined;
   /** True for a real product meeting, false for the legacy practice/owner instance. */
   realMeeting: boolean;
+  /** True when this is one visitor's own practice meeting (prefixed paths, not the legacy one). */
+  perVisitorPractice: boolean;
   /** Show the people now in a real meeting, one plain seat under each person's name. */
   refreshRealPeople(): void;
   /** Record a quiet agenda-clock note for the shared meeting state. */

@@ -6,6 +6,10 @@ describe('plainFailureMessage', () => {
     expect(plainFailureMessage(401)).toBe('Your sign-in has ended.');
     expect(plainFailureMessage(403, 'whatever')).toBe('Your sign-in has ended.');
   });
+  it('shows a practice refusal instead of the sign-in sentence for a 403', () => {
+    expect(plainFailureMessage(403, 'practice-access')).toContain('another visitor');
+    expect(plainFailureMessage(403, 'practice-moved')).toContain('own page');
+  });
   it('never shows an HTTP code and falls back by status', () => {
     expect(plainFailureMessage(500)).toBe('Kaki is having trouble right now. Try again in a minute.');
     expect(plainFailureMessage(0)).toBe('Kaki is having trouble right now. Try again in a minute.');
@@ -14,7 +18,11 @@ describe('plainFailureMessage', () => {
   });
   it('maps raw server codes to sentences and drops unknown ones', () => {
     expect(plainServerText('meeting-not-found')).toBe('This meeting does not exist.');
-    expect(plainServerText('practice-busy')).toContain('practice meeting');
+    expect(plainServerText('practice-full')).toContain('practice rooms');
+    expect(plainServerText('practice-full')).toContain('All practice rooms are in use right now.');
+    expect(plainServerText('practice-moved')).toContain('own page');
+    expect(plainServerText('practice-access')).toContain('another visitor');
+    expect(plainServerText('practice-ended')).toContain('Start a new practice');
     expect(plainServerText('some-new-code')).toBeUndefined();
     expect(plainFailureMessage(409, 'some-new-code')).toBe("That didn't work. Try again.");
   });

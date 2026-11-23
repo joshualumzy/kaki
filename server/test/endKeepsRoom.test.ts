@@ -81,23 +81,32 @@ describe('ending a meeting keeps its room', () => {
     });
     apps.push(app);
     const port = portOf(app);
-    const joined = await fetch(`http://127.0.0.1:${port}/api/livekit/token`, {
+    const created = await fetch(`http://127.0.0.1:${port}/api/practice`, { method: 'POST' });
+    expect(created.status).toBe(200);
+    const cookie = created.headers.get('set-cookie')?.split(';')[0] ?? '';
+    const { meetingId } = (await created.json()) as { meetingId: string };
+    const joined = await fetch(`http://127.0.0.1:${port}/api/meetings/${meetingId}/livekit/token`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', cookie },
       body: JSON.stringify({ participantName: 'Ada', participantRole: 'chef', kind: 'practice' }),
     });
     expect(joined.status).toBe(200);
-    expect((await fetch(`http://127.0.0.1:${port}/api/meeting/start`, { method: 'POST' })).status).toBe(200);
-    await waitFor(() => (app.session.phase() === 'running' ? true : undefined), 'the practice meeting to run');
+    const started = await fetch(`http://127.0.0.1:${port}/api/meetings/${meetingId}/meeting/start`, {
+      method: 'POST',
+      headers: { cookie },
+    });
+    expect(started.status).toBe(200);
+    const instance = app.registry.findPractice(meetingId);
+    await waitFor(() => (instance?.session.phase() === 'running' ? true : undefined), 'the practice meeting to run');
     removals.splice(0);
 
-    app.session.end();
+    instance?.session.end();
 
     // The visitor stays to receive the closing cue, the frozen record and the minutes card.
-    expect(app.session.phase()).toBe('ended');
+    expect(instance?.session.phase()).toBe('ended');
     expect(removals).toEqual([]);
 
-    app.session.reset();
+    instance?.session.reset();
     await waitFor(() => (removals.length > 0 ? true : undefined), 'the practice room removal on reset');
     expect(removals).toHaveLength(1);
   });

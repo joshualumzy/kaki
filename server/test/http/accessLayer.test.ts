@@ -27,9 +27,9 @@ function cookieFrom(response: Response): string {
 function connect(
   port: number,
   role: string,
-  options: { cookie?: string; authorization?: string } = {},
+  options: { cookie?: string; authorization?: string; headers?: Record<string, string> } = {},
 ): Promise<ConnectResult> {
-  const headers: Record<string, string> = {};
+  const headers: Record<string, string> = { ...options.headers };
   if (options.cookie !== undefined) headers.cookie = options.cookie;
   if (options.authorization !== undefined) headers.authorization = options.authorization;
   const ws = new WebSocket(
@@ -312,6 +312,66 @@ describe('one access layer', () => {
     } finally {
       await open.close();
     }
+  });
+
+  it('refuses cross-site writes and WebSocket upgrades, while reads and the OAuth callback still work', async () => {
+    const app = await authApp({ serviceToken: 'runner-secret' });
+    const port = portOf(app);
+    const host = await signInAsHost(app);
+    const evil = 'http://evil.example';
+
+    const blocked = await fetch(`${base(app)}/api/meeting/open`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie: host, origin: evil },
+      body: '{}',
+    });
+    expect(blocked.status).toBe(403);
+
+    const sameOrigin = await fetch(`${base(app)}/api/meeting/open`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie: host, origin: base(app) },
+      body: '{}',
+    });
+    expect(sameOrigin.status).toBe(200);
+
+    const sameOriginFetchMetadata = await fetch(`${base(app)}/api/meeting/close`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        cookie: host,
+        'sec-fetch-site': 'same-origin',
+        origin: evil,
+      },
+      body: '{}',
+    });
+    expect(sameOriginFetchMetadata.status).toBe(200);
+
+    const read = await fetch(`${base(app)}/api/meeting/state`, {
+      headers: { cookie: host, origin: evil },
+    });
+    expect(read.status).toBe(200);
+
+    const callback = await fetch(`${base(app)}/api/auth/google/callback?code=x&state=y`, {
+      headers: { origin: evil, 'sec-fetch-site': 'cross-site' },
+    });
+    expect(callback.status).not.toBe(403);
+
+    const mattermost = await fetch(`${base(app)}/api/mattermost/open?url=${encodeURIComponent('http://mattermost.test/x')}`, {
+      headers: { cookie: host, origin: evil },
+    });
+    expect(mattermost.status).toBe(403);
+
+    const crossSiteSocket = await connect(port, 'service', {
+      authorization: 'Bearer runner-secret',
+      headers: { origin: evil },
+    });
+    expect(crossSiteSocket).toEqual({ ok: false, status: 403 });
+    const sameOriginSocket = await connect(port, 'service', {
+      authorization: 'Bearer runner-secret',
+      headers: { origin: base(app) },
+    });
+    expect(sameOriginSocket.ok).toBe(true);
+    if (sameOriginSocket.ok) sameOriginSocket.ws.terminate();
   });
 
   it('starts the same seat session for a LiveKit join so the joiner sees their own card and facts', async () => {

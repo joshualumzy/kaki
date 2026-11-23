@@ -407,6 +407,16 @@ describe('one-speaker replies to the guest', () => {
     h.conversation.close();
   });
 
+  it('never speaks or transcribes a control line whose header uses a space', async () => {
+    const h = harness(withColleagueHost(scenario), 0);
+    await h.say('Do the double pay plan.');
+    await reply(h, 'KAKI CONTROL {"state":"open"}\nAda: Fine, we will pay the double pay.');
+
+    expect(h.transcript).toContainEqual(['Ada', 'Fine, we will pay the double pay.']);
+    expect(h.transcript.some(([, text]) => /KAKI/i.test(text))).toBe(false);
+    h.conversation.close();
+  });
+
   it('rejects an answer that does not carry its promised fact, then retries', async () => {
     const factScenario = {
       ...scenario,

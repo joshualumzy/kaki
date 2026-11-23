@@ -115,6 +115,18 @@ describe('NewMeetingPage', () => {
     expect(window.localStorage.getItem(DRAFT_KEY)).toBeNull();
   });
 
+  it('explains what a workspace is beside the picker', async () => {
+    installFetch(baseRoutes());
+    renderPage();
+
+    expect(
+      await screen.findByText(
+        /A workspace holds your meetings, minutes and connected tools/,
+      ),
+    ).toBeTruthy();
+    expect(screen.getByText(/Nanyang Kopi\s+sample is read-only and has its tools ready/)).toBeTruthy();
+  });
+
   it('schedules for later with the browser time sent as UTC', async () => {
     const fetchMock = installFetch(
       baseRoutes({

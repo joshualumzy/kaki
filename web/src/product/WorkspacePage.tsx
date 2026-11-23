@@ -314,11 +314,19 @@ export function WorkspacePage() {
               <section className="card product-section product-meetings" aria-label="Meetings">
                 <h2 className="product-section-title">Meetings</h2>
                 {detail.meetings.filter((meeting) => meeting.status !== 'ended').length === 0 ? (
-                  <p className="product-hint">
-                    {detail.readOnly
-                      ? "The sample workspace's meetings are built in."
-                      : 'No upcoming meetings yet.'}
-                  </p>
+                  detail.readOnly ? (
+                    <p className="product-hint">The sample workspace&apos;s meetings are built in.</p>
+                  ) : detail.meetings.length === 0 ? (
+                    <p className="product-hint">
+                      No meetings yet. Start one with{' '}
+                      <Link className="product-link" to="/new">
+                        New meeting
+                      </Link>
+                      , then share its link or QR code so people can join.
+                    </p>
+                  ) : (
+                    <p className="product-hint">No upcoming meetings yet.</p>
+                  )
                 ) : (
                   <ul className="product-meeting-list">
                     {detail.meetings

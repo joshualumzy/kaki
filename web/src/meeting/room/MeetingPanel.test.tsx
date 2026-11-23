@@ -3,7 +3,7 @@
  */
 import { act, cleanup, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { KakiEvent, Scenario, Task, WingmanNotePayload } from '@kaki/shared';
+import type { KakiEvent, MeetingStateSnapshot, Scenario, Task, WingmanNotePayload } from '@kaki/shared';
 import type { KakiRejection } from '../../kaki';
 import { speechByTopicFromEvents } from '../../kaki/topicSpeech';
 
@@ -75,6 +75,7 @@ function withSpeech(
     wingmanNotes?: WingmanNotePayload[];
     rejections?: KakiRejection[];
     askWingman?: () => boolean;
+    meetingState?: MeetingStateSnapshot;
   },
   initialAgendaIndex = 0,
 ) {
@@ -1089,6 +1090,62 @@ describe('MeetingPanel real meeting', () => {
     renderReal(scenario.agenda, false);
     expect(screen.getByRole('button', { name: 'End meeting' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Next agenda item' })).toBeTruthy();
+  });
+
+  it('labels two same-named people by their seat, exactly as the People list does', () => {
+    const sameNameScenario: Scenario = {
+      ...scenario,
+      roles: [
+        { id: 'person_a', label: 'Sam' },
+        { id: 'person_b', label: 'Sam' },
+      ],
+      attendees: [
+        { name: 'Sam', role: 'person_a', displayName: 'Sam' },
+        { name: 'Sam', role: 'person_b', displayName: 'Sam' },
+      ],
+      agenda: [],
+    };
+    const sameNameEvents: KakiEvent[] = [
+      {
+        type: 'TRANSCRIPT_CHUNK',
+        audience: { kind: 'all' },
+        payload: { speaker: 'Sam', text: 'First line.', timestamp: '2026-11-07T10:00:00Z', speakerRole: 'person_a' },
+      },
+      {
+        type: 'TRANSCRIPT_CHUNK',
+        audience: { kind: 'all' },
+        payload: { speaker: 'Sam', text: 'Second line.', timestamp: '2026-11-07T10:00:01Z', speakerRole: 'person_b' },
+      },
+    ];
+    const meetingState: MeetingStateSnapshot = {
+      meetingId: 'mtg-1',
+      phase: 'running',
+      started: true,
+      waitingForOwner: false,
+      ownerName: 'Sam',
+      offTheRecord: null,
+      notesPaused: null,
+      cue: null,
+      participants: [
+        { name: 'sam', displayName: 'Sam', seat: 'person_a', photoUrl: null },
+        { name: 'sam', displayName: 'Sam', seat: 'person_b', photoUrl: null },
+      ],
+    };
+    mocks.useScenario.mockReturnValue(sameNameScenario);
+    mocks.useKaki.mockReturnValue(withSpeech({
+      events: sameNameEvents,
+      tasks: new Map(),
+      connected: true,
+      rejection: null,
+      send: vi.fn(),
+      meetingState,
+    }));
+
+    render(<MeetingPanel viewer={{ name: 'Sam', seatName: 'Sam', seat: 'person_a' }} />);
+
+    expect(screen.getByText('Sam (you)')).toBeTruthy();
+    expect(screen.getByText('Sam (2)')).toBeTruthy();
+    expect(screen.queryByText('Sam (2) (you)')).toBeNull();
   });
 });
 

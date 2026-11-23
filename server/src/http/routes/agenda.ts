@@ -1,4 +1,6 @@
 import { isObject, KOPITIAM_INVITE_UID, parseMeetingInvite } from '@kaki/shared';
+import { accountUserId, clientAddress } from '../access';
+import type { AttemptLimiter } from '../attemptLimiter';
 import { CALENDAR_CONFIG_MESSAGE, CalendarFetchError, fetchCalendarIcs } from '../../action/calendar';
 import {
   askTellKaki,
@@ -11,9 +13,28 @@ import { readJsonBody, sendJson } from '../http';
 
 const MAX_BODY_BYTES = 64_000;
 const MAX_TEXT_LENGTH = 8_000;
+const RATE_LIMITED_MESSAGE = 'Too many requests, try again in a minute';
+
+/** Count this paid request against both its account and its address; true when either is over. */
+function rateLimited(call: RouteCall, limiter: AttemptLimiter | undefined): boolean {
+  if (limiter === undefined) return false;
+  const { request, response, principal } = call;
+  const userId = accountUserId(principal);
+  const keys = [
+    ...(userId === undefined ? [] : [`user:${userId}`]),
+    `address:${clientAddress(request)}`,
+  ];
+  if (keys.some((key) => limiter.isLimited(key))) {
+    sendJson(response, 429, { error: RATE_LIMITED_MESSAGE });
+    return true;
+  }
+  for (const key of keys) limiter.recordFailure(key);
+  return false;
+}
 
 export async function handleTellKaki(call: RouteCall): Promise<void> {
   const { request, response, context } = call;
+  if (rateLimited(call, context.tellKakiAttempts)) return;
   const parsed = await readJsonBody(request, MAX_BODY_BYTES);
   if (!parsed.ok) {
     sendJson(response, 400, { error: parsed.error });
@@ -50,6 +71,7 @@ export async function handleTellKaki(call: RouteCall): Promise<void> {
 
 export async function handleAgendaFromCalendar(call: RouteCall): Promise<void> {
   const { response, context } = call;
+  if (rateLimited(call, context.agendaFromCalendarAttempts)) return;
   if (context.calendar === undefined) {
     sendJson(response, 503, { error: CALENDAR_CONFIG_MESSAGE });
     return;
