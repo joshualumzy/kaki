@@ -349,8 +349,10 @@ describe('delete account', () => {
     await closed;
     socket.terminate();
 
+    // Signed out is a normal state for auth/me: 200 with no session, never the deleted account.
     const me = await request('GET', '/api/auth/me', { cookie: ada.cookie });
-    expect(me.status).toBe(401);
+    expect(me.status).toBe(200);
+    expect(await me.json()).toMatchObject({ kind: null });
     const workspaces = await request('GET', '/api/workspaces', { cookie: ada.cookie });
     expect(workspaces.status).toBe(401);
 
