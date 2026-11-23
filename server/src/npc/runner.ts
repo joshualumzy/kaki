@@ -136,6 +136,11 @@ interface RunnerOptions {
    * had heard them. Never on in production; see `fakeSttFromEnv`.
    */
   fakeSpeech?: boolean;
+  /**
+   * Dev-only fake speech: how long a scripted line waits for its speaker to appear in the room.
+   * A line sent just before the join event arrives is held for this long, then dropped (default 10 s).
+   */
+  fakeSpeechJoinWaitMs?: number;
   /** Receives each stretch of audio sent to the recogniser, to save it for listening. */
   debugAudio?(samples: Int16Array): void;
   vad?: Partial<VadOptions>;
@@ -268,6 +273,7 @@ interface Character {
 export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner> {
   const { scenario: bootScenario, livekitUrl } = options;
   const log = options.log ?? (() => undefined);
+  const fakeSpeechJoinWaitMs = options.fakeSpeechJoinWaitMs ?? 10_000;
   const logError = options.logError ?? log;
   // Everything that can change during the meeting is read from this one snapshot. The boot pack
   // only supplies content the snapshot does not carry (situation and knowledge).
@@ -686,6 +692,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     startResumed = false;
     pausedLocally = false;
     speechLines.reset();
+    clearPendingFakeSpeech();
     greetReturnPending = false;
     endedTerminal = false;
     memory.reset();
@@ -951,6 +958,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     humans.set(participant.identity, { name, role, seat });
     if (known === undefined) log(`${name} joined as ${role}`);
     syncCast();
+    flushPendingFakeSpeech(participant.identity);
   }
 
   /** Each person's recorder, so going off the record can stop every one of them at once. */
@@ -1014,11 +1022,45 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
   }
 
   let fakeSpeechCount = 0;
+  /**
+   * Scripted lines that arrived before their speaker's join event. LiveKit delivers the data message
+   * before this client has processed ParticipantConnected, so dropping it would lose the first line
+   * of every scripted meeting; hold it until the person registers, or let it expire.
+   */
+  const pendingFakeSpeech = new Map<string, Array<{ text: string; timer: ReturnType<typeof setTimeout> }>>();
+
+  /** Deliver the lines held for `identity` once they are a person in the room, in the order sent. */
+  function flushPendingFakeSpeech(identity: string): void {
+    const pending = pendingFakeSpeech.get(identity);
+    if (pending === undefined) return;
+    pendingFakeSpeech.delete(identity);
+    for (const item of pending) clearTimeout(item.timer);
+    for (const item of pending) acceptFakeSpeech(identity, item.text);
+  }
+
+  /** Forget held lines: the meeting they were meant for is gone. */
+  function clearPendingFakeSpeech(): void {
+    for (const pending of pendingFakeSpeech.values()) {
+      for (const item of pending) clearTimeout(item.timer);
+    }
+    pendingFakeSpeech.clear();
+  }
 
   /** A line from the dev-only fake recogniser, said by `identity` as if their microphone had carried it. */
   function acceptFakeSpeech(identity: string, text: string): void {
     if (!humans.has(identity)) {
-      log(`ignored fake speech for ${identity}: nobody with that identity is in the room`);
+      const pending = pendingFakeSpeech.get(identity) ?? [];
+      const timer = setTimeout(() => {
+        const held = pendingFakeSpeech.get(identity);
+        if (held === undefined) return;
+        const remaining = held.filter((item) => item.timer !== timer);
+        if (remaining.length === 0) pendingFakeSpeech.delete(identity);
+        else pendingFakeSpeech.set(identity, remaining);
+        log(`dropped a fake-speech line for ${identity}: they never joined the room`);
+      }, fakeSpeechJoinWaitMs);
+      timer.unref?.();
+      pendingFakeSpeech.set(identity, [...pending, { text, timer }]);
+      log(`held fake speech for ${identity}: they have not joined the room yet`);
       return;
     }
     fakeSpeechCount += 1;

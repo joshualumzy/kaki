@@ -213,6 +213,7 @@ describe('startNpcRunner fake speech recogniser (dev only)', () => {
       postTranscriptUpdate: () => undefined,
       postHumanLine,
       fakeSpeech,
+      fakeSpeechJoinWaitMs: 50,
       log: (line) => log.push(line),
       responseDelayMs: 0,
     });
@@ -223,7 +224,7 @@ describe('startNpcRunner fake speech recogniser (dev only)', () => {
     await runner.markStarted({ meetingId: 'meeting-1' });
     const say = (message: unknown, sender?: unknown): void =>
       listener.emit('dataReceived', new TextEncoder().encode(JSON.stringify(message)), sender, undefined, FAKE_STT_TOPIC);
-    return { runner, postHumanLine, stream, log, participant, say };
+    return { runner, postHumanLine, stream, log, listener, participant, say };
   }
 
   it('treats a server-sent line as speech: the AI hears it and the transcript records it as speech', async () => {
@@ -266,11 +267,33 @@ describe('startNpcRunner fake speech recogniser (dev only)', () => {
     }
   });
 
-  it('ignores fake speech for someone who is not in the room', async () => {
+  it('holds a scripted line that arrives before the person joins, then delivers it', async () => {
+    const { runner, postHumanLine, log, listener, say } = await startWithFakeSpeech(true);
+    try {
+      // LiveKit can deliver the data message before the listener processes ParticipantConnected.
+      say({ identity: 'late-1', text: 'Sorry I am late.' });
+      expect(postHumanLine).not.toHaveBeenCalled();
+      expect(log.some((line) => line.includes('held fake speech for late-1'))).toBe(true);
+
+      listener.emit('participantConnected', { identity: 'late-1', name: 'Late', metadata: 'cashier' });
+      await vi.waitFor(() => expect(postHumanLine).toHaveBeenCalled());
+      expect(postHumanLine.mock.calls[0]![0]).toMatchObject({
+        participantIdentity: 'late-1',
+        seat: 'cashier',
+        text: 'Sorry I am late.',
+      });
+    } finally {
+      await runner.stop();
+    }
+  });
+
+  it('drops fake speech for someone who never joins the room', async () => {
     const { runner, postHumanLine, log, say } = await startWithFakeSpeech(true);
     try {
       say({ identity: 'nobody', text: 'Hello?' });
-      expect(log.some((line) => line.includes('ignored fake speech for nobody'))).toBe(true);
+      await vi.waitFor(() =>
+        expect(log.some((line) => line.includes('dropped a fake-speech line for nobody'))).toBe(true),
+      );
       expect(postHumanLine).not.toHaveBeenCalled();
     } finally {
       await runner.stop();
