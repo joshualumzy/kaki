@@ -394,7 +394,11 @@ export async function createMeeting(
   const link = await page.locator('.product-invite-link a').first().getAttribute('href');
   if (link === null) throw new Error('created meeting has no link');
   const url = new URL(link, BASE);
-  createdMeetings.push({ page, meetingId: url.pathname.split('/')[2] ?? '' });
+  const [, route, rawMeetingId] = url.pathname.split('/');
+  if (route !== 'm' || rawMeetingId === undefined || rawMeetingId === '') {
+    throw new Error(`created meeting link ${url.toString()} has no meeting id`);
+  }
+  createdMeetings.push({ page, meetingId: decodeURIComponent(rawMeetingId) });
   return url.toString();
 }
 

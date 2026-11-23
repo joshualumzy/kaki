@@ -156,21 +156,30 @@ async function main(): Promise<void> {
       if (canApprove) {
         await approve.click();
         const end = Date.now() + 45_000;
-        let guarded = '';
+        let published = '';
+        let draftOnly = '';
         while (Date.now() < end) {
-          const after = (await page.locator('body').innerText().catch(() => '')).replace(/\s+/g, ' ');
-          const match = /[^.]*(draft-only|nothing was sent|not sent)[^.]*/i.exec(after);
-          if (match !== null) {
-            guarded = match[0].trim();
+          const text = (await page.locator('body').innerText().catch(() => '')).replace(/\s+/g, ' ');
+          const liveLink = await page.locator('.artifact-link').first().isVisible().catch(() => false);
+          const summary = /[^.]*(?:Published to|Issue created in Gitea|Page published to Team Wiki|Email sent to|Meeting scheduled on Team Calendar|Published live)[^.]*/.exec(text);
+          if (liveLink || summary !== null) {
+            published = summary?.[0].trim() ?? 'a live artifact link';
+            break;
+          }
+          const refusal = /[^.]*Draft-only mode[^.]*nothing was sent[^.]*/.exec(text);
+          if (refusal !== null) {
+            draftOnly = refusal[0].trim();
             break;
           }
           await page.waitForTimeout(3_000);
         }
         const afterShot = await run.shot(page, 'action-result');
-        if (guarded === '') {
-          run.finding('CONFUSING', '/m/:id/room action publish', 'the draft-only meeting gave no visible "nothing was sent" answer after Approve & publish', afterShot);
+        if (published !== '') {
+          run.pass(`Approving published the to-do for real: "${published.slice(0, 160)}" (${afterShot}).`);
+        } else if (draftOnly !== '') {
+          run.pass(`The stack is in draft-only mode, so approving sent nothing: "${draftOnly.slice(0, 160)}" (${afterShot}).`);
         } else {
-          run.pass(`Approving showed: "${guarded.slice(0, 160)}" (${afterShot}).`);
+          run.finding('CONFUSING', '/m/:id/room action publish', 'after Approve & publish the card never said the to-do was published, and gave no draft-only refusal', afterShot);
         }
       }
     });
