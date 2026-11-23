@@ -729,6 +729,54 @@ describe('one-speaker replies to the guest', () => {
     h.conversation.close();
   });
 
+  it('caps the read-back after two asks and offers one call instead of a third', async () => {
+    const h = harness(withDirections(['Signs only this morning.']), 0,
+      (input) => ({ ...readyFor(input.line), answersOpenQuestion: true }),
+      { silencePromptMs: 600_000, topicTimeBudgetMs: 600_000 });
+    h.conversation.setHuman({ name: 'Josh', role: 'chef' });
+
+    const readBacks = (): number => h.logs.filter((line) => line.startsWith('[confirm] read-back:')).length;
+
+    await h.say('Counter duty from eight.');
+    await finishPlaying(h);
+    expect(readBacks()).toBe(1);
+
+    await h.say('Change it: nine o clock.');
+    await finishPlaying(h);
+    expect(readBacks()).toBe(2);
+
+    await h.say('Add a cup deal.');
+    await finishPlaying(h);
+    expect(readBacks()).toBe(2);
+    expect(h.logs).toContainEqual(expect.stringContaining('2 read-backs have already been heard'));
+    expect(h.transcript.some(([, text]) => text.startsWith('How about we'))).toBe(true);
+    h.conversation.close();
+  });
+
+  it('waits the full silence after a read-back before nudging, not the write-ahead window', async () => {
+    const h = harness(scenario, 0, () => readyFor('Old price only on the small cup'), {
+      silencePromptMs: 22_000,
+      silenceNudgeLeadMs: 15_000,
+      topicTimeBudgetMs: 600_000,
+    });
+    h.conversation.setHuman({ name: 'Josh', role: 'chef' });
+
+    await h.say('Old price only on the small cup.');
+    await finishPlaying(h);
+    expect(h.transcript.some(([, text]) => text.endsWith("That's the call?"))).toBe(true);
+
+    const quietAt = Date.now();
+    await vi.advanceTimersByTimeAsync(21_999);
+    await finishPlaying(h);
+    expect(h.transcript.some(([, text]) => text === 'Still with me?')).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(1);
+    await finishPlaying(h);
+    expect(h.transcript.some(([, text]) => text === 'Still with me?')).toBe(true);
+    expect(Date.now() - quietAt).toBeGreaterThanOrEqual(22_000);
+    h.conversation.close();
+  });
+
   it('asks the read-back when a reply chain ends with readiness met, instead of a free model check-in', async () => {
     const factScenario = {
       ...scenario,

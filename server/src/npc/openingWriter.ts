@@ -266,13 +266,20 @@ export function gateSpeakerMessages(request: GateSpeakerRequest): Array<{ role: 
   const transcript = request.guestLines.length === 0
     ? 'The guest has not spoken on this topic yet.'
     : request.guestLines.map((line) => `- ${line}`).join('\n');
+  const cast = [...new Set([
+    ...request.scenario.attendees.map((attendee) => attendee.name),
+    ...(request.scenario.npcs ?? []).map((npc) => npc.attendee),
+    ...(request.human === undefined ? [] : [request.human.name]),
+  ])].join(', ');
   const task = request.purpose === 'readback'
     ? [
       `The meeting is on "${request.topicTitle}".`,
       `What ${guest} said that makes up their call, in order:\n${transcript}`,
       `The room's reading of their call, from those lines: "${request.call}".`,
       `Say that whole call back in your own plain words: keep every part they decided in those lines, not just the quoted reading, and where a later line changes an earlier one, say the later one. Put the call in one plain sentence, joining its parts with commas or and. Then add a short check that asks ${guest} if that is their call.`,
-      'Restate only what the guest said. Add no new step, owner, person, open item, task, number or time. Do not quote them or use quotation marks.',
+      `Write it in clean, standard words: correct any misspelling, shorthand or slang the guest used, and spell every person's name exactly as in this cast: ${cast}.`,
+      'Never repeat a fragment that trails off or was cut off mid-sentence; say only the parts the guest actually decided, in full.',
+      'Restate only what the guest decided. Add no new step, owner, person, open item, task, number or time. Do not quote them or use quotation marks.',
       `Reply with exactly one line: "${request.speaker}: <the words said aloud>".`,
     ].join('\n')
     : [

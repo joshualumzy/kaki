@@ -435,6 +435,57 @@ describe('default-path guarantees ported from the legacy tests', () => {
       h.conversation.close();
     });
 
+    /** Feed the room one short line for each model write the silence ladder starts. */
+    async function runSilenceLadder(h: H, served: { count: number }): Promise<void> {
+      const closed = (): boolean => h.transcript.some(([, line]) => /we'll leave .* open for now/i.test(line));
+      for (let i = 0; i < 60 && !closed(); i += 1) {
+        await vi.advanceTimersByTimeAsync(1_000);
+        await h.finishPlaying();
+        while (served.count < h.calls.length) {
+          const call = h.calls[served.count]!;
+          served.count += 1;
+          const request = call.messages.map((message) => message.content).join('\n');
+          const speaker = /Begin your reply with "([^"]+):"/.exec(request)?.[1] ?? 'Sam';
+          call.push(`${speaker}: Are you still there?`);
+          call.end();
+          await h.flushTimes(3);
+          await h.finishPlaying();
+        }
+      }
+    }
+
+    it('offers one concrete call after the check-in and colleague nudge, then closes the topic honestly', async () => {
+      const h = harness({
+        scenarioUsed: twoNpcScenario,
+        optionOverrides: { silencePromptMs: 1_000, silenceNudgeLeadMs: 999, topicTimeBudgetMs: 600_000 },
+      });
+      await seedRoom(h);
+      await runSilenceLadder(h, { count: h.calls.length });
+
+      const offerAt = h.transcript.findIndex(([, line]) => /How about we ask Auntie Mary/i.test(line));
+      const closeAt = h.transcript.findIndex(([, line]) => /we'll leave .* open for now/i.test(line));
+      expect(offerAt, h.logs.join('\n')).toBeGreaterThanOrEqual(0);
+      expect(closeAt).toBeGreaterThan(offerAt);
+      expect(h.logs).toContainEqual(expect.stringContaining('is unresolved'));
+      expect(h.agendaIndex(), h.logs.join('\n')).toBe(1);
+      expect(h.endMeeting).not.toHaveBeenCalled();
+      h.conversation.close();
+    });
+
+    it('still wraps up when the last topic is left open after silence', async () => {
+      const h = harness({
+        scenarioUsed: { ...twoNpcScenario, agenda: [twoNpcScenario.agenda[0]!] },
+        optionOverrides: { silencePromptMs: 1_000, silenceNudgeLeadMs: 999, topicTimeBudgetMs: 600_000 },
+      });
+      await seedRoom(h);
+      await runSilenceLadder(h, { count: h.calls.length });
+
+      expect(h.transcript.some(([, line]) => /we'll leave .* open for now/i.test(line))).toBe(true);
+      expect(h.endMeeting, h.logs.join('\n')).toHaveBeenCalledTimes(1);
+      expect(h.agendaIndex()).toBe(0);
+      h.conversation.close();
+    });
+
     it('keeps an unheard silence check-in for its wordless retry', async () => {
       const checkIn = "Visitor, no rush, what's your gut saying?";
       const h = harness({

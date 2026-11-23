@@ -79,6 +79,9 @@ const DEFAULT_RETRY_MS = 1500;
 /** How many times in a row the AI may pass the turn to another character without the person saying anything. */
 export const MAX_FOLLOW_UPS = 2;
 
+/** A topic gets at most two read-backs: a third becomes an interrogation, so the room offers a call or closes honestly. */
+export const MAX_CONFIRM_ASKS = 2;
+
 /** How long a Host cue waits for a quiet moment before it is dropped as out of date. */
 const DEFAULT_ANNOUNCE_GIVE_UP_MS = 40_000;
 /** The longest a planned line waits for another line to stop playing before it speaks anyway. */
@@ -1913,6 +1916,8 @@ export class NpcConversation<Clip> {
   private silencePromptStage = 0;
   /** The current read-back has already had its one "Still with me?" nudge. */
   private confirmationNudged = false;
+  /** How many read-backs the room has heard on this topic, so a guest is never asked a third time. */
+  private confirmAsksOnTopic = 0;
   private bridgedStatementOnTurn = false;
   /** The host has already asked the visitor to repeat themselves since their last line. */
   private recoveryCueSpoken = false;
@@ -2116,6 +2121,7 @@ export class NpcConversation<Clip> {
     this.meetingState.setConfirmationAsked(false);
     this.meetingState.setOfferAsked(false);
     this.confirmationNudged = false;
+    this.confirmAsksOnTopic = 0;
     this.clearPendingGate();
   }
 
@@ -2644,6 +2650,7 @@ export class NpcConversation<Clip> {
       }
       this.agendaItem = incomingTitle;
       this.silencePromptStage = 0;
+      this.confirmAsksOnTopic = 0;
       this.bridgedStatementOnTurn = false;
       this.recoveryCueSpoken = false;
     }
@@ -3915,7 +3922,7 @@ export class NpcConversation<Clip> {
   }
 
   /** Sam proposes ONE concrete call in plain spoken words and asks the guest to agree. */
-  private askOffer(view: MeetingView, offer?: OfferDecision): boolean {
+  private askOffer(view: MeetingView, offer?: OfferDecision, notBefore?: number): boolean {
     const host = this.facilitatorOrCoHost();
     const guest = this.human?.name;
     const title = this.currentItem()?.title;
@@ -3973,7 +3980,7 @@ export class NpcConversation<Clip> {
         return;
       }
       this.ports.log?.(`[offer] spoken: ${line}`);
-      this.announce(host, line, DEFAULT_ANNOUNCE_GIVE_UP_MS, (spoken) => {
+      const say = (): void => this.announce(host, line, DEFAULT_ANNOUNCE_GIVE_UP_MS, (spoken) => {
         this.clearPendingGate(abort);
         if (!spoken) {
           this.ports.log?.('[offer] the offer was not fully heard; the topic clock will close it honestly if no answer comes');
@@ -3981,7 +3988,12 @@ export class NpcConversation<Clip> {
         }
         this.meetingState.noteOffer();
         this.meetingState.setOfferAsked(true, { ...put, spoken: line });
+        // An unanswered offer has an exit: the next silence leaves the topic open honestly instead of waiting on the clock.
+        this.silencePromptStage = 3;
+        this.scheduleSilencePrompt();
       }, () => this.pendingGate?.abort === abort && !abort.signal.aborted);
+      if (notBefore === undefined) say();
+      else this.speakAfterSilenceWait(notBefore, say);
     };
     if (proposal === undefined) {
       speak(fallback);
@@ -4004,6 +4016,11 @@ export class NpcConversation<Clip> {
     if (this.pendingGate?.title === title) {
       this.ports.log?.(`[confirm] a ${this.pendingGate.kind} is already queued or speaking; not asking again`);
       return true;
+    }
+    if (this.confirmAsksOnTopic >= MAX_CONFIRM_ASKS) {
+      this.ports.log?.(`[confirm] ${this.confirmAsksOnTopic} read-backs have already been heard on this topic; offering or closing instead`);
+      this.offerCallOrUnresolved(view, 'the read-back was already asked twice on this topic');
+      return false;
     }
     const evidence = mergedReadiness(view).action.evidence;
     const item = this.currentItem();
@@ -4039,6 +4056,7 @@ export class NpcConversation<Clip> {
         this.meetingState.setOfferAsked(false);
         this.meetingState.setConfirmationAsked(true, evidence, line);
         this.confirmationNudged = false;
+        this.confirmAsksOnTopic += 1;
         // The read-back now owns the room's next move: silence after it must be nudged and then committed.
         this.scheduleSilencePrompt();
       }, () => this.pendingGate?.abort === abort && !abort.signal.aborted);
@@ -4233,6 +4251,9 @@ export class NpcConversation<Clip> {
    * Gentle silence handling when the room is waiting on the person (`decide` or `involve` mode):
    * - Stage 1: After `silencePromptMs`, the AI host gently checks in with the person by name and invites them to share a thought or ask a question.
    * - Stage 2: If the person stays silent again, the topic's owner says one short spoken sentence that helps them get unstuck — one thing that matters, or one smaller question, never a menu and never the answer.
+   * - Stage 3: If they still say nothing, the host offers ONE concrete call built from the person's own earlier words.
+   * - Stage 4: Silence after that closes the topic honestly ("we'll leave it open") and moves on; a last topic still wraps up.
+   * Every rung has the same exit: the person's next line starts the ladder again at the check-in.
    */
   private scheduleSilencePrompt(): void {
     const item = this.currentItem();
@@ -4306,26 +4327,36 @@ export class NpcConversation<Clip> {
         if (!this.confirmationNudged) {
           this.confirmationNudged = true;
           this.ports.log?.('[confirm] no answer to the read-back; asking "Still with me?" once');
-          this.announce(host, 'Still with me?', DEFAULT_ANNOUNCE_GIVE_UP_MS, (spoken) => {
-            if (!spoken) this.ports.log?.('[confirm] the nudge was not heard; the read-back stays live');
-            this.scheduleSilencePrompt();
-          }, undefined, { gateReask: true });
+          this.speakAfterSilenceWait(scheduledAt + baseMs, () => {
+            this.announce(host, 'Still with me?', DEFAULT_ANNOUNCE_GIVE_UP_MS, (spoken) => {
+              if (!spoken) this.ports.log?.('[confirm] the nudge was not heard; the read-back stays live');
+              this.scheduleSilencePrompt();
+            }, undefined, { gateReask: true });
+          });
           return;
         }
         this.commitReadBackOnSilence(confirmView);
         return;
       }
-      if (this.silencePromptStage >= 2) return;
-      // A live offer is re-asked as that same question, so the gate stays the last thing heard.
-      // It counts as this stage of the silence escalation, so the existing cap still stops it looping.
+      // The ladder has run its course: the offer went unanswered, so leave the topic open honestly.
+      if (this.silencePromptStage >= 3) {
+        this.ports.log?.('[silence] the guest stayed silent after the offer; closing the topic honestly');
+        this.speakAfterSilenceWait(scheduledAt + baseMs, () =>
+          this.resolveUnresolved('the guest stayed silent after the check-in, the colleague nudge and the offer'));
+        return;
+      }
+      // A live offer is re-asked as that same question once, so the gate stays the last thing heard. That
+      // reaches the offer rung, so the next silence closes the topic instead of nudging again.
       const gateReask = this.liveGateReask();
       if (gateReask !== undefined) {
-        this.silencePromptStage = stageAtSchedule + 1;
+        this.silencePromptStage = 3;
         this.ports.log?.(`[silence] re-asking the live ${gateReask.gate} instead of a generic nudge`);
-        this.announce(host, gateReask.line, DEFAULT_ANNOUNCE_GIVE_UP_MS, (spoken) => {
-          if (!spoken) this.ports.log?.(`[silence] the ${gateReask.gate} re-ask was not heard; the gate stays live`);
-          this.scheduleSilencePrompt();
-        }, undefined, { gateReask: true });
+        this.speakAfterSilenceWait(scheduledAt + baseMs, () => {
+          this.announce(host, gateReask.line, DEFAULT_ANNOUNCE_GIVE_UP_MS, (spoken) => {
+            if (!spoken) this.ports.log?.(`[silence] the ${gateReask.gate} re-ask was not heard; the gate stays live`);
+            this.scheduleSilencePrompt();
+          }, undefined, { gateReask: true });
+        });
         return;
       }
       if (shouldBridgeStatement) {
@@ -4354,12 +4385,10 @@ export class NpcConversation<Clip> {
           this.pending.push(silenceCheckInNote(host, this.human.name, spokenTitle, this.humanSettledOnCurrentItem));
           this.startTurn(false, false, scheduledAt + baseMs, undefined, true);
         } else {
-          this.announce(
-            host,
-            silenceCheckInLine(this.human.name, spokenAgendaName(this.options.scenario, title), this.topicIndex(title)),
-            DEFAULT_ANNOUNCE_GIVE_UP_MS,
-            () => this.scheduleSilencePrompt(),
-          );
+          const line = silenceCheckInLine(this.human.name, spokenAgendaName(this.options.scenario, title), this.topicIndex(title));
+          this.speakAfterSilenceWait(scheduledAt + baseMs, () => {
+            this.announce(host, line, DEFAULT_ANNOUNCE_GIVE_UP_MS, () => this.scheduleSilencePrompt());
+          });
         }
       } else if (this.silencePromptStage === 2) {
         const npcs = this.options.scenario.npcs ?? [];
@@ -4371,10 +4400,59 @@ export class NpcConversation<Clip> {
         if (owner !== undefined && npcs.length > 1) {
           this.forcedSpeaker = { target: owner, from: host };
           this.pending.push(silenceColleagueNote(owner, this.human.name, title, item?.decision));
-          this.startTurn(false, false, undefined, undefined, true);
+          this.startTurn(false, false, scheduledAt + baseMs, undefined, true);
+        } else {
+          // No colleague can take this rung, so the ladder goes straight to its last exit.
+          this.offerCallOrUnresolved(this.meetingState.view(Date.now()), 'no colleague could help after the check-in', scheduledAt + baseMs);
         }
+      } else if (this.silencePromptStage === 3) {
+        this.offerCallOrUnresolved(this.meetingState.view(Date.now()), 'the guest stayed silent after the check-in and the colleague nudge', scheduledAt + baseMs);
       }
     }, delayMs).unref();
+  }
+
+  /**
+   * Run one scripted silence cue no earlier than the normal silence wait after the room's last line. The
+   * write-ahead window exists only to hide model time; a cue with no model to write must never sound early.
+   */
+  private speakAfterSilenceWait(notBefore: number, speak: () => void): void {
+    const waitMs = notBefore - Date.now();
+    if (waitMs <= 0) {
+      speak();
+      return;
+    }
+    this.clearSilenceTimer();
+    this.silenceTimer = setTimeout(() => {
+      this.silenceTimer = undefined;
+      if (this.closed || this.paused || this.human === undefined) return;
+      speak();
+    }, waitMs).unref();
+  }
+
+  /**
+   * One last concrete call from the person's own earlier words, then an honest close: used when the silence
+   * ladder or the read-back cap has run out. Never a third offer, never a loop.
+   */
+  private offerCallOrUnresolved(view: MeetingView, reason: string, notBefore?: number): void {
+    const close = (): void => this.resolveUnresolved(reason);
+    if (view.offerAsked || view.offers >= MAX_OFFERS) {
+      this.ports.log?.('[offer] no offer left to put; closing the topic honestly instead');
+      if (notBefore === undefined) close();
+      else this.speakAfterSilenceWait(notBefore, close);
+      return;
+    }
+    const evidence = mergedReadiness(view).action.evidence?.trim();
+    const idea = view.guestFirstIdea?.text.trim();
+    const proposal = evidence !== undefined && evidence.length > 0
+      ? evidence
+      : idea !== undefined && idea.length > 0 ? idea : undefined;
+    const choices = proposal === undefined ? this.offerChoices(view) : [];
+    const offer: OfferDecision = {
+      kind: 'Offer',
+      reason,
+      ...(proposal === undefined ? (choices.length === 0 ? {} : { choices }) : { proposal }),
+    };
+    if (!this.askOffer(view, offer, notBefore)) this.resolveUnresolved(reason);
   }
 
   /** A character handed over to another by name and nobody has answered yet: the named one answers, after a short pause. */

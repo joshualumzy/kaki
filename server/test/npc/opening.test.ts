@@ -1191,6 +1191,13 @@ describe('one-speaker topic opening', () => {
     expect(readback).toContain('What Josh said that makes up their call');
     expect(readback).toContain('Do not quote them or use quotation marks');
     expect(readback).toContain('Add no new step, owner, person, open item, task, number or time');
+    // The read-back says the call in clean words and spells the cast's names correctly, never echoing a fragment.
+    expect(readback).toContain('Write it in clean, standard words');
+    expect(readback).toContain('spell every person\'s name exactly as in this cast:');
+    expect(readback).toContain('Arjun');
+    expect(readback).toContain('Mei');
+    expect(readback).toContain('Sam');
+    expect(readback).toContain('Never repeat a fragment that trails off or was cut off mid-sentence');
 
     const offer = gateSpeakerMessages({
       scenario: KOPITIAM,
