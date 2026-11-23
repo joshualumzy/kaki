@@ -2,6 +2,7 @@ import { ErrorText } from './ErrorText';
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link, Navigate } from 'react-router-dom';
 import { useMe } from '../auth/useMe';
+import { SIGN_IN_ENDED } from '../net/plainFailure';
 import { Button, Card } from '../ui';
 import {
   agendaFromCalendar,
@@ -208,6 +209,11 @@ export function NewMeetingPage() {
     return <Navigate to={`/signin?next=${encodeURIComponent('/new')}`} replace />;
   }
 
+  // A dead error card under a still-working menu is worse than a clear trip to sign-in.
+  if (loadError === SIGN_IN_ENDED) {
+    return <Navigate to={`/signin?next=${encodeURIComponent('/new')}`} replace />;
+  }
+
   const user = auth.me.user;
   const selected = workspaces?.find((workspace) => workspace.id === selectedId);
   const isSample = selected?.kind === 'sample';
@@ -387,13 +393,17 @@ export function NewMeetingPage() {
           <section className="card product-section">
             <h2 className="product-section-title">The meeting is ready</h2>
             <p className="product-hint">Share this link with the people joining.</p>
-            <p className="product-invite-link">
-              <a href={created.link}>{full}</a>
-            </p>
-            <div className="product-row-actions">
+            <div className="product-invite-row">
+              <p className="product-invite-link">
+                <a href={created.link} title={full}>
+                  {full.replace(/^https?:\/\//, '')}
+                </a>
+              </p>
               <Button variant="ghost" onClick={() => void copyLink(full)}>
                 Copy
               </Button>
+            </div>
+            <div className="product-row-actions">
               <Link className="product-open" to={created.link}>
                 Open meeting
               </Link>
@@ -515,6 +525,7 @@ export function NewMeetingPage() {
                   <h2 className="product-subhead">
                     Agenda <span className="product-optional">(optional)</span>
                   </h2>
+                  <p className="product-methods-label">Ways to add the agenda</p>
                   <div className="product-methods" role="group" aria-label="How to add the agenda">
                     <button
                       type="button"
@@ -621,28 +632,10 @@ export function NewMeetingPage() {
                   )}
                 </div>
 
-                <p className="product-notice">Kaki transcribes this meeting</p>
-
-                <div className="product-schedule">
-                  <label className="product-field">
-                    <span>Date</span>
-                    <input
-                      className="product-input"
-                      type="date"
-                      value={date}
-                      onChange={(event) => setDate(event.target.value)}
-                    />
-                  </label>
-                  <label className="product-field">
-                    <span>Time</span>
-                    <input
-                      className="product-input"
-                      type="time"
-                      value={time}
-                      onChange={(event) => setTime(event.target.value)}
-                    />
-                  </label>
-                </div>
+                <aside className="product-notice" role="note">
+                  <strong>Kaki transcribes this meeting</strong>
+                  <span>Everyone's words become the minutes and to-dos.</span>
+                </aside>
 
                 {error === null ? null : (
                   <p className="product-error" role="alert">
@@ -659,6 +652,30 @@ export function NewMeetingPage() {
                   <Button type="submit" disabled={pending !== null}>
                     {pending === 'start' ? 'Starting…' : 'Start now'}
                   </Button>
+                </div>
+
+                <fieldset className="product-schedule-group">
+                  <legend>Schedule for later</legend>
+                  <div className="product-schedule">
+                    <label className="product-field">
+                      <span>Date</span>
+                      <input
+                        className="product-input"
+                        type="date"
+                        value={date}
+                        onChange={(event) => setDate(event.target.value)}
+                      />
+                    </label>
+                    <label className="product-field">
+                      <span>Time</span>
+                      <input
+                        className="product-input"
+                        type="time"
+                        value={time}
+                        onChange={(event) => setTime(event.target.value)}
+                      />
+                    </label>
+                  </div>
                   <Button
                     variant="ghost"
                     onClick={() => void submit(true)}
@@ -666,7 +683,7 @@ export function NewMeetingPage() {
                   >
                     {pending === 'schedule' ? 'Scheduling…' : 'Schedule for later'}
                   </Button>
-                </div>
+                </fieldset>
               </form>
           </section>
         ) : null}

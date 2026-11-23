@@ -1,4 +1,4 @@
-import { CONTROL_TOPIC, defaultMeetingSetup, KAKI_LISTENER_IDENTITY, meetingScenarioFromSetup, SPEECH_STATUS_TOPIC, STT_TOPIC } from '@kaki/shared';
+import { defaultMeetingSetup, FAKE_STT_TOPIC, KAKI_LISTENER_IDENTITY, meetingScenarioFromSetup, SPEECH_STATUS_TOPIC, STT_TOPIC } from '@kaki/shared';
 import { describe, expect, it, vi } from 'vitest';
 import { loadScenario } from '../../src/core/loadScenario';
 import { openingLine } from '../../src/host/opening';
@@ -153,10 +153,7 @@ describe('startNpcRunner topic transition', () => {
 });
 
 describe('startNpcRunner visitor transcript identity', () => {
-  it.each([
-    ['operations_director', CONTROL_TOPIC, { kind: 'text', text: 'Typed visitor line' }, 'Typed visitor line'],
-    ['operations_director', STT_TOPIC, { text: 'Recognized visitor line' }, 'Recognized visitor line'],
-  ])('keeps %s input on %s out of the runner transcript and still sends it to the AI', async (role, topic, message, line) => {
+  it('keeps a browser-recognised line out of the runner transcript and still sends it to the AI', async () => {
     rooms.length = 0;
     const scenario = await loadScenario('kopitiam');
     const transcript: Array<[string, string]> = [];
@@ -176,15 +173,152 @@ describe('startNpcRunner visitor transcript identity', () => {
     });
     try {
       const listener = rooms[0]!;
-      const participant = { identity: 'visitor-1', name: 'Booth Playtest', metadata: role };
+      const participant = { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'operations_director' };
       listener.emit('participantConnected', participant);
       await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
       await runner.markStarted();
-      listener.emit('dataReceived', new TextEncoder().encode(JSON.stringify(message)), participant, undefined, topic);
+      listener.emit(
+        'dataReceived',
+        new TextEncoder().encode(JSON.stringify({ text: 'Recognized visitor line' })),
+        participant,
+        undefined,
+        STT_TOPIC,
+      );
 
       await vi.waitFor(() => expect(stream).toHaveBeenCalled());
-      expect(transcript.some(([, text]) => text === line)).toBe(false);
+      expect(transcript.some(([, text]) => text === 'Recognized visitor line')).toBe(false);
       expect(postHumanLine).not.toHaveBeenCalled();
+    } finally {
+      await runner.stop();
+    }
+  });
+});
+
+describe('startNpcRunner fake speech recogniser (dev only)', () => {
+  async function startWithFakeSpeech(fakeSpeech: boolean) {
+    rooms.length = 0;
+    const scenario = await loadScenario('kopitiam');
+    const postHumanLine = vi.fn();
+    const log: string[] = [];
+    const stream = vi.fn(async function* () {
+      yield 'Sam: Noted, thanks.';
+    });
+    const runner = await startNpcRunner({
+      scenario,
+      initialMeeting: runnerSnapshot(scenario, { meetingId: 'meeting-1', version: 1 }),
+      livekitUrl: 'ws://offline.invalid',
+      stream,
+      synthesize: async () => new Int16Array(),
+      postTranscript: () => undefined,
+      postTranscriptUpdate: () => undefined,
+      postHumanLine,
+      fakeSpeech,
+      fakeSpeechJoinWaitMs: 50,
+      log: (line) => log.push(line),
+      responseDelayMs: 0,
+    });
+    const listener = rooms[0]!;
+    const participant = { identity: 'visitor-1', name: 'Robot Visitor', metadata: 'operations_director' };
+    listener.emit('participantConnected', participant);
+    await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
+    await runner.markStarted({ meetingId: 'meeting-1' });
+    const say = (message: unknown, sender?: unknown): void =>
+      listener.emit('dataReceived', new TextEncoder().encode(JSON.stringify(message)), sender, undefined, FAKE_STT_TOPIC);
+    return { runner, postHumanLine, stream, log, listener, participant, say };
+  }
+
+  it('treats a server-sent line as speech: the AI hears it and the transcript records it as speech', async () => {
+    const { runner, postHumanLine, stream, say } = await startWithFakeSpeech(true);
+    try {
+      say({ identity: 'visitor-1', text: 'Let us pause delivery this weekend.' });
+      await vi.waitFor(() => expect(postHumanLine).toHaveBeenCalled());
+      expect(postHumanLine.mock.calls[0]![0]).toMatchObject({
+        meetingId: 'meeting-1',
+        participantIdentity: 'visitor-1',
+        seat: 'operations_director',
+        text: 'Let us pause delivery this weekend.',
+        
+      });
+      await vi.waitFor(() => expect(stream).toHaveBeenCalled());
+    } finally {
+      await runner.stop();
+    }
+  });
+
+  it('ignores fake speech when the recogniser is off', async () => {
+    const { runner, postHumanLine, log, say } = await startWithFakeSpeech(false);
+    try {
+      say({ identity: 'visitor-1', text: 'This should not be heard.' });
+      expect(log.some((line) => line.includes('ignored a fake-speech message'))).toBe(true);
+      expect(postHumanLine).not.toHaveBeenCalled();
+    } finally {
+      await runner.stop();
+    }
+  });
+
+  it('ignores fake speech a browser sends, so a person cannot speak as someone else', async () => {
+    const { runner, postHumanLine, log, participant, say } = await startWithFakeSpeech(true);
+    try {
+      say({ identity: 'visitor-1', text: 'Forged from a browser.' }, participant);
+      expect(log.some((line) => line.includes('ignored a fake-speech message'))).toBe(true);
+      expect(postHumanLine).not.toHaveBeenCalled();
+    } finally {
+      await runner.stop();
+    }
+  });
+
+  it('holds a scripted line that arrives before the person joins, then delivers it', async () => {
+    const { runner, postHumanLine, log, listener, say } = await startWithFakeSpeech(true);
+    try {
+      // LiveKit can deliver the data message before the listener processes ParticipantConnected.
+      say({ identity: 'late-1', text: 'Sorry I am late.' });
+      expect(postHumanLine).not.toHaveBeenCalled();
+      expect(log.some((line) => line.includes('held fake speech for late-1'))).toBe(true);
+
+      listener.emit('participantConnected', { identity: 'late-1', name: 'Late', metadata: 'cashier' });
+      await vi.waitFor(() => expect(postHumanLine).toHaveBeenCalled());
+      expect(postHumanLine.mock.calls[0]![0]).toMatchObject({
+        participantIdentity: 'late-1',
+        seat: 'cashier',
+        text: 'Sorry I am late.',
+      });
+    } finally {
+      await runner.stop();
+    }
+  });
+
+  it('drops fake speech for someone who never joins the room', async () => {
+    const { runner, postHumanLine, log, say } = await startWithFakeSpeech(true);
+    try {
+      say({ identity: 'nobody', text: 'Hello?' });
+      await vi.waitFor(() =>
+        expect(log.some((line) => line.includes('dropped a fake-speech line for nobody'))).toBe(true),
+      );
+      expect(postHumanLine).not.toHaveBeenCalled();
+    } finally {
+      await runner.stop();
+    }
+  });
+
+  it('never delivers a line held in an ended meeting to the same person joining the next one', async () => {
+    const { runner, postHumanLine, log, listener, say } = await startWithFakeSpeech(true);
+    try {
+      const scenario = await loadScenario('kopitiam');
+      // A line arrives for someone who has not joined meeting A yet.
+      say({ identity: 'late-1', text: 'Sorry I am late.' });
+      expect(log.some((line) => line.includes('held fake speech for late-1'))).toBe(true);
+
+      // Meeting A ends; the next meeting begins under the same id before its reset reaches this runner.
+      runner.reconcileMeeting(
+        runnerSnapshot(scenario, { meetingId: 'meeting-1', phase: 'ended', started: false, version: 3 }),
+      );
+
+      // The same person joins the next meeting before the reset snapshot arrives.
+      listener.emit('participantConnected', { identity: 'late-1', name: 'Late', metadata: 'cashier' });
+      await new Promise((resolve) => setTimeout(resolve, 40));
+
+      expect(postHumanLine).not.toHaveBeenCalled();
+      expect(log.some((line) => line.includes('ignored "Sorry I am late."'))).toBe(false);
     } finally {
       await runner.stop();
     }
@@ -395,42 +529,6 @@ describe('server-owned start preparation', () => {
       await runner.markStarted({ meetingId: 'meeting-1' });
       await new Promise((resolve) => setTimeout(resolve, 20));
       expect(transcript.some((line) => line.startsWith('Welcome to'))).toBe(false);
-    } finally {
-      await runner.stop();
-    }
-  });
-
-  it('ignores a browser LiveKit Start and waits for the server', async () => {
-    rooms.length = 0;
-    const scenario = await loadScenario('kopitiam');
-    const transcript: string[] = [];
-    const log: string[] = [];
-    const runner = await startNpcRunner({
-      scenario,
-      livekitUrl: 'ws://offline.invalid',
-      stream: async function* () {},
-      synthesize: async () => new Int16Array(),
-      postTranscript: (_speaker, text) => transcript.push(text),
-      postTranscriptUpdate: () => undefined,
-      log: (line) => log.push(line),
-      responseDelayMs: 0,
-    });
-    try {
-      const participant = { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'operations_director' };
-      rooms[0]!.emit('participantConnected', participant);
-      await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
-
-      rooms[0]!.emit(
-        'dataReceived',
-        new TextEncoder().encode(JSON.stringify({ kind: 'start' })),
-        participant,
-        undefined,
-        CONTROL_TOPIC,
-      );
-      await vi.waitFor(() => expect(log.some((line) => line.includes('ignored a LiveKit Start'))).toBe(true));
-      await new Promise((resolve) => setTimeout(resolve, 20));
-      expect(transcript.some((line) => line.startsWith('Welcome to'))).toBe(false);
-      expect(runner.meetingId()).toBeUndefined();
     } finally {
       await runner.stop();
     }
@@ -1146,6 +1244,7 @@ describe('an ended meeting on reconnect', () => {
       postTranscript: (_speaker, text) => transcript.push(text),
       postTranscriptUpdate: () => undefined,
       log: (line) => log.push(line),
+      fakeSpeech: true,
       responseDelayMs: 0,
       speakerGapMs: 0,
       sentenceGapMs: 0,
@@ -1163,10 +1262,10 @@ describe('an ended meeting on reconnect', () => {
       );
       rooms[0]!.emit(
         'dataReceived',
-        new TextEncoder().encode(JSON.stringify({ kind: 'text', text: 'Are we still going?' })),
-        participant,
+        new TextEncoder().encode(JSON.stringify({ identity: 'visitor-1', text: 'Are we still going?' })),
         undefined,
-        CONTROL_TOPIC,
+        undefined,
+        FAKE_STT_TOPIC,
       );
       await new Promise((resolve) => setTimeout(resolve, 40));
 
@@ -1188,6 +1287,7 @@ describe('an ended meeting on reconnect', () => {
       synthesize: async () => new Int16Array(),
       postTranscript: (_speaker, text) => transcript.push(text),
       postTranscriptUpdate: () => undefined,
+      fakeSpeech: true,
       responseDelayMs: 0,
       speakerGapMs: 0,
       sentenceGapMs: 0,
@@ -1210,10 +1310,10 @@ describe('an ended meeting on reconnect', () => {
       rooms[0]!.emit('participantConnected', back);
       rooms[0]!.emit(
         'dataReceived',
-        new TextEncoder().encode(JSON.stringify({ kind: 'text', text: 'Are we still going?' })),
-        back,
+        new TextEncoder().encode(JSON.stringify({ identity: 'visitor-1', text: 'Are we still going?' })),
         undefined,
-        CONTROL_TOPIC,
+        undefined,
+        FAKE_STT_TOPIC,
       );
       await new Promise((resolve) => setTimeout(resolve, 60));
 
@@ -1224,7 +1324,7 @@ describe('an ended meeting on reconnect', () => {
     }
   });
 
-  it('blocks typing after the meeting has ended even with a human host', async () => {
+  it('ignores fake speech after the meeting has ended even with a human host', async () => {
     rooms.length = 0;
     const scenario = await loadScenario('kopitiam');
     const transcript: string[] = [];
@@ -1245,6 +1345,7 @@ describe('an ended meeting on reconnect', () => {
         hostIsHuman: true,
         version: 5,
       }),
+      fakeSpeech: true,
       responseDelayMs: 0,
       speakerGapMs: 0,
       sentenceGapMs: 0,
@@ -1266,10 +1367,10 @@ describe('an ended meeting on reconnect', () => {
       );
       rooms[0]!.emit(
         'dataReceived',
-        new TextEncoder().encode(JSON.stringify({ kind: 'text', text: 'Can we add one more thing?' })),
-        host,
+        new TextEncoder().encode(JSON.stringify({ identity: 'host-1', text: 'Can we add one more thing?' })),
         undefined,
-        CONTROL_TOPIC,
+        undefined,
+        FAKE_STT_TOPIC,
       );
       await new Promise((resolve) => setTimeout(resolve, 80));
 
@@ -1480,446 +1581,6 @@ describe('meeting sync with the real runner', () => {
         ),
       ).toBe(true);
       expect(runner.meetingId()).toBe('meeting-2');
-    } finally {
-      await runner.stop();
-    }
-  });
-
-  it('keeps the person\'s Stop against an in-flight paused:false snapshot at the same version', async () => {
-    rooms.length = 0;
-    const scenario = await loadScenario('kopitiam');
-    const transcript: string[] = [];
-    const log: string[] = [];
-    const runner = await startNpcRunner({
-      scenario,
-      initialMeeting: runnerSnapshot(scenario, { meetingId: 'meeting-1', version: 0 }),
-      livekitUrl: 'ws://offline.invalid',
-      stream: async function* () {},
-      synthesize: async () => new Int16Array(),
-      postTranscript: (_speaker, text) => transcript.push(text),
-      postTranscriptUpdate: () => undefined,
-      log: (line) => log.push(line),
-      stopGateTimeoutMs: 60,
-      responseDelayMs: 0,
-      speakerGapMs: 0,
-      sentenceGapMs: 0,
-    });
-    try {
-      const participant = { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'operations_director' };
-      rooms[0]!.emit('participantConnected', participant);
-      await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
-      // Hold a snapshot first, so the Stop remembers exactly where the runner was.
-      expect(
-        runner.reconcileMeeting(
-          runnerSnapshot(scenario, { meetingId: 'meeting-1', phase: 'running', started: true, version: 1 }),
-        ),
-      ).toBe(true);
-      await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
-
-      rooms[0]!.emit(
-        'dataReceived',
-        new TextEncoder().encode(JSON.stringify({ kind: 'stop' })),
-        participant,
-        undefined,
-        CONTROL_TOPIC,
-      );
-      await vi.waitFor(() => expect(log.some((line) => line.includes('pressed stop'))).toBe(true));
-
-      // A snapshot made before the server saw the Stop still says running: it must not undo it.
-      runner.reconcileMeeting(
-        runnerSnapshot(scenario, { meetingId: 'meeting-1', phase: 'running', started: true, paused: false, version: 1 }),
-      );
-      expect(log.some((line) => line.includes("kept the person's stop locally"))).toBe(true);
-
-      // The safety net releases the local gate loudly when no newer snapshot ever arrives.
-      await vi.waitFor(() =>
-        expect(log.some((line) => line.includes('releasing the local stop'))).toBe(true),
-      );
-    } finally {
-      await runner.stop();
-    }
-  });
-
-  it('holds a typed line through a paused snapshot and answers it only after the resume snapshot', async () => {
-    rooms.length = 0;
-    const scenario = await loadScenario('kopitiam');
-    const transcript: string[] = [];
-    const log: string[] = [];
-    const stream = vi.fn(async function* () {});
-    const runner = await startNpcRunner({
-      scenario,
-      livekitUrl: 'ws://offline.invalid',
-      stream,
-      synthesize: async () => new Int16Array(),
-      postTranscript: (_speaker, text) => transcript.push(text),
-      postTranscriptUpdate: () => undefined,
-      log: (line) => log.push(line),
-      responseDelayMs: 0,
-      speakerGapMs: 0,
-      sentenceGapMs: 0,
-    });
-    try {
-      rooms[0]!.emit('participantConnected', participant);
-      await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
-      await runner.markStarted({ meetingId: 'meeting-1' });
-      await vi.waitFor(() => expect(transcript.some((line) => line.startsWith('Welcome to'))).toBe(true));
-
-      expect(
-        runner.reconcileMeeting(
-          runnerSnapshot(scenario, {
-            meetingId: 'meeting-1', phase: 'running', started: true, paused: true, pauseKind: 'person', version: 2,
-          }),
-        ),
-      ).toBe(true);
-      rooms[0]!.emit(
-        'dataReceived',
-        new TextEncoder().encode(JSON.stringify({ kind: 'text', text: 'Carry on please' })),
-        participant,
-        undefined,
-        CONTROL_TOPIC,
-      );
-      await vi.waitFor(() => expect(log.some((line) => line.includes('holding a typed line'))).toBe(true));
-      await new Promise((resolve) => setTimeout(resolve, 30));
-      expect(transcript).not.toContain('Carry on please');
-
-      // The LiveKit resume only asks; it must not release the gate on its own.
-      rooms[0]!.emit(
-        'dataReceived',
-        new TextEncoder().encode(JSON.stringify({ kind: 'resume' })),
-        participant,
-        undefined,
-        CONTROL_TOPIC,
-      );
-      await new Promise((resolve) => setTimeout(resolve, 30));
-      expect(transcript).not.toContain('Carry on please');
-
-      const callsBefore = stream.mock.calls.length;
-      expect(
-        runner.reconcileMeeting(
-          runnerSnapshot(scenario, {
-            meetingId: 'meeting-1', phase: 'running', started: true, paused: false, version: 3,
-          }),
-        ),
-      ).toBe(true);
-      // The line is answered by the AI now; the app server owns its transcript.
-      await vi.waitFor(() => expect(stream.mock.calls.length).toBeGreaterThan(callsBefore));
-      expect(transcript).not.toContain('Carry on please');
-    } finally {
-      await runner.stop();
-    }
-  });
-
-  it('holds every typed line during a pause and answers them in order after the resume', async () => {
-    rooms.length = 0;
-    const scenario = await loadScenario('kopitiam');
-    const transcript: string[] = [];
-    const log: string[] = [];
-    const stream = vi.fn(async function* () {});
-    const runner = await startNpcRunner({
-      scenario,
-      livekitUrl: 'ws://offline.invalid',
-      stream,
-      synthesize: async () => new Int16Array(),
-      postTranscript: (_speaker, text) => transcript.push(text),
-      postTranscriptUpdate: () => undefined,
-      log: (line) => log.push(line),
-      responseDelayMs: 0,
-      speakerGapMs: 0,
-      sentenceGapMs: 0,
-    });
-    try {
-      rooms[0]!.emit('participantConnected', participant);
-      await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
-      await runner.markStarted({ meetingId: 'meeting-1' });
-      await vi.waitFor(() => expect(transcript.some((line) => line.startsWith('Welcome to'))).toBe(true));
-
-      expect(
-        runner.reconcileMeeting(
-          runnerSnapshot(scenario, {
-            meetingId: 'meeting-1', phase: 'running', started: true, paused: true, pauseKind: 'person', version: 2,
-          }),
-        ),
-      ).toBe(true);
-      for (const text of ['First please', 'Second please']) {
-        rooms[0]!.emit(
-          'dataReceived',
-          new TextEncoder().encode(JSON.stringify({ kind: 'text', text })),
-          participant,
-          undefined,
-          CONTROL_TOPIC,
-        );
-      }
-      await vi.waitFor(() => expect(log.filter((line) => line.includes('holding a typed line'))).toHaveLength(2));
-      await new Promise((resolve) => setTimeout(resolve, 30));
-      expect(transcript).not.toContain('First please');
-      expect(transcript).not.toContain('Second please');
-
-      const callsBefore = stream.mock.calls.length;
-      expect(
-        runner.reconcileMeeting(
-          runnerSnapshot(scenario, {
-            meetingId: 'meeting-1', phase: 'running', started: true, paused: false, version: 3,
-          }),
-        ),
-      ).toBe(true);
-      await vi.waitFor(() => expect(log.some((line) => line.includes('answered 2 typed lines held during the pause'))).toBe(true));
-      await vi.waitFor(() => expect(stream.mock.calls.length).toBeGreaterThan(callsBefore));
-      const contents = stream.mock.calls
-        .slice(callsBefore)
-        .map((call) => ((call as unknown as [Array<{ content: string }>])[0] ?? [])
-          .map((message) => message.content).join('\n'))
-        .join('\n');
-      expect(contents).toContain('First please');
-      expect(contents.indexOf('First please')).toBeLessThan(contents.indexOf('Second please'));
-    } finally {
-      await runner.stop();
-    }
-  });
-
-  it('drops a typed line the server never resumes in time', async () => {    rooms.length = 0;
-    const scenario = await loadScenario('kopitiam');
-    const transcript: string[] = [];
-    const log: string[] = [];
-    const runner = await startNpcRunner({
-      scenario,
-      livekitUrl: 'ws://offline.invalid',
-      stream: async function* () {},
-      synthesize: async () => new Int16Array(),
-      postTranscript: (_speaker, text) => transcript.push(text),
-      postTranscriptUpdate: () => undefined,
-      log: (line) => log.push(line),
-      heldTypedLineTimeoutMs: 40,
-      responseDelayMs: 0,
-      speakerGapMs: 0,
-      sentenceGapMs: 0,
-    });
-    try {
-      rooms[0]!.emit('participantConnected', participant);
-      await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
-      await runner.markStarted({ meetingId: 'meeting-1' });
-      await vi.waitFor(() => expect(transcript.some((line) => line.startsWith('Welcome to'))).toBe(true));
-      runner.reconcileMeeting(
-        runnerSnapshot(scenario, {
-          meetingId: 'meeting-1', phase: 'running', started: true, paused: true, pauseKind: 'person', version: 2,
-        }),
-      );
-      rooms[0]!.emit(
-        'dataReceived',
-        new TextEncoder().encode(JSON.stringify({ kind: 'text', text: 'Too late now' })),
-        participant,
-        undefined,
-        CONTROL_TOPIC,
-      );
-      await vi.waitFor(() => expect(log.some((line) => line.includes('did not resume within 40 ms'))).toBe(true));
-
-      runner.reconcileMeeting(
-        runnerSnapshot(scenario, {
-          meetingId: 'meeting-1', phase: 'running', started: true, paused: false, version: 3,
-        }),
-      );
-      await new Promise((resolve) => setTimeout(resolve, 30));
-      expect(transcript).not.toContain('Too late now');
-    } finally {
-      await runner.stop();
-    }
-  });
-
-  it('drops a held typed line when the meeting changes', async () => {
-    rooms.length = 0;
-    const scenario = await loadScenario('kopitiam');
-    const transcript: string[] = [];
-    const log: string[] = [];
-    const runner = await startNpcRunner({
-      scenario,
-      livekitUrl: 'ws://offline.invalid',
-      stream: async function* () {},
-      synthesize: async () => new Int16Array(),
-      postTranscript: (_speaker, text) => transcript.push(text),
-      postTranscriptUpdate: () => undefined,
-      log: (line) => log.push(line),
-      responseDelayMs: 0,
-      speakerGapMs: 0,
-      sentenceGapMs: 0,
-    });
-    try {
-      rooms[0]!.emit('participantConnected', participant);
-      await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
-      await runner.markStarted({ meetingId: 'meeting-1' });
-      await vi.waitFor(() => expect(transcript.some((line) => line.startsWith('Welcome to'))).toBe(true));
-      runner.reconcileMeeting(
-        runnerSnapshot(scenario, {
-          meetingId: 'meeting-1', phase: 'running', started: true, paused: true, pauseKind: 'person', version: 2,
-        }),
-      );
-      rooms[0]!.emit(
-        'dataReceived',
-        new TextEncoder().encode(JSON.stringify({ kind: 'text', text: 'For the old meeting' })),
-        participant,
-        undefined,
-        CONTROL_TOPIC,
-      );
-      await vi.waitFor(() => expect(log.some((line) => line.includes('holding a typed line'))).toBe(true));
-
-      runner.resetMeeting('meeting-2');
-      expect(log.some((line) => line.includes('dropped the typed line held for the old meeting'))).toBe(true);
-      expect(transcript).not.toContain('For the old meeting');
-    } finally {
-      await runner.stop();
-    }
-  });
-
-  it('re-reads the server state while a resume is expected, and says so loudly when it stays paused', async () => {
-    rooms.length = 0;
-    const scenario = await loadScenario('kopitiam');
-    const transcript: string[] = [];
-    const log: string[] = [];
-    const errors: string[] = [];
-    const recheck = vi.fn();
-    const runner = await startNpcRunner({
-      scenario,
-      livekitUrl: 'ws://offline.invalid',
-      stream: async function* () {},
-      synthesize: async () => new Int16Array(),
-      postTranscript: (_speaker, text) => transcript.push(text),
-      postTranscriptUpdate: () => undefined,
-      log: (line) => log.push(line),
-      logError: (line) => errors.push(line),
-      recheckMeetingState: recheck,
-      resumeBackstopIntervalMs: 20,
-      resumeBackstopWindowMs: 80,
-      responseDelayMs: 0,
-      speakerGapMs: 0,
-      sentenceGapMs: 0,
-    });
-    try {
-      rooms[0]!.emit('participantConnected', participant);
-      await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
-      await runner.markStarted({ meetingId: 'meeting-1' });
-      await vi.waitFor(() => expect(transcript.some((line) => line.startsWith('Welcome to'))).toBe(true));
-      runner.reconcileMeeting(
-        runnerSnapshot(scenario, {
-          meetingId: 'meeting-1', phase: 'running', started: true, paused: true, pauseKind: 'person', version: 2,
-        }),
-      );
-
-      rooms[0]!.emit(
-        'dataReceived',
-        new TextEncoder().encode(JSON.stringify({ kind: 'resume' })),
-        participant,
-        undefined,
-        CONTROL_TOPIC,
-      );
-
-      await vi.waitFor(() => expect(recheck.mock.calls.length).toBeGreaterThan(0));
-      await vi.waitFor(() =>
-        expect(errors.some((line) => line.includes('still paused'))).toBe(true),
-      );
-      const calls = recheck.mock.calls.length;
-      await new Promise((resolve) => setTimeout(resolve, 60));
-      expect(recheck.mock.calls.length).toBe(calls);
-    } finally {
-      await runner.stop();
-    }
-  });
-
-  it('re-reads the server state while a typed line waits, and stops once the resume arrives', async () => {
-    rooms.length = 0;
-    const scenario = await loadScenario('kopitiam');
-    const transcript: string[] = [];
-    const log: string[] = [];
-    const recheck = vi.fn();
-    const stream = vi.fn(async function* () {});
-    const runner = await startNpcRunner({
-      scenario,
-      livekitUrl: 'ws://offline.invalid',
-      stream,
-      synthesize: async () => new Int16Array(),
-      postTranscript: (_speaker, text) => transcript.push(text),
-      postTranscriptUpdate: () => undefined,
-      log: (line) => log.push(line),
-      recheckMeetingState: recheck,
-      resumeBackstopIntervalMs: 20,
-      resumeBackstopWindowMs: 500,
-      responseDelayMs: 0,
-      speakerGapMs: 0,
-      sentenceGapMs: 0,
-    });
-    try {
-      rooms[0]!.emit('participantConnected', participant);
-      await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
-      await runner.markStarted({ meetingId: 'meeting-1' });
-      await vi.waitFor(() => expect(transcript.some((line) => line.startsWith('Welcome to'))).toBe(true));
-      runner.reconcileMeeting(
-        runnerSnapshot(scenario, {
-          meetingId: 'meeting-1', phase: 'running', started: true, paused: true, pauseKind: 'person', version: 2,
-        }),
-      );
-      rooms[0]!.emit(
-        'dataReceived',
-        new TextEncoder().encode(JSON.stringify({ kind: 'text', text: 'Carry on please' })),
-        participant,
-        undefined,
-        CONTROL_TOPIC,
-      );
-      await vi.waitFor(() => expect(log.some((line) => line.includes('holding a typed line'))).toBe(true));
-      await vi.waitFor(() => expect(recheck.mock.calls.length).toBeGreaterThan(0));
-
-      const streamCallsBefore = stream.mock.calls.length;
-      runner.reconcileMeeting(
-        runnerSnapshot(scenario, {
-          meetingId: 'meeting-1', phase: 'running', started: true, paused: false, version: 3,
-        }),
-      );
-      await vi.waitFor(() => expect(stream.mock.calls.length).toBeGreaterThan(streamCallsBefore));
-      expect(transcript).not.toContain('Carry on please');
-
-      const calls = recheck.mock.calls.length;
-      await new Promise((resolve) => setTimeout(resolve, 60));
-      expect(recheck.mock.calls.length).toBe(calls);
-    } finally {
-      await runner.stop();
-    }
-  });
-
-  it('gates at once on Stop without a timeout when the snapshot already says paused', async () => {
-    rooms.length = 0;
-    const scenario = await loadScenario('kopitiam');
-    const transcript: string[] = [];
-    const log: string[] = [];
-    const runner = await startNpcRunner({
-      scenario,
-      livekitUrl: 'ws://offline.invalid',
-      stream: async function* () {},
-      synthesize: async () => new Int16Array(),
-      postTranscript: (_speaker, text) => transcript.push(text),
-      postTranscriptUpdate: () => undefined,
-      log: (line) => log.push(line),
-      stopGateTimeoutMs: 40,
-      responseDelayMs: 0,
-      speakerGapMs: 0,
-      sentenceGapMs: 0,
-    });
-    try {
-      rooms[0]!.emit('participantConnected', participant);
-      await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
-      await runner.markStarted({ meetingId: 'meeting-1' });
-      await vi.waitFor(() => expect(transcript.some((line) => line.startsWith('Welcome to'))).toBe(true));
-      runner.reconcileMeeting(
-        runnerSnapshot(scenario, {
-          meetingId: 'meeting-1', phase: 'running', started: true, paused: true, pauseKind: 'person', version: 2,
-        }),
-      );
-
-      rooms[0]!.emit(
-        'dataReceived',
-        new TextEncoder().encode(JSON.stringify({ kind: 'stop' })),
-        participant,
-        undefined,
-        CONTROL_TOPIC,
-      );
-      await vi.waitFor(() => expect(log.some((line) => line.includes('pressed stop'))).toBe(true));
-      await new Promise((resolve) => setTimeout(resolve, 120));
-      expect(log.some((line) => line.includes('releasing the local stop'))).toBe(false);
     } finally {
       await runner.stop();
     }

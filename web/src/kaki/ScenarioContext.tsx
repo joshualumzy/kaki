@@ -31,14 +31,7 @@ export type ScenarioView = 'practice' | 'meeting';
 const ScenarioContext = createContext<Scenario | null>(null);
 const RefreshScenarioContext = createContext<(() => Promise<Scenario>) | null>(null);
 
-/** Practice pages follow the pack; every other page follows the meeting in progress. */
-export function viewForPath(pathname: string): ScenarioView {
-  return pathname === '/practice' || pathname === '/demo' ? 'practice' : 'meeting';
-}
-
-function scenarioUrl(view: ScenarioView, meetingId?: string): string {
-  // A practice meeting is its own prefixed instance now, so its pack comes from that meeting;
-  // without an id it is the legacy practice path.
+function scenarioUrl(view: ScenarioView, meetingId: string): string {
   return view === 'practice'
     ? meetingApiPath(meetingId, '/api/scenario?kind=practice')
     : meetingApiPath(meetingId, '/api/scenario');
@@ -63,7 +56,7 @@ type Attempt =
 
 async function attemptScenario(
   view: ScenarioView,
-  meetingId: string | undefined,
+  meetingId: string,
   timeoutMs: number,
 ): Promise<Attempt> {
   let response: Response;
@@ -99,14 +92,15 @@ async function attemptScenario(
     status: 'ready',
     scenario: parseScenario(await response.json(), {
       requireOrganisation: false,
-      ...(meetingId === undefined ? {} : { allowEmptyAgenda: true, allowEmptyRoles: true }),
+      allowEmptyAgenda: true,
+      allowEmptyRoles: true,
     }),
   };
 }
 
 async function fetchScenario(
   view: ScenarioView,
-  meetingId?: string,
+  meetingId: string,
   { onRetry }: { onRetry?: () => void } = {},
 ): Promise<Scenario> {
   const startedAt = Date.now();
@@ -130,7 +124,7 @@ async function fetchScenario(
  * the answer: when it changes the provider loads again, so a page can never keep a scenario that
  * describes an older meeting or an older plan.
  */
-function loadScenario(view: ScenarioView, meetingId: string | undefined, onRetry?: () => void): Promise<Scenario> {
+function loadScenario(view: ScenarioView, meetingId: string, onRetry?: () => void): Promise<Scenario> {
   return fetchScenario(view, meetingId, { onRetry });
 }
 
@@ -142,8 +136,8 @@ export function ScenarioProvider({
 }: {
   children: ReactNode;
   view?: ScenarioView;
-  /** A real meeting's scenario lives under `/api/meetings/:id`; absent is the legacy meeting. */
-  meetingId?: string;
+  /** The meeting whose scenario this page follows; every meeting lives under `/api/meetings/:id`. */
+  meetingId: string;
 }) {
   const [state, setState] = useState<ScenarioState>({ status: 'loading' });
   const [starting, setStarting] = useState(false);
@@ -225,7 +219,7 @@ export function ScenarioProvider({
   if (state.status === 'error') {
     return (
       <main className="page">
-        <Card title={meetingId === undefined ? 'Could not load the scenario' : "Couldn't open the meeting"}>
+        <Card title="Couldn't open the meeting">
           <p className="connection-banner" role="alert">
             {state.message}
           </p>
@@ -269,5 +263,6 @@ export function useScenario(): Scenario {
 /** Re-fetch the page's scenario when a new meeting starts so the browser gets the shuffled agenda order. */
 export function useRefreshScenario(): () => Promise<Scenario> {
   const refresh = useContext(RefreshScenarioContext);
-  return refresh ?? (() => fetchScenario('meeting'));
+  if (refresh === null) throw new Error('useRefreshScenario must be used inside ScenarioProvider');
+  return refresh;
 }

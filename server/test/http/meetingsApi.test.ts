@@ -5,7 +5,6 @@ import { createApp, type CreateAppOptions, type KakiApp } from '../../src/app';
 import { createAuth, type Auth } from '../../src/auth/module';
 import { hashToken } from '../../src/auth/password';
 import { createMemoryAuthStore, type AuthStore, type UserRecord } from '../../src/auth/store';
-import { createMeetingCodeSource } from '../../src/meeting/meetingCode';
 import { createMemoryMeetingStore } from '../../src/meeting/registry';
 import { SAMPLE_WORKSPACE_ID } from '../../src/workspace/constants';
 import { testScenario } from '../fixtures/scenario';
@@ -48,14 +47,12 @@ async function buildApp(
   meetings: ReturnType<typeof createMemoryMeetingStore>;
 }> {
   const store = createMemoryAuthStore();
-  const meetingCode = createMeetingCodeSource('K7M2Q9');
-  const auth = createAuth({ store, meetingCode });
+  const auth = createAuth({ store});
   const meetings = createMemoryMeetingStore();
   const app = await createApp({
     scenario: testScenario,
     speechRecognition: 'browser',
     auth,
-    meetingCode,
     meetings,
     ...options,
   });
@@ -281,8 +278,10 @@ describe('meetings API', () => {
       guestId: expect.any(String),
     });
     expect(await auth.resolvePrincipal(fakeRequest(cookie!), meetingB.id)).toBeUndefined();
-    // A guest is not a legacy-meeting participant either.
-    expect((await request(base, '/api/setup', { cookie: cookie! })).status).toBe(401);
+    // A guest does not reach the meeting's owner setup either.
+    expect(
+      (await request(base, `/api/meetings/${meetingA.id}/setup`, { cookie: cookie! })).status,
+    ).toBe(401);
   });
 
   it('lets a signed-in user join without a name and without a guest session', async () => {
@@ -342,6 +341,16 @@ describe('meetings API', () => {
 
     await meetings.markEnded?.(meeting.id, new Date().toISOString());
     expect((await request(base, `/api/meetings/by-code/${code}`)).status).toBe(404);
+  });
+
+  it('rate-limits wrong meeting-code lookups per address', async () => {
+    const { base } = await buildApp();
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      expect((await request(base, `/api/meetings/by-code/WRNG${String(attempt).padStart(2, '0')}`)).status).toBe(404);
+    }
+    const limited = await request(base, '/api/meetings/by-code/WRNG99');
+    expect(limited.status).toBe(429);
+    expect(((await limited.json()) as { error: string }).error).toMatch(/Too many attempts/);
   });
 
   it('gives every real meeting its own code even when a practice code is pinned', async () => {
@@ -461,11 +470,15 @@ describe('meetings API', () => {
     const meeting = await createMeeting(base, ada.cookie, team.workspace.id, 'Real work');
     const target = encodeURIComponent('http://mattermost.test/kopitiam/channels/town-square');
 
-    const denied = await request(base, `/api/meetings/${meeting.id}/mattermost/open?url=${target}`, {
-      cookie: ada.cookie,
-    });
+    const denied = await fetch(
+      `${base}/api/meetings/${meeting.id}/mattermost/open?url=${target}`,
+      { headers: { cookie: ada.cookie, accept: 'text/html' } },
+    );
     expect(denied.status).toBe(403);
-    expect(((await denied.json()) as { error: string }).error).toContain('sample workspace');
+    expect(denied.headers.get('content-type')).toContain('text/html');
+    const page = await denied.text();
+    expect(page).toContain('sample workspace');
+    expect(page).toContain('Back to the workspace');
   });
 
   it('refuses a guest join for an ended meeting without giving a name cookie', async () => {

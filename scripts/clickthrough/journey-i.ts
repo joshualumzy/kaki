@@ -7,10 +7,12 @@ import {
   joinAsGuest,
   launch,
   Run,
-  sendTyped,
+  speakLine,
   signedInPerson,
   stamp,
   BASE,
+  withJourneyLock,
+  closeBrowser,
 } from './lib';
 
 async function step(run: Run, page: Page, where: string, action: () => Promise<void>): Promise<void> {
@@ -52,7 +54,7 @@ async function main(): Promise<void> {
     const during = `Guest while owner away ${suffix}`;
     const after = `After owner returned ${suffix}`;
     await step(run, page, 'line before', async () => {
-      await sendTyped(page, before);
+      await speakLine(page, before);
       await guest.page.getByText(before).first().waitFor({ state: 'attached', timeout: 25_000 });
     });
     await step(run, page, 'owner leaves', async () => {
@@ -67,17 +69,18 @@ async function main(): Promise<void> {
       if (/has ended|You left/i.test(text)) run.finding('ERROR', 'guest while owner away', `meeting wrongly looks over: "${text.slice(0, 200)}"`, shot);
       else {
         run.pass(`Guest still in the room while the owner is away (${shot}).`);
-        await sendTyped(guest.page, during);
+        await speakLine(guest.page, during);
         await guest.page.getByText(during).first().waitFor({ state: 'attached', timeout: 20_000 });
-        run.pass('Guest can still type while the owner is away.');
+        run.pass('Guest can still speak while the owner is away.');
       }
     });
     await step(run, page, 'owner rejoins', async () => {
       await page.getByRole('button', { name: 'Rejoin', exact: true }).click();
       await page.getByRole('button', { name: 'Leave', exact: true }).waitFor({ timeout: 60_000 });
       await page.getByText(before).first().waitFor({ state: 'attached', timeout: 25_000 });
-      await sendTyped(page, after);
-      run.pass(`Owner rejoined and sees earlier lines (${await run.shot(page, 'owner-rejoined')}).`);
+      await speakLine(page, after);
+      await page.getByText(after).first().waitFor({ state: 'attached', timeout: 25_000 });
+      run.pass(`Owner rejoined, sees earlier lines and can speak again (${await run.shot(page, 'owner-rejoined')}).`);
     });
     await step(run, page, 'owner ends', async () => {
       const endBtn = page.getByRole('button', { name: 'End for everyone' });
@@ -119,11 +122,11 @@ async function main(): Promise<void> {
     await guest.context.close();
   } finally {
     run.save();
-    await browser.close();
+    await closeBrowser(browser);
   }
 }
 
-void main().catch((error: unknown) => {
+void withJourneyLock(JOURNEY, main).catch((error: unknown) => {
   console.error(error instanceof Error ? error.message : error);
   process.exitCode = 1;
 });

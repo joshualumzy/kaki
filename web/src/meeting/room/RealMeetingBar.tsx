@@ -1,9 +1,8 @@
 import { useState } from 'react';
-import { MEDIA_BLOCKED_PROBLEM } from '../../net/plainFailure';
+import { CAMERA_BLOCKED_PROBLEM, MIC_BLOCKED_PROBLEM } from '../../net/plainFailure';
 import { useLocalParticipant, useRoomContext } from '@livekit/components-react';
 import { Avatar } from '../../ui';
-import { QrCode } from '../MeetingOverlays';
-import { newClientLineId } from './stageModel';
+import { QrCode } from '../QrCode';
 import { useRealRoom } from './realRoom';
 import { distinctDisplayNames } from './people';
 
@@ -14,15 +13,18 @@ import { distinctDisplayNames } from './people';
 export function RealMeetingBar({
   meetingId,
   meetingCode,
+  mediaProblem,
+  onMediaProblemCleared,
 }: {
   meetingId: string;
   meetingCode?: string;
+  /** A device failure the room reported, shown here instead of a floating banner over the tiles. */
+  mediaProblem?: string;
+  onMediaProblemCleared?(): void;
 }) {
   const livekitRoom = useRoomContext();
   const { localParticipant, isMicrophoneEnabled, isCameraEnabled } = useLocalParticipant();
   const meeting = useRealRoom();
-  const [typeOpen, setTypeOpen] = useState(false);
-  const [typed, setTyped] = useState('');
   const [inviteOpen, setInviteOpen] = useState(false);
   const [peopleOpen, setPeopleOpen] = useState(false);
   const [confirmEnd, setConfirmEnd] = useState(false);
@@ -32,7 +34,8 @@ export function RealMeetingBar({
 
   if (meeting === null) return null;
   const { meetingState, send, isHost } = meeting;
-  const ended = meetingState?.phase === 'ended';
+  // An ended room is a calm final screen with its own actions; live controls and notices would compete.
+  if (meetingState?.phase === 'ended' || meeting.endedWhileAway !== undefined) return null;
   // Before the owner starts the meeting, only Leave (and the owner's Invite) do anything.
   const waiting = meetingState?.waitingForOwner === true;
   const offTheRecord = meetingState?.offTheRecord !== null && meetingState?.offTheRecord !== undefined;
@@ -48,9 +51,11 @@ export function RealMeetingBar({
     if (localParticipant === undefined) return;
     try {
       await localParticipant.setMicrophoneEnabled(!isMicrophoneEnabled);
+      setProblem(undefined);
+      onMediaProblemCleared?.();
     } catch (error) {
-      console.error('kaki web: the microphone or camera change failed', error);
-      setProblem(MEDIA_BLOCKED_PROBLEM);
+      console.error('kaki web: the microphone change failed', error);
+      setProblem(MIC_BLOCKED_PROBLEM);
     }
   }
 
@@ -58,27 +63,12 @@ export function RealMeetingBar({
     if (localParticipant === undefined) return;
     try {
       await localParticipant.setCameraEnabled(!isCameraEnabled);
-    } catch (error) {
-      console.error('kaki web: the microphone or camera change failed', error);
-      setProblem(MEDIA_BLOCKED_PROBLEM);
-    }
-  }
-
-  function submitTyped(): void {
-    const text = typed.trim();
-    if (text === '') return;
-    const sent = send({
-      type: 'HUMAN_LINE',
-      text,
-      source: 'typed',
-      clientLineId: newClientLineId(),
-    });
-    if (sent) {
-      setTyped('');
       setProblem(undefined);
-      return;
+      onMediaProblemCleared?.();
+    } catch (error) {
+      console.error('kaki web: the camera change failed', error);
+      setProblem(CAMERA_BLOCKED_PROBLEM);
     }
-    setProblem("Couldn't send your line. Check your connection and try again.");
   }
 
   async function copyInvite(): Promise<void> {
@@ -96,68 +86,57 @@ export function RealMeetingBar({
     void livekitRoom.disconnect().catch(() => undefined);
   }
 
+  const shownProblem = problem ?? mediaProblem;
   return (
     <div className="kd-real-bar" role="toolbar" aria-label="Meeting controls">
-      {problem === undefined ? null : (
+      {shownProblem === undefined ? null : (
         <p className="kd-real-bar-problem" role="alert">
-          {problem}
+          {shownProblem}
         </p>
       )}
       <div className="kd-real-bar-row">
-        {ended ? null : (
-          <>
-            <button
-              type="button"
-              className="kd-bar-btn"
-              data-on={isMicrophoneEnabled}
-              aria-pressed={isMicrophoneEnabled}
-              disabled={waiting}
-              onClick={() => void toggleMicrophone()}
-            >
-              {isMicrophoneEnabled ? 'Mic on' : 'Mic off'}
-            </button>
-            <button
-              type="button"
-              className="kd-bar-btn"
-              data-on={isCameraEnabled}
-              aria-pressed={isCameraEnabled}
-              disabled={waiting}
-              onClick={() => void toggleCamera()}
-            >
-              {isCameraEnabled ? 'Camera on' : 'Camera off'}
-            </button>
-            <button
-              type="button"
-              className="kd-bar-btn"
-              data-on={typeOpen}
-              aria-expanded={typeOpen}
-              disabled={waiting}
-              onClick={() => setTypeOpen((open) => !open)}
-            >
-              Type
-            </button>
-            <button
-              type="button"
-              className="kd-bar-btn"
-              data-on={offTheRecord}
-              aria-pressed={offTheRecord}
-              disabled={waiting}
-              onClick={() => send({ type: 'SET_OFF_THE_RECORD', on: !offTheRecord })}
-            >
-              {offTheRecord ? 'Back on the record' : 'Off the record'}
-            </button>
-            <button
-              type="button"
-              className="kd-bar-btn"
-              data-on={inviteOpen}
-              aria-expanded={inviteOpen}
-              disabled={waiting && !isHost}
-              onClick={() => setInviteOpen((open) => !open)}
-            >
-              Invite
-            </button>
-          </>
-        )}
+        <button
+          type="button"
+          className="kd-bar-btn"
+          data-on={isMicrophoneEnabled}
+          aria-pressed={isMicrophoneEnabled}
+          disabled={waiting}
+          onClick={() => void toggleMicrophone()}
+        >
+          {isMicrophoneEnabled ? 'Mic on' : 'Mic off'}
+        </button>
+        <button
+          type="button"
+          className="kd-bar-btn"
+          data-on={isCameraEnabled}
+          aria-pressed={isCameraEnabled}
+          disabled={waiting}
+          onClick={() => void toggleCamera()}
+        >
+          {isCameraEnabled ? 'Camera on' : 'Camera off'}
+        </button>
+        <button
+          type="button"
+          className="kd-bar-btn"
+          data-on={offTheRecord}
+          aria-pressed={offTheRecord}
+          aria-describedby="kd-off-record-hint"
+          title="Stop Kaki writing anything down until you resume"
+          disabled={waiting}
+          onClick={() => send({ type: 'SET_OFF_THE_RECORD', on: !offTheRecord })}
+        >
+          {offTheRecord ? 'Back on the record' : 'Off the record'}
+        </button>
+        <button
+          type="button"
+          className="kd-bar-btn"
+          data-on={inviteOpen}
+          aria-expanded={inviteOpen}
+          disabled={waiting && !isHost}
+          onClick={() => setInviteOpen((open) => !open)}
+        >
+          Invite
+        </button>
         <button
           type="button"
           className="kd-bar-btn"
@@ -171,7 +150,7 @@ export function RealMeetingBar({
         <button type="button" className="kd-bar-btn" data-tone="leave" onClick={leave}>
           Leave
         </button>
-        {isHost && !ended ? (
+        {isHost ? (
           <button
             type="button"
             className="kd-bar-btn"
@@ -182,29 +161,11 @@ export function RealMeetingBar({
           </button>
         ) : null}
       </div>
+      <p className="kd-bar-hint" id="kd-off-record-hint">
+        Off the record pauses all notes until you resume.
+      </p>
 
-      {typeOpen && !ended ? (
-        <form
-          className="kd-real-type"
-          onSubmit={(event) => {
-            event.preventDefault();
-            submitTyped();
-          }}
-        >
-          <input
-            aria-label="Type to the meeting"
-            value={typed}
-            autoFocus
-            onChange={(event) => setTyped(event.target.value)}
-            placeholder="Type to speak, press Enter"
-          />
-          <button type="submit" className="kd-bar-btn" data-on disabled={typed.trim() === ''}>
-            Send
-          </button>
-        </form>
-      ) : null}
-
-      {inviteOpen && !ended ? (
+      {inviteOpen ? (
         <div className="kd-real-pop" role="dialog" aria-label="Invite people">
           <p className="kd-label">Invite link</p>
           <p className="kd-real-link">
@@ -248,7 +209,7 @@ export function RealMeetingBar({
         </div>
       ) : null}
 
-      {confirmEnd && isHost && !ended ? (
+      {confirmEnd && isHost ? (
         <div className="kd-real-pop" role="dialog" aria-label="End the meeting for everyone">
           <p className="kd-label">End for everyone?</p>
           <p className="kd-hint">

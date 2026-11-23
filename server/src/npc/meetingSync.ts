@@ -101,12 +101,6 @@ interface MeetingSync {
   snapshot(state: RunnerMeetingSnapshot): void;
   /** MEETING_RESET arrived: clear the local meeting and refuse every older state fetch. */
   reset(meetingId?: string): void;
-  /**
-   * Re-read the server snapshot through the same generation fence as the reconnect read, for a
-   * resume whose event may have been lost. It never bumps the generation and never stacks a second
-   * read while one is in flight.
-   */
-  recheck(reason: string): void;
 }
 
 /**
@@ -156,9 +150,6 @@ export function createMeetingSync({
         log(`could not read the meeting state: ${String(error)}`);
       });
   }
-
-  /** One recheck at a time: a slow state fetch must not pile up behind the runner's timer. */
-  let rechecking = false;
 
   return {
     connected() {
@@ -261,14 +252,6 @@ export function createMeetingSync({
     reset(meetingId) {
       generation += 1;
       runner.resetMeeting(meetingId);
-    },
-    recheck(reason) {
-      if (rechecking) return;
-      rechecking = true;
-      log(`re-reading the meeting state: ${reason}`);
-      void readState((state) => apply(state)).finally(() => {
-        rechecking = false;
-      });
     },
   };
 }

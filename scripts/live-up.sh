@@ -147,4 +147,4 @@ if ! bash scripts/live-preflight.sh; then
   exit 1
 fi
 echo
-echo "Open http://localhost:5173 (or http://localhost:5173/demo). Watch the AI:  tail -f .live-logs/npc.log"
+echo "Open http://localhost:5173 (or http://localhost:5173/practice). Watch the AI:  tail -f .live-logs/npc.log"

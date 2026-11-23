@@ -1,19 +1,23 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { defaultMeetingSetup, meetingScenarioFromSetup } from '@kaki/shared';
-import { createApp, type KakiApp } from '../../src/app';
+import { createPracticeTestApp, type TestAppWithMeeting } from '../helpers';
 import { loadScenario } from '../../src/core/loadScenario';
 import { buildRunnerMeetingSnapshot } from '../../src/meeting/runnerState';
 import { testScenario } from '../fixtures/scenario';
 
-let app: KakiApp | undefined;
+let app: TestAppWithMeeting | undefined;
 
 afterEach(async () => {
   await app?.close();
   app = undefined;
 });
 
-async function appFor(scenario: Awaited<ReturnType<typeof loadScenario>>): Promise<KakiApp> {
-  app = await createApp({ speechRecognition: 'browser', scenario, roomRoster: async () => [] });
+async function appFor(scenario: Awaited<ReturnType<typeof loadScenario>>): Promise<TestAppWithMeeting> {
+  app = await createPracticeTestApp({
+    speechRecognition: 'browser',
+    scenario,
+    roomRoster: async () => [],
+  });
   return app;
 }
 

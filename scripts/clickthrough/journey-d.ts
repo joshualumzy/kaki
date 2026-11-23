@@ -1,5 +1,8 @@
 import type { Page } from 'playwright';
-import { BASE, launch, Run, guestPerson } from './lib';
+// First: the fake speaker reads the LiveKit keys from the repo's .env.
+import '../../server/src/env';
+import { createFakeSpeaker } from '../../server/src/npc/fakeStt';
+import { BASE, launch, Run, guestPerson, withJourneyLock, closeBrowser } from './lib';
 
 const JOURNEY = 'd';
 
@@ -16,9 +19,7 @@ async function main(): Promise<void> {
   const run = new Run(JOURNEY);
   const browser = await launch();
   const suffix = String(Date.now()).slice(-7);
-  const guest = await guestPerson(browser, run, {
-    expected: (status, url) => status === 401 && url.includes('/api/auth/me'),
-  });
+  const guest = await guestPerson(browser, run);
   const page = guest.page;
 
   try {
@@ -77,9 +78,21 @@ async function main(): Promise<void> {
       run.pass(`The practice meeting starts (${shot}).`);
     });
 
-    await step(run, page, 'practice is speech only', async () => {
-      // Let the AI colleagues open the meeting before looking at the stage.
-      await page.waitForTimeout(15_000);
+    await step(run, page, 'speak through practice', async () => {
+      const lines = [
+        `Welcome everyone, let's start with the kopitiam launch. (${suffix})`,
+        'I think the new menu should launch next week, and we need the supplier order confirmed.',
+        'Sam, can you check the supplier and the stock before Friday?',
+      ];
+      // Practice is speech only: the guest speaks through the dev-only fake recogniser (runner on KAKI_FAKE_STT=1).
+      const speaker = createFakeSpeaker();
+      for (const [index, line] of lines.entries()) {
+        await speaker.say(`Practice Guest ${suffix}`, line);
+        await page.waitForTimeout(index === lines.length - 1 ? 20_000 : 12_000);
+        const shot = await run.shot(page, `practice-spoken-${index + 1}`);
+        run.pass(`Practice heard spoken line ${index + 1} (${shot}).`);
+      }
+      // Practice is speech only: no type box, Send, Lock or Pause under the stage.
       const shot = await run.shot(page, 'practice-running');
       const leftovers: string[] = [];
       if (await page.getByLabel('Type to the meeting').isVisible().catch(() => false)) leftovers.push('a type box');
@@ -156,24 +169,22 @@ async function main(): Promise<void> {
     });
 
     await step(run, page, 'demo route', async () => {
-      const demo = await guestPerson(browser, run, {
-        expected: (status, url) => status === 401 && url.includes('/api/auth/me'),
-      });
-      await demo.page.goto(`${BASE}/demo`);
+      const demo = await guestPerson(browser, run);
+      await demo.page.goto(`${BASE}/practice`);
       await demo.page.waitForTimeout(4_000);
       const shot = await run.shot(demo.page, 'demo-open');
       const body = (await demo.page.locator('body').innerText()).replace(/\s+/g, ' ').trim();
-      if (body === '') run.finding('DEAD-END', '/demo', 'blank page', shot);
-      else run.pass(`/demo opens a real page: "${body.slice(0, 120)}" (${shot}).`);
+      if (body === '') run.finding('DEAD-END', '/practice', 'blank page', shot);
+      else run.pass(`/practice opens a real page: "${body.slice(0, 120)}" (${shot}).`);
       await demo.context.close();
     });
   } finally {
     run.save();
-    await browser.close();
+    await closeBrowser(browser);
   }
 }
 
-void main().catch((error: unknown) => {
+void withJourneyLock(JOURNEY, main).catch((error: unknown) => {
   console.error(error instanceof Error ? error.message : error);
   process.exitCode = 1;
 });

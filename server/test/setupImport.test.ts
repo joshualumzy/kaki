@@ -3,10 +3,16 @@ import { buildMeetingInviteIcs, KOPITIAM_INVITE_UID, type MeetingInvite, type Me
 import type { KakiApp } from '../src/app';
 import type { CalendarSettings } from '../src/action/calendar';
 import { createAuth } from '../src/auth/module';
-import { hashPassword } from '../src/auth/password';
 import { createMemoryAuthStore } from '../src/auth/store';
-import { createMeetingCodeSource } from '../src/meeting/meetingCode';
-import { createTestApp, portOf } from './helpers';
+import {
+  createPracticeTestApp,
+  createTestApp,
+  meetingPath,
+  meetingUrl,
+  openRealMeeting,
+  portOf,
+  type TestAppWithMeeting,
+} from './helpers';
 
 const settings: CalendarSettings = { caldavUrl: 'http://cal.test', viewBaseUrl: 'http://kaki.test' };
 
@@ -48,8 +54,9 @@ describe('setup calendar import', () => {
   });
 
   async function start(options: Parameters<typeof createTestApp>[0] = {}): Promise<void> {
-    app = await createTestApp(options);
-    base = `http://127.0.0.1:${portOf(app)}`;
+    const practice = await createPracticeTestApp(options);
+    app = practice;
+    base = `http://127.0.0.1:${portOf(practice)}${meetingPath(practice, '')}`;
   }
 
   function postImport(cookie?: string): Promise<Response> {
@@ -130,46 +137,49 @@ describe('setup calendar import', () => {
 
   it('refuses a participant', async () => {
     const store = createMemoryAuthStore();
-    await store.createUser({
-      email: 'host@example.com',
-      passwordHash: await hashPassword('correct-horse-battery'),
-    });
-    const meetingCode = createMeetingCodeSource('K7M2Q9');
-    const auth = createAuth({ store, offeredRoles: () => ['chef', 'cashier'], meetingCode });
-    await start({ auth, meetingCode, calendar: settings, calendarFetch: calendarFetch() });
+    const auth = createAuth({ store, offeredRoles: () => ['chef', 'cashier']});
+    app = await createTestApp({ auth, calendar: settings, calendarFetch: calendarFetch() });
+    base = `http://127.0.0.1:${portOf(app)}`;
+    const meeting = await openRealMeeting(app);
 
-    const login = await fetch(`${base}/api/auth/login`, {
+    const joined = await fetch(meetingUrl(app, meeting.id, '/join'), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ email: 'host@example.com', password: 'correct-horse-battery' }),
-    });
-    expect(login.status).toBe(200);
-    const hostCookie = login.headers.get('set-cookie')?.split(';')[0];
-    if (hostCookie === undefined || hostCookie === '') throw new Error('Login did not set a cookie');
-    expect((await fetch(`${base}/api/meeting/open`, { method: 'POST', headers: { cookie: hostCookie } })).status).toBe(200);
-    const joined = await fetch(`${base}/api/join`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ code: 'K7M2Q9', role: 'chef' }),
+      body: JSON.stringify({ name: 'Ada' }),
     });
     expect(joined.status).toBe(200);
-    const cookie = cookieFrom(joined);
-    if (cookie === undefined) throw new Error('Join did not set a cookie');
+    const guest = cookieFrom(joined);
+    if (guest === undefined) throw new Error('Join did not set a cookie');
+    const seated = await fetch(meetingUrl(app, meeting.id, '/api/livekit/token'), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie: guest },
+      body: JSON.stringify({ participantName: 'Ada' }),
+    });
+    expect(seated.status).toBe(200);
+    const cookie = cookieFrom(seated);
+    if (cookie === undefined) throw new Error('Taking a seat did not set a cookie');
 
-    const response = await postImport(cookie);
+    const response = await fetch(meetingUrl(app, meeting.id, '/api/setup/import-calendar'), {
+      method: 'POST',
+      headers: { cookie },
+    });
     expect(response.status).toBe(403);
   });
 
   it('refuses the import after Start', async () => {
     await start({ calendar: settings, calendarFetch: calendarFetch(), roomRoster: async () => [] });
-    expect((await fetch(`${base}/api/meeting/open`, { method: 'POST' })).status).toBe(200);
-    const joined = await fetch(`${base}/api/livekit/token`, {
+    const practice = app as TestAppWithMeeting;
+    const joined = await fetch(meetingUrl(practice, practice.meetingId, '/api/livekit/token'), {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ roomName: 'test-room', participantName: 'Cook', participantRole: 'chef' }),
+      headers: { 'content-type': 'application/json', cookie: practice.cookie! },
+      body: JSON.stringify({ roomName: 'test-room', participantName: 'Cook', participantRole: 'chef', kind: 'practice' }),
     });
     expect(joined.status).toBe(200);
-    expect((await fetch(`${base}/api/meeting/start`, { method: 'POST' })).status).toBe(200);
+    const started = await fetch(meetingUrl(practice, practice.meetingId, '/api/meeting/start'), {
+      method: 'POST',
+      headers: { cookie: practice.cookie! },
+    });
+    expect(started.status).toBe(200);
 
     expect((await postImport()).status).toBe(409);
   });

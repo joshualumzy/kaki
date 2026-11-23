@@ -2,6 +2,7 @@ import { ErrorText } from './ErrorText';
 import { useEffect, useState } from 'react';
 import { Link, Navigate, useParams } from 'react-router-dom';
 import { useMe } from '../auth/useMe';
+import { SIGN_IN_ENDED } from '../net/plainFailure';
 import { Button, Card } from '../ui';
 import {
   getWorkspace,
@@ -113,6 +114,12 @@ export function WorkspacePage() {
     );
   }
 
+  if (loadError === SIGN_IN_ENDED) {
+    return (
+      <Navigate to={`/signin?next=${encodeURIComponent(`/workspaces/${id}`)}`} replace />
+    );
+  }
+
   const user = auth.me.user;
   const role = workspaces?.find((workspace) => workspace.id === id)?.role;
   const canEdit = role === 'admin' && detail !== null && !detail.readOnly;
@@ -182,6 +189,9 @@ export function WorkspacePage() {
             <Button variant="ghost" onClick={() => setReloadKey((key) => key + 1)}>
               Try again
             </Button>
+            <Link className="product-open" to="/new">
+              Back to New meeting
+            </Link>
           </Card>
         )}
 
@@ -293,8 +303,8 @@ export function WorkspacePage() {
                 )}
               </section>
 
-              <section className="card product-section" aria-label="Information">
-                <h2 className="product-section-title">Information</h2>
+              <section className="card product-section" aria-label="Activity">
+                <h2 className="product-section-title">Activity</h2>
                 <dl className="product-stats">
                   <div className="product-stat">
                     <dt>Meetings</dt>
@@ -303,10 +313,6 @@ export function WorkspacePage() {
                   <div className="product-stat">
                     <dt>To-dos</dt>
                     <dd>{detail.counts.todos}</dd>
-                  </div>
-                  <div className="product-stat">
-                    <dt>Records</dt>
-                    <dd>{detail.counts.records}</dd>
                   </div>
                 </dl>
               </section>
@@ -340,15 +346,17 @@ export function WorkspacePage() {
                                 ? 'Open now'
                                 : `Scheduled for ${whenText(meeting.scheduledFor)}`}
                             </p>
-                            <p className="product-invite-link">
-                              <a href={`/m/${encodeURIComponent(meeting.id)}`}>
-                                {fullLink(meeting.id)}
-                              </a>
-                            </p>
+                            <div className="product-invite-row">
+                              <p className="product-invite-link">
+                                <a href={`/m/${encodeURIComponent(meeting.id)}`} title={fullLink(meeting.id)}>
+                                  {fullLink(meeting.id).replace(/^https?:\/\//, '')}
+                                </a>
+                              </p>
+                              <Button variant="ghost" onClick={() => void copyMeeting(meeting.id)}>
+                                {copiedId === meeting.id ? 'Copied' : 'Copy'}
+                              </Button>
+                            </div>
                           </div>
-                          <Button variant="ghost" onClick={() => void copyMeeting(meeting.id)}>
-                            {copiedId === meeting.id ? 'Copy again' : 'Copy link'}
-                          </Button>
                         </li>
                       ))}
                   </ul>

@@ -34,7 +34,7 @@ function statusResponse(status: number): Response {
 
 function renderProvider(): void {
   render(
-    <ScenarioProvider>
+    <ScenarioProvider meetingId="mtg-1">
       <p>Meeting ready</p>
     </ScenarioProvider>,
   );
@@ -93,13 +93,13 @@ describe('ScenarioProvider', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     render(
-      <ScenarioProvider view="practice">
+      <ScenarioProvider view="practice" meetingId="practice-1">
         <p>Meeting ready</p>
       </ScenarioProvider>,
     );
     await flush();
 
-    expect(fetchMock).toHaveBeenCalledWith('/api/scenario?kind=practice', expect.anything());
+    expect(fetchMock).toHaveBeenCalledWith('/api/meetings/practice-1/scenario?kind=practice', expect.anything());
     expect(screen.getByText('Meeting ready')).toBeTruthy();
   });
 
@@ -110,7 +110,7 @@ describe('ScenarioProvider', () => {
     renderProvider();
     await flush();
 
-    expect(screen.getByText('Could not load the scenario')).toBeTruthy();
+    expect(screen.getByText("Couldn't open the meeting")).toBeTruthy();
     expect(screen.getByRole('alert').textContent).toBe("That didn't work. Try again.");
     expect(screen.getByRole('button', { name: 'Try again' })).toBeTruthy();
     expect(screen.getByRole('link', { name: 'Go to Kaki' }).getAttribute('href')).toBe('/');
@@ -132,7 +132,7 @@ describe('ScenarioProvider', () => {
     const { invalidateScenario } = await import('./scenarioRevision');
 
     render(
-      <ScenarioProvider>
+      <ScenarioProvider meetingId="mtg-1">
         <ScenarioTitle />
       </ScenarioProvider>,
     );
@@ -143,7 +143,7 @@ describe('ScenarioProvider', () => {
     act(() => invalidateScenario());
     await flush();
 
-    expect(screen.getByText('Could not load the scenario')).toBeTruthy();
+    expect(screen.getByText("Couldn't open the meeting")).toBeTruthy();
     expect(screen.queryByText('Raffles Place Flagship Opening Day')).toBeNull();
     expect(screen.getByRole('alert').textContent).toContain('excludedPairs');
   });
@@ -167,7 +167,6 @@ describe('ScenarioProvider', () => {
     await flush();
 
     expect(screen.getByText("Couldn't open the meeting")).toBeTruthy();
-    expect(screen.queryByText('Could not load the scenario')).toBeNull();
     expect(screen.getByRole('link', { name: 'Go to Kaki' }).getAttribute('href')).toBe('/');
     expect(screen.getByRole('alert').textContent).toBe(
       'Kaki is running as many meetings as it can right now. Try again in a few minutes.',
@@ -210,10 +209,10 @@ describe('ScenarioProvider', () => {
     await flush();
 
     await advance(89_000);
-    expect(screen.queryByText('Could not load the scenario')).toBeNull();
+    expect(screen.queryByText("Couldn't open the meeting")).toBeNull();
 
     await advance(1_000);
-    expect(screen.getByText('Could not load the scenario')).toBeTruthy();
+    expect(screen.getByText("Couldn't open the meeting")).toBeTruthy();
     expect(screen.getByRole('alert').textContent).toContain('did not answer in time');
     expect(screen.getByRole('button', { name: 'Try again' })).toBeTruthy();
   });
@@ -229,10 +228,10 @@ describe('ScenarioProvider', () => {
 
     await advance(89_000);
     expect(screen.getByText('Starting up… this can take a few seconds.')).toBeTruthy();
-    expect(screen.queryByText('Could not load the scenario')).toBeNull();
+    expect(screen.queryByText("Couldn't open the meeting")).toBeNull();
 
     await advance(1_000);
-    expect(screen.getByText('Could not load the scenario')).toBeTruthy();
+    expect(screen.getByText("Couldn't open the meeting")).toBeTruthy();
     expect(screen.getByRole('alert').textContent).toBe('Kaki is having trouble right now. Try again in a minute.');
     const callsAtGiveUp = fetchMock.mock.calls.length;
 

@@ -9,50 +9,31 @@ export const NPC_STATE_TOPIC = 'kaki.npc-state';
 /** LiveKit data topic on which the runner reports each person's microphone and recognition state. */
 export const SPEECH_STATUS_TOPIC = 'kaki.speech-status';
 
-/** LiveKit data topic on which the browser sends what the person types, and "typing" and "stop" signals. */
-export const CONTROL_TOPIC = 'kaki.control';
+/**
+ * LiveKit data topic for the dev-only fake speech recogniser (`KAKI_FAKE_STT=1`). Only the LiveKit
+ * server can send on it (a browser's message has a sender and is refused): scripted runs use it to
+ * "say" a line as a person, and the runner treats it exactly like a line its recogniser heard.
+ */
+export const FAKE_STT_TOPIC = 'kaki.fake-stt';
 
-/** Longest typed message the AI attendees accept. */
-export const MAX_TYPED_LENGTH = 500;
-
-/** What the browser sends on {@link CONTROL_TOPIC}. */
-export type ControlMessage =
-  | { kind: 'text'; text: string }
-  /** Keys are being pressed: a short sound in the microphone is probably the keyboard, not speech. */
-  | { kind: 'typing' }
-  /** The person wants the AI attendees to pause or stop talking now. */
-  | { kind: 'stop' }
-  /** The person wants the AI attendees to resume after being paused. */
-  | { kind: 'resume' }
-  /**
-   * The person has read their briefing and starts the meeting: until then the AI attendees stay silent.
-   * `requestId` and `session` let a retry be acknowledged once and only for the visitor who asked.
-   */
-  | { kind: 'start'; requestId?: string; session?: string };
-
-/** A control message from the wire, or `undefined` when it is not a valid one. */
-export function parseControlMessage(raw: unknown): ControlMessage | undefined {
-  if (typeof raw !== 'object' || raw === null) return undefined;
-  const message = raw as { kind?: unknown; text?: unknown; requestId?: unknown; session?: unknown };
-  if (message.kind === 'typing' || message.kind === 'stop' || message.kind === 'resume') {
-    return { kind: message.kind };
-  }
-  if (message.kind === 'start') {
-    if (message.requestId === undefined && message.session === undefined) {
-      return { kind: 'start' };
-    }
-    if (typeof message.requestId === 'string' && message.requestId.trim().length > 0 &&
-        typeof message.session === 'string' && message.session.trim().length > 0) {
-      return { kind: 'start', requestId: message.requestId, session: message.session };
-    }
-    return undefined;
-  }
-  if (message.kind === 'text' && typeof message.text === 'string') {
-    const text = message.text.trim().slice(0, MAX_TYPED_LENGTH);
-    return text.length > 0 ? { kind: 'text', text } : undefined;
-  }
-  return undefined;
+/** What a script sends on {@link FAKE_STT_TOPIC}: the words, and whose microphone they came from. */
+export interface FakeSpeechMessage {
+  /** The LiveKit identity of the person who "said" it. */
+  identity: string;
+  text: string;
 }
+
+/** A fake-speech message from the wire, or `undefined` when it is not a valid one. */
+export function parseFakeSpeechMessage(raw: unknown): FakeSpeechMessage | undefined {
+  if (typeof raw !== 'object' || raw === null) return undefined;
+  const { identity, text } = raw as { identity?: unknown; text?: unknown };
+  if (typeof identity !== 'string' || identity.trim() === '' || typeof text !== 'string') return undefined;
+  const trimmed = text.trim().slice(0, MAX_FAKE_SPEECH_LENGTH);
+  return trimmed === '' ? undefined : { identity: identity.trim(), text: trimmed };
+}
+
+/** Longest line the dev-only fake recogniser accepts. */
+export const MAX_FAKE_SPEECH_LENGTH = 500;
 
 /** What the AI attendees are doing, sent on {@link NPC_STATE_TOPIC}. */
 export type NpcStateMessage =
@@ -78,7 +59,7 @@ export interface SpeechStatusEntry {
 export interface SpeechStatusMessage {
   /** Keyed by LiveKit participant identity, so each tile only shows its own person's state. */
   participants: Record<string, SpeechStatusEntry>;
-  /** Present when recognition keeps failing: the whole room should hear and type instead. */
+  /** Present when recognition keeps failing: the whole room should hear instead. */
   outage?: { message: string };
 }
 
@@ -272,24 +253,6 @@ export function seatProblem(
     return `The meeting is full (${cap} ${cap === 1 ? 'person' : 'people'} at most).${why} Try again when someone leaves.`;
   }
   return undefined;
-}
-
-/** How long a seat kept for a departed person stays held, in words the join form can show. */
-export function rejoinGraceDuration(graceMs: number): string {
-  if (graceMs < 60_000) {
-    const seconds = Math.max(1, Math.round(graceMs / 1_000));
-    return `${seconds} second${seconds === 1 ? '' : 's'}`;
-  }
-  const minutes = Math.max(1, Math.round(graceMs / 60_000));
-  return `${minutes} minute${minutes === 1 ? '' : 's'}`;
-}
-
-/** Why a seat is not free although its holder has left: the rejoin grace keeps it for them. */
-export function seatKeptForDepartedMessage(graceMs: number): string {
-  return (
-    `That seat is being kept for someone who just left. ` +
-    `It frees within about ${rejoinGraceDuration(graceMs)}, or pick another seat.`
-  );
 }
 
 /** Case, spaces and dashes do not matter when a code is typed. */

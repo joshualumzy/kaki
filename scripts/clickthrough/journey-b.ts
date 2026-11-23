@@ -6,8 +6,11 @@ import {
   launch,
   Run,
   signedInPerson,
+  speakLine,
   stamp,
   tomorrow,
+  withJourneyLock,
+  closeBrowser,
 } from './lib';
 
 const JOURNEY = 'b';
@@ -31,9 +34,7 @@ async function main(): Promise<void> {
 
   try {
     const owner = await signedInPerson(browser, run, { name: ownerName, email: `owner2-${suffix}@clickthrough.test` });
-    const guest = await guestPerson(browser, run, {
-      expected: (status, url) => status === 401 && url.includes('/api/auth/me'),
-    });
+    const guest = await guestPerson(browser, run);
 
     let link = '';
     await step(run, owner.page, 'schedule meeting', async () => {
@@ -44,9 +45,7 @@ async function main(): Promise<void> {
     if (link === '') return;
 
     await step(run, guest.page, 'plain created link as a guest', async () => {
-      const other = await guestPerson(browser, run, {
-        expected: (status, url) => status === 401 && url.includes('/api/auth/me'),
-      });
+      const other = await guestPerson(browser, run);
       await other.page.goto(link);
       await other.page.getByText('You are invited').waitFor({ timeout: 15_000 });
       await other.page.getByLabel('Your name').fill('Link Test');
@@ -116,22 +115,19 @@ async function main(): Promise<void> {
 
     await step(run, guest.page, 'guest gets in after start', async () => {
       await guest.page.getByText(/Waiting for .* to start/).waitFor({ state: 'hidden', timeout: 40_000 });
-      await guest.page.getByRole('button', { name: 'Type', exact: true }).waitFor({ timeout: 15_000 });
-      await guest.page.getByRole('button', { name: 'Type', exact: true }).click();
-      const box = guest.page.getByLabel('Type to the meeting');
-      await box.fill(`Guest made it into the scheduled meeting ${suffix}`);
-      await box.press('Enter');
-      await guest.page.getByText(`Guest made it into the scheduled meeting ${suffix}`).first().waitFor({ timeout: 20_000 });
+      const line = `Guest made it into the scheduled meeting ${suffix}`;
+      await speakLine(guest.page, line);
+      await guest.page.getByText(line).first().waitFor({ timeout: 20_000 });
       const shot = await run.shot(guest.page, 'guest-in-after-start');
-      run.pass(`After the owner starts, the guest's waiting overlay goes away and the guest can type (${shot}).`);
+      run.pass(`After the owner starts, the guest's waiting overlay goes away and the guest can speak (${shot}).`);
     });
   } finally {
     run.save();
-    await browser.close();
+    await closeBrowser(browser);
   }
 }
 
-void main().catch((error: unknown) => {
+void withJourneyLock(JOURNEY, main).catch((error: unknown) => {
   console.error(error instanceof Error ? error.message : error);
   process.exitCode = 1;
 });

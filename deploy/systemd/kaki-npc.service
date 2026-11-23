@@ -1,0 +1,17 @@
+# Installed on the VM as /etc/systemd/system/kaki-npc.service (see deploy/systemd/README.md).
+[Unit]
+Description=Kaki AI colleagues (meeting runner)
+After=kaki-server.service
+
+[Service]
+Type=simple
+User=azureuser
+WorkingDirectory=/home/azureuser/app
+# Production refuses development-only switches such as scripted fake speech.
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/npm run npc
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

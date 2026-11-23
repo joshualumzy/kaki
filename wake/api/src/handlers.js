@@ -4,6 +4,15 @@ import { AzureError, createAzureClient } from './azure.js';
 const STARTABLE = new Set(['deallocated', 'stopped']);
 const SWITCHING_OFF = new Set(['deallocating', 'stopping']);
 
+/** What the page should say about Kaki, from the VM's power and the app's health. */
+export function appState(power, healthy) {
+  if (power === 'running') return healthy ? 'ready' : 'unhealthy';
+  if (power === 'starting') return 'starting';
+  if (STARTABLE.has(power)) return 'off';
+  if (SWITCHING_OFF.has(power)) return 'switching-off';
+  return 'unknown';
+}
+
 function errorResult(status, message) {
   return { status, jsonBody: { error: message } };
 }
@@ -27,7 +36,7 @@ export async function statusHandler(env = process.env, deps = {}) {
   try {
     const power = await client.getPower();
     const healthy = power === 'running' ? await client.isHealthy() : false;
-    return { status: 200, jsonBody: { power, healthy } };
+    return { status: 200, jsonBody: { power, healthy, state: appState(power, healthy) } };
   } catch (error) {
     return errorResult(502, reasonFor(error));
   }

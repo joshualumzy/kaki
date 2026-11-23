@@ -1,22 +1,11 @@
 import { randomBytes } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { Pool } from 'pg';
-import {
-  isObject,
-  MEETING_ENDED_MESSAGE,
-  NO_TEAM_MEETING_MESSAGE,
-  seatKeptForDepartedMessage,
-} from '@kaki/shared';
+import { isObject, MEETING_ENDED_MESSAGE } from '@kaki/shared';
 import type { ClientAudience } from '../core/audience';
 import { clientAddress, publicUrlIsHttps, type Principal } from '../http/access';
 import { readJsonBody, sendJson } from '../http/http';
-import { createAttemptLimiter, type AttemptLimiter } from '../http/attemptLimiter';
-import {
-  MEETING_CODE_FAILURE_LIMIT,
-  MEETING_CODE_RATE_LIMIT_MESSAGE,
-  MEETING_CODE_WINDOW_MS,
-  type MeetingCodeSource,
-} from '../meeting/meetingCode';
+import { createAttemptLimiter } from '../http/attemptLimiter';
 import { clearSessionCookie, readSessionCookie, SESSION_TTL_MS, sessionCookie } from './cookie';
 import {
   createGoogleSignIn,
@@ -44,6 +33,9 @@ type AuthDecision =
     }
   | { ok: false; message: string };
 
+/** Why a session stopped being valid: a newer one replaced it, or it is gone for good. */
+export type SessionEndReason = 'replaced' | 'revoked';
+
 /** The auth feature the HTTP server and WebSocket hub call into. */
 export interface Auth {
   /** Handle an auth or join request; false means the path belongs to another route. */
@@ -61,29 +53,27 @@ export interface Auth {
   /** The resolved host or seat principal behind a request; undefined otherwise. */
   resolvePrincipal(request: IncomingMessage, meetingId?: string): Promise<Principal | undefined>;
   /**
-   * Atomically take a seat and start the session that holds it. `/api/join` and the LiveKit token
-   * route share this one record: a visitor gets a participant session, while the signed-in host
-   * keeps the host and replaces their session with one that also carries the seat's meeting.
-   * Returns false when another live holder already owns the seat.
+   * Atomically take a seat and start the session that holds it, for the meeting the claim was
+   * validated against. A visitor gets a participant session, while the signed-in host keeps the
+   * host and replaces their session with one that also carries the seat's meeting. Returns false
+   * when another live holder already owns the seat.
    */
   enterSeat(
     request: IncomingMessage,
     response: ServerResponse,
     role: string,
-    expectedMeetingId?: string,
+    meetingId: string,
   ): Promise<boolean>;
-  /** Bind seat grants to the server's current meeting generation. */
-  bindMeetingIdentity(meetingId: () => string | undefined): void;
-  /** Point phone joins and seat sockets at the live setup's offered seats. */
-  bindOfferedSeats(offered: () => readonly string[]): void;
-  /** Enforce the meeting kind and the practice visitor's exact seat at `/api/join`. */
-  bindJoinGuard(guard: JoinGuard): void;
   /** Release every seat grant belonging to a meeting that has rotated away. */
   releaseMeeting(meetingId: string): Promise<void>;
-  /** Be told when a session is replaced, so its already-open sockets can be closed. */
-  onSessionEnded(handler: (sessionTokenHash: string) => void): void;
-  /** The code-attempt limiter shared with the LiveKit token route, per client address. */
-  readonly meetingCodeLimiter: AttemptLimiter;
+  /**
+   * Be told when a session ends. `replaced` means the same person signed in again or took a seat;
+   * `revoked` means the session is gone for good (signed out or its account deleted). Returns a
+   * function that stops listening.
+   */
+  onSessionEnded(handler: (sessionTokenHash: string, reason: SessionEndReason) => void): () => void;
+  /** Close every meeting hub's sockets authorized by this session, after its account is deleted. */
+  closeSockets(tokenHash: string): void;
   /** The auth persistence, also used by the workspace API. */
   readonly store: AuthStore;
   /** Whether this server issues Secure cookies, so other routes can match it. */
@@ -98,29 +88,11 @@ export interface Auth {
 /** Whether this product user is the meeting's owner or an admin of its workspace. */
 export type MeetingHostCheck = (meetingId: string, userId: string) => Promise<boolean>;
 
-/** The meeting facts `/api/join` needs so it cannot escalate a practice visitor into another seat. */
-interface JoinGuard {
-  meetingKind(): 'real' | 'practice' | undefined;
-  practiceSeat(): string | undefined;
-  hasPracticeCapability(request: IncomingMessage): boolean;
-  /**
-   * Run the whole join inside the one admission queue that serializes every meeting change. A
-   * lifecycle change can then never land between this request's checks and its seat claim.
-   */
-  admit<T>(task: () => Promise<T>): Promise<T>;
-  /**
-   * How long this seat is still kept for a holder who left and the grace is open, or undefined
-   * when the seat is not being held for a departed person.
-   */
-  departedSeatGraceMs(seat: string): number | undefined;
-}
-
 /** Everything the auth module needs, injected so tests can use an in-memory store. */
 export interface AuthOptions {
   store: AuthStore;
-  /** The seats offered right now; createApp binds this to the live setup. */
+  /** The seats offered right now, for an authorize check that names one. */
   offeredRoles?: () => readonly string[];
-  meetingCode: MeetingCodeSource;
   secureCookies?: boolean;
   now?: () => number;
   log?: (message: string) => void;
@@ -178,29 +150,20 @@ function principalFor(session: SessionRecord, meetingId: string): Principal {
 export function createAuth({
   store,
   offeredRoles: readOfferedRoles,
-  meetingCode,
   secureCookies = false,
   now = Date.now,
   log = () => undefined,
   verifyPassword: verify = verifyPassword,
   google,
 }: AuthOptions): Auth {
-  const sessionEndedHandlers = new Set<(sessionTokenHash: string) => void>();
-  let meetingIdentity: (() => string | undefined) | undefined;
+  const sessionEndedHandlers = new Set<(sessionTokenHash: string, reason: SessionEndReason) => void>();
   let offeredRoles: () => readonly string[] = readOfferedRoles ?? (() => []);
-  let joinGuard: JoinGuard | undefined;
   let meetingHost: MeetingHostCheck | undefined;
-  const currentMeetingId = (): string => meetingIdentity?.() ?? meetingCode.value;
   /** A real hash to check against when the email is unknown, so both paths cost the same. */
   let dummyHash: Promise<string> | undefined;
   const loginAttempts = createAttemptLimiter({
     limit: LOGIN_FAILURE_LIMIT,
     windowMs: LOGIN_WINDOW_MS,
-    now,
-  });
-  const meetingCodeAttempts = createAttemptLimiter({
-    limit: MEETING_CODE_FAILURE_LIMIT,
-    windowMs: MEETING_CODE_WINDOW_MS,
     now,
   });
 
@@ -229,10 +192,10 @@ export function createAuth({
       : store.seatHeldBy({ meetingId: session.meetingId, role, holder: session.tokenHash });
   }
 
-  function notifySessionEnded(tokenHash: string): void {
+  function notifySessionEnded(tokenHash: string, reason: SessionEndReason): void {
     for (const handler of sessionEndedHandlers) {
       try {
-        handler(tokenHash);
+        handler(tokenHash, reason);
       } catch (error) {
         log(`kaki auth: a session-ended handler failed: ${String(error)}`);
       }
@@ -276,14 +239,13 @@ export function createAuth({
     request: IncomingMessage,
     response: ServerResponse,
     role: string,
-    expectedMeetingId: string = currentMeetingId(),
+    meetingId: string,
   ): Promise<boolean> {
     const existing = await currentSession(request);
     // The meeting this claim was validated against is the one it enters. Every caller re-checks the
     // meeting's generation and phase after this await, so a lifecycle change during the claim is
-    // still refused; a real meeting's id is not the auth module's single legacy identity.
+    // still refused.
     const token = randomBytes(32).toString('base64url');
-    const meetingId = expectedMeetingId;
     // A host taking a seat is still the host; the new session also carries the seat's meeting.
     // A signed-in product user is the host only when they own this meeting or administer its
     // workspace, exactly as every other host check decides it.
@@ -303,9 +265,8 @@ export function createAuth({
         token,
         kind,
         role,
-        // Only the practice meeting's seats carry the practice code; a real meeting's seat is
-        // validated by its own meeting id and claim, so the practice code changing cannot end it.
-        kind === 'host' || meetingId !== currentMeetingId() ? null : meetingCode.value,
+        // A meeting's seat is validated by its own meeting id and claim, never by a rotating code.
+        null,
         meetingId,
         existing?.displayName ?? null,
         existing?.userId ?? null,
@@ -315,7 +276,7 @@ export function createAuth({
     if (!claimed) return false;
 
     response.setHeader('set-cookie', sessionCookie(token, secureCookies));
-    if (existing !== undefined) notifySessionEnded(existing.tokenHash);
+    if (existing !== undefined) notifySessionEnded(existing.tokenHash, 'replaced');
     return true;
   }
 
@@ -382,7 +343,7 @@ export function createAuth({
         replaces: existing.tokenHash,
       });
       response.setHeader('set-cookie', sessionCookie(token, secureCookies));
-      notifySessionEnded(existing.tokenHash);
+      notifySessionEnded(existing.tokenHash, 'replaced');
     }
     sendJson(response, 200, { kind: 'host' });
   }
@@ -393,7 +354,7 @@ export function createAuth({
       const tokenHash = hashToken(token);
       await store.releaseSeats({ holder: tokenHash });
       await store.deleteSession(tokenHash);
-      notifySessionEnded(tokenHash);
+      notifySessionEnded(tokenHash, 'revoked');
     }
     response.setHeader('set-cookie', clearSessionCookie(secureCookies));
     sendJson(response, 200, { ok: true });
@@ -402,12 +363,14 @@ export function createAuth({
   async function handleMe(request: IncomingMessage, response: ServerResponse): Promise<void> {
     const session = await currentSession(request);
     if (session === undefined) {
-      sendJson(response, 401, { error: 'Not signed in', authEnabled: true });
+      // Signed out is a normal state, not an error: a page can ask who this browser is without
+      // earning a scary 401 in every signed-out visitor's console.
+      sendJson(response, 200, { authEnabled: true, kind: null });
       return;
     }
     // Host and participant sessions taken in a meeting still belong to the signed-in account:
-    // the seat is a meeting role, never a downgrade of the account. The legacy password host has
-    // no user id and stays a plain host.
+    // the seat is a meeting role, never a downgrade of the account. A password host has no user
+    // id and stays a plain host.
     const accountId =
       session.kind === 'user' || session.kind === 'host' || session.kind === 'participant'
         ? session.userId
@@ -437,16 +400,7 @@ export function createAuth({
       });
       return;
     }
-    // A real meeting's seat carries no practice code; it is held by its own meeting id and claim.
-    if (
-      session.kind === 'participant' &&
-      session.meetingCode !== null &&
-      (session.meetingCode !== meetingCode.value || session.meetingId !== currentMeetingId())
-    ) {
-      // The phone's meeting is gone: it must join again with the code on the screen.
-      sendJson(response, 403, { error: MEETING_ENDED_MESSAGE, authEnabled: true, ended: true });
-      return;
-    }
+    // A meeting's seat is held by its own meeting id and claim, never by a rotating code.
     if (
       session.kind === 'participant' &&
       (session.role === null || !(await sessionOwnsSeat(session, session.role)))
@@ -462,107 +416,6 @@ export function createAuth({
         ? { kind: 'host', authEnabled: true }
         : { kind: 'participant', role: session.role, authEnabled: true },
     );
-  }
-
-  async function handleJoin(request: IncomingMessage, response: ServerResponse): Promise<void> {
-    const parsed = await readJsonBody(request, MAX_BODY_BYTES);
-    if (!parsed.ok) {
-      sendJson(response, 400, { error: parsed.error });
-      return;
-    }
-    if (!isObject(parsed.value)) {
-      sendJson(response, 400, { error: 'Body must be a JSON object' });
-      return;
-    }
-
-    const rawCode = stringField(parsed.value, 'code');
-    const role = stringField(parsed.value, 'role');
-    const ip = clientAddress(request);
-
-    // The checks and the seat claim are one admission step: a close, reset or practice handoff that
-    // arrives while this join waits must be seen as a changed meeting, never entered silently.
-    const run = async (): Promise<void> => {
-      // The identity this join was validated against. The claim must enter exactly this meeting.
-      const meetingIdAtStart = currentMeetingId();
-      const meetingChanged = (): boolean => currentMeetingId() !== meetingIdAtStart;
-
-      // A practice meeting has one visitor and one seat. `/api/join` may admit that exact seat only
-      // when the request carries the meeting's capability; it never creates a sign-in session, so
-      // the practice principal can never reach setup or another role's authority.
-      const kind = joinGuard?.meetingKind();
-      if (kind === 'practice') {
-        if (joinGuard?.hasPracticeCapability(request) !== true) {
-          sendJson(response, 403, { error: 'Practice access belongs to its practice meeting only.' });
-          return;
-        }
-        if (role === undefined || role.trim() === '') {
-          sendJson(response, 400, { error: 'Choose your role.' });
-          return;
-        }
-        const seat = joinGuard.practiceSeat();
-        if (seat === undefined || role.trim().toLowerCase() !== seat.trim().toLowerCase()) {
-          sendJson(response, 403, { error: 'A practice meeting only opens the seat its visitor took.' });
-          return;
-        }
-        if (meetingChanged()) {
-          sendJson(response, 409, {
-            error: 'The meeting changed while you were joining; try again in a moment.',
-            retryable: true,
-          });
-          return;
-        }
-        sendJson(response, 200, { kind: 'practice', role: seat });
-        return;
-      }
-      // No legacy join: a team-meeting sign-in exists only after the owner opened a real meeting.
-      if (kind !== 'real') {
-        sendJson(response, 409, { error: NO_TEAM_MEETING_MESSAGE });
-        return;
-      }
-
-      if (meetingCodeAttempts.isLimited(ip)) {
-        sendJson(response, 429, { error: MEETING_CODE_RATE_LIMIT_MESSAGE });
-        return;
-      }
-      if (rawCode === undefined || rawCode.trim() === '') {
-        sendJson(response, 400, { error: 'Enter the meeting code.' });
-        return;
-      }
-      if (rawCode.trim().toUpperCase() !== meetingCode.value) {
-        meetingCodeAttempts.recordFailure(ip);
-        sendJson(response, 403, { error: 'That meeting code is not valid.' });
-        return;
-      }
-      meetingCodeAttempts.clear(ip);
-      if (role === undefined || role.trim() === '') {
-        sendJson(response, 400, { error: 'Choose your role.' });
-        return;
-      }
-      if (!seatIsOffered(role)) {
-        sendJson(response, 403, { error: 'That role is not a human seat in this meeting.' });
-        return;
-      }
-      if (!(await enterSeat(request, response, role, meetingIdAtStart))) {
-        if (meetingChanged()) {
-          sendJson(response, 409, {
-            error: 'The meeting changed while you were joining; try again in a moment.',
-            retryable: true,
-          });
-          return;
-        }
-        const departedGraceMs = joinGuard?.departedSeatGraceMs(role);
-        if (departedGraceMs !== undefined) {
-          sendJson(response, 409, { error: seatKeptForDepartedMessage(departedGraceMs) });
-          return;
-        }
-        sendJson(response, 409, { error: 'That seat is taken. Pick another role.' });
-        return;
-      }
-      sendJson(response, 200, { kind: 'participant', role });
-    };
-
-    if (joinGuard === undefined) await run();
-    else await joinGuard.admit(run);
   }
 
   /**
@@ -613,9 +466,9 @@ export function createAuth({
     }
 
     if (session.kind === 'host' && expectedMeetingId !== undefined) {
-      // A password host owns the legacy meeting only. A real meeting's host session carries the
-      // product user's id, and its ownership is re-checked on every request so a host session
-      // taken in one meeting can never act as the host of another.
+      // A real meeting's host session carries the product user's id, and its ownership is
+      // re-checked on every request so a host session taken in one meeting can never act as the
+      // host of another.
       if (
         session.userId === null ||
         session.userId === undefined ||
@@ -626,16 +479,10 @@ export function createAuth({
       }
     }
 
-    // A real meeting's seat carries no practice code: outside that meeting's own routes (account
-    // pages, say) it still stands for its own meeting, and the claim check below keeps it honest.
-    const realSeat = session.kind === 'participant' && session.meetingCode === null;
-    const meetingId =
-      expectedMeetingId ?? (realSeat ? (session.meetingId ?? currentMeetingId()) : currentMeetingId());
-    if (session.kind === 'participant') {
-      const ended =
-        session.meetingId !== meetingId ||
-        (!realSeat && session.meetingCode !== meetingCode.value);
-      if (ended) return { ok: false, ended: true };
+    // A meeting's seat is held by its own meeting id and claim, never by a rotating code.
+    const meetingId = expectedMeetingId ?? session.meetingId ?? '';
+    if (session.kind === 'participant' && session.meetingId !== meetingId) {
+      return { ok: false, ended: true };
     }
     let principal = principalFor(session, meetingId);
     if (principal.kind === 'host' && session.userId !== null && session.userId !== undefined) {
@@ -660,7 +507,19 @@ export function createAuth({
       if (!(await sessionOwnsSeat(session, principal.role))) return { ok: false, ended: false };
     } else if (principal.kind === 'host' && principal.seat !== undefined) {
       // A host keeps every host power, but the seat view belongs only to its current claim owner.
-      if (!(await sessionOwnsSeat(session, principal.seat))) principal = { kind: 'host' };
+      // Losing the claim (a closed meeting rotates it away) must not also lose the account: the
+      // signed-in person still needs their workspace, not just this meeting's host powers.
+      if (!(await sessionOwnsSeat(session, principal.seat))) {
+        principal = {
+          kind: 'host',
+          ...(session.userId === null || session.userId === undefined
+            ? {}
+            : { userId: session.userId }),
+          ...(session.displayName === null || session.displayName === undefined
+            ? {}
+            : { name: session.displayName }),
+        };
+      }
     }
     return { ok: true, session, principal };
   }
@@ -668,14 +527,9 @@ export function createAuth({
   log('kaki auth: enabled');
 
   return {
-    meetingCodeLimiter: meetingCodeAttempts,
     store,
     secureCookies,
     enterSeat,
-
-    bindMeetingIdentity(meetingId) {
-      meetingIdentity = meetingId;
-    },
 
     bindMeetingHost(handler) {
       meetingHost = handler;
@@ -689,20 +543,19 @@ export function createAuth({
       return sessionCookie(token, secureCookies);
     },
 
-    bindOfferedSeats(offered) {
-      offeredRoles = offered;
-    },
-
-    bindJoinGuard(guard) {
-      joinGuard = guard;
-    },
-
     async releaseMeeting(meetingId) {
       await store.releaseSeats({ meetingId });
     },
 
     onSessionEnded(handler) {
       sessionEndedHandlers.add(handler);
+      return () => {
+        sessionEndedHandlers.delete(handler);
+      };
+    },
+
+    closeSockets(tokenHash) {
+      notifySessionEnded(tokenHash, 'revoked');
     },
 
     async resolvePrincipal(request, meetingId) {
@@ -736,10 +589,6 @@ export function createAuth({
         }
         return true;
       }
-      if (request.method === 'POST' && path === '/api/join') {
-        await handleJoin(request, response);
-        return true;
-      }
       return false;
     },
 
@@ -751,8 +600,7 @@ export function createAuth({
       const { session, principal } = resolved;
       const participant = session.kind === 'participant';
       const sessionTokenHash = session.tokenHash;
-      // Any signed-in person may follow the read-only lifecycle of their own meeting; on the legacy
-      // meeting a product user or guest is refused exactly like an anonymous visitor.
+      // Any signed-in person may follow the read-only lifecycle of their own meeting.
       if (audience.kind === 'lifecycle') {
         if (
           meetingId === undefined &&
@@ -766,7 +614,7 @@ export function createAuth({
         // The shared screen is the owner's: it carries every seat's private facts and unfinished
         // drafts. A participant follows the meeting through their own projection instead. A real
         // meeting's host is its owner or a workspace admin (a `user` session resolved to `host`),
-        // while the legacy password owner is already a `host` session.
+        // while a password owner is already a `host` session.
         if (principal.kind !== 'host') {
           return { ok: false, message: 'Only the meeting owner can follow the shared screen' };
         }
@@ -804,7 +652,6 @@ export function createAuth({
 
     async close() {
       loginAttempts.clearAll();
-      meetingCodeAttempts.clearAll();
       sessionEndedHandlers.clear();
       await store.close();
     },
@@ -848,14 +695,12 @@ export function secureCookiesFromEnv(env: NodeJS.ProcessEnv = process.env): bool
 
 /** Build the Postgres-backed auth feature from environment variables. */
 export async function createAuthFromEnv({
-  meetingCode,
   env = process.env,
   now = Date.now,
 }: {
-  meetingCode: MeetingCodeSource;
   env?: NodeJS.ProcessEnv;
   now?: () => number;
-}): Promise<Auth> {
+} = {}): Promise<Auth> {
   const connectionString = env.POSTGRES_URL?.trim();
   if (connectionString === undefined || connectionString === '') {
     throw new Error(
@@ -885,7 +730,6 @@ export async function createAuthFromEnv({
     }
     return createAuth({
       store,
-      meetingCode,
       secureCookies,
       now,
       ...(google === undefined ? {} : { google }),

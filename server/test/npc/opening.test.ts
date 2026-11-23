@@ -6,6 +6,13 @@ import type { Utterance } from '../../src/npc/director';
 import { gateSpeakerMessages, openingSpeakerMessages, parseGateReply, parsePlannedReply, replySpeakerMessages } from '../../src/npc/openingWriter';
 import { loadScenario } from '../../src/core/loadScenario';
 
+/** Say one line as the guest, through the same speech path the recogniser uses. */
+function speak(conversation: { humanSpeech(talking: boolean): void; humanText(text: string): string | undefined }, text: string): void {
+  conversation.humanSpeech(true);
+  conversation.humanSpeech(false);
+  conversation.humanText(text);
+}
+
 interface LlmCall {
   messages: ChatMessage[];
   signal: AbortSignal;
@@ -406,7 +413,7 @@ describe('one-speaker topic opening', () => {
     expect(h.playing.some((entry) => !entry.finished)).toBe(true);
     const prefetched = await waitCall(h.calls, 1);
 
-    h.conversation.humanTyped('Use the storeroom stools.');
+    speak(h.conversation, 'Use the storeroom stools.');
     await flush();
 
     expect(prefetched.signal.aborted).toBe(true);
@@ -483,7 +490,7 @@ describe('one-speaker topic opening', () => {
     }
 
     const before = h.calls.length;
-    h.conversation.humanTyped('Use the window bar.');
+    speak(h.conversation, 'Use the window bar.');
     h.conversation.lockDecision(undefined, { confirmed: true });
     await flush();
     const next = await waitCall(h.calls, before);
@@ -1039,7 +1046,7 @@ describe('one-speaker topic opening', () => {
     h.playing.find((entry) => entry.speaker === 'Mei' && !entry.finished)!.finish();
     await flush();
     expect(h.playing.some((entry) => entry.speaker === 'Mei' && !entry.finished)).toBe(true);
-    h.conversation.humanTyped('Did laptop users really hold half our seats on just one kopi?');
+    speak(h.conversation, 'Did laptop users really hold half our seats on just one kopi?');
     await flush();
 
     const reply = await waitCall(h.calls, 1);
@@ -1184,6 +1191,13 @@ describe('one-speaker topic opening', () => {
     expect(readback).toContain('What Josh said that makes up their call');
     expect(readback).toContain('Do not quote them or use quotation marks');
     expect(readback).toContain('Add no new step, owner, person, open item, task, number or time');
+    // The read-back says the call in clean words and spells the cast's names correctly, never echoing a fragment.
+    expect(readback).toContain('Write it in clean, standard words');
+    expect(readback).toContain('spell every person\'s name exactly as in this cast:');
+    expect(readback).toContain('Arjun');
+    expect(readback).toContain('Mei');
+    expect(readback).toContain('Sam');
+    expect(readback).toContain('Never repeat a fragment that trails off or was cut off mid-sentence');
 
     const offer = gateSpeakerMessages({
       scenario: KOPITIAM,

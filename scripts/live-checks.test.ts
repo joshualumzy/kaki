@@ -147,7 +147,10 @@ describe('generated integration settings', () => {
 });
 
 describe('meeting:reset configuration', () => {
-  function resetProject(rootEnv: string, dockerEnv: string): { dir: string; run: (env?: NodeJS.ProcessEnv) => string } {
+  function resetProject(
+    rootEnv: string,
+    dockerEnv: string,
+  ): { dir: string; run: (env?: NodeJS.ProcessEnv, args?: string[]) => string } {
     const dir = tempDir();
     mkdirSync(join(dir, 'scripts'));
     copyFileSync(join(repo, 'scripts/live-checks.sh'), join(dir, 'scripts/live-checks.sh'));
@@ -155,15 +158,19 @@ describe('meeting:reset configuration', () => {
     writeFileSync(join(dir, '.env'), rootEnv);
     mkdirSync(join(dir, 'docker'));
     writeFileSync(join(dir, 'docker/.env'), dockerEnv);
-    // Stand in for npx so the wrapper never starts tsx or touches a database; it only reports the
-    // POSTGRES_URL the wrapper resolved.
+    // Stand in for npx so the wrapper never starts tsx or touches a database; it reports the
+    // POSTGRES_URL the wrapper resolved and the arguments it passed through.
     const bin = join(dir, 'bin');
     mkdirSync(bin);
-    writeFileSync(join(bin, 'npx'), '#!/usr/bin/env bash\nprintf "%s" "$POSTGRES_URL"\n', { mode: 0o755 });
+    writeFileSync(
+      join(bin, 'npx'),
+      '#!/usr/bin/env bash\nprintf "%s" "$POSTGRES_URL"\nif [ "$#" -gt 2 ]; then for arg in "$@"; do last="$arg"; done; printf " args:%s" "$last"; fi\n',
+      { mode: 0o755 },
+    );
     return {
       dir,
-      run: (env = {}) =>
-        execFileSync('bash', ['scripts/meeting-reset.sh'], {
+      run: (env = {}, args = []) =>
+        execFileSync('bash', ['scripts/meeting-reset.sh', ...args], {
           cwd: dir,
           encoding: 'utf8',
           env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ''}`, POSTGRES_URL: '', ...env },
@@ -180,6 +187,11 @@ describe('meeting:reset configuration', () => {
     const project = resetProject('POSTGRES_URL=\n', 'POSTGRES_URL=postgres://from-docker\n');
     expect(project.run({ POSTGRES_URL: 'postgres://from-shell' })).toBe('postgres://from-shell');
   });
+
+  it('passes the meeting id through to the reset script', () => {
+    const project = resetProject('POSTGRES_URL=\n', 'POSTGRES_URL=postgres://from-docker\n');
+    expect(project.run({}, ['meeting-1'])).toBe('postgres://from-docker args:meeting-1');
+  });
 });
 
 describe('kaki_api_port', () => {
@@ -187,6 +199,22 @@ describe('kaki_api_port', () => {
     expect(run('kaki_api_port "$@"', [tempEnv('PORT=4123\n')], { PORT: '' })).toBe('4123');
     expect(run('kaki_api_port "$@"', [tempEnv('')], { PORT: '5555' })).toBe('5555');
     expect(run('kaki_api_port "$@"', [join(tempDir(), '.env')], { PORT: '' })).toBe('3001');
+  });
+});
+
+describe('deployed health', () => {
+  function outcome(body: string): string {
+    return run('health_reports_fake_speech "$@" 2>/dev/null; echo "code:$?"', [body]).trim();
+  }
+
+  it('spots scripted speech being on', () => {
+    expect(outcome('{"ok":true,"fakeSpeech":true}')).toBe('code:0');
+    expect(outcome('{"ok": true, "fakeSpeech": true}')).toBe('code:0');
+  });
+
+  it('passes a normal deployment and refuses a body it cannot read', () => {
+    expect(outcome('{"ok":true,"fakeSpeech":false}')).toBe('code:1');
+    expect(outcome('{"ok":true}')).toBe('code:2');
   });
 });
 

@@ -17,9 +17,9 @@ import {
   humanAttendeeForRole,
   isKakiListener,
   KAKI_LISTENER_IDENTITY,
-  CONTROL_TOPIC,
+  FAKE_STT_TOPIC,
   NPC_STATE_TOPIC,
-  parseControlMessage,
+  parseFakeSpeechMessage,
   sameRunnerEpoch,
   SPEECH_STATUS_TOPIC,
   STT_TOPIC,
@@ -57,28 +57,6 @@ export const SAMPLE_RATE = 16000;
  * or the tail of the echo would be taken for the person talking.
  */
 const GUARD_TAIL_MS = 1400;
-
-/**
- * The longest a person's local Stop may outrank the server snapshot. The Stop is an instant speech
- * gate; the server owns the real pause and will publish a newer snapshot within a round trip. This
- * bound is only a safety net for a server that never answers, and is logged loudly when it fires.
- */
-const STOP_GATE_TIMEOUT_MS = 5_000;
-
-/**
- * The longest a typed line waits for the server to confirm the meeting resumed. The browser asks
- * the server to resume before sending the text; the runner holds it until a snapshot says running.
- */
-const HELD_TYPED_LINE_TIMEOUT_MS = 10_000;
-
-/**
- * While a local pause waits for a resume the person asked for, how often to re-read the server
- * snapshot. The normal answer is an event or a record; this only covers one that was lost.
- */
-const RESUME_BACKSTOP_INTERVAL_MS = 2_000;
-
-/** How long the resume backstop keeps re-reading before it gives up loudly. */
-const RESUME_BACKSTOP_WINDOW_MS = 10_000;
 
 /** How many quick attempts the listener makes to rejoin after LiveKit drops it. */
 const LISTENER_RECONNECT_ATTEMPTS = 5;
@@ -129,11 +107,12 @@ interface RunnerOptions {
     participantIdentity: string;
     seat: string;
     text: string;
-    source: 'speech' | 'typed';
     clientLineId: string;
     /** When the speech itself began and ended (ISO), so Kaki can order it by what was said when. */
     speechStartedAt?: string;
     speechEndedAt?: string;
+    /** RMS microphone level (0..1) over the recognised stretch, so a quieter copy of another seat's voice can be told apart. */
+    micLevel?: number;
     /** True when this person started speaking before the previous human line had finished. */
     overlap?: boolean;
   }): void;
@@ -144,19 +123,6 @@ interface RunnerOptions {
   onAdvanceAgenda?: () => void;
   /** Called when the final agenda item has wrapped up and the meeting should conclude. */
   onEndMeeting?: () => void;
-  /** How long a person's local Stop may outrank the server snapshot (default 5000 ms, safety only). */
-  stopGateTimeoutMs?: number;
-  /** How long a typed line waits for the server to resume before it is dropped (default 10000 ms). */
-  heldTypedLineTimeoutMs?: number;
-  /** How often the resume backstop re-reads the server state (default 2000 ms). */
-  resumeBackstopIntervalMs?: number;
-  /** How long the resume backstop keeps re-reading before it gives up loudly (default 10000 ms). */
-  resumeBackstopWindowMs?: number;
-  /**
-   * Ask the meeting sync to re-read the server snapshot through its fence. The runner calls this
-   * while a local pause is waiting for a resume, so a lost snapshot cannot silence the AI.
-   */
-  recheckMeetingState?(reason: string): void;
   /** Log something that needs attention (the resume backstop gave up); defaults to `log`. */
   logError?(message: string): void;
   /** Pause between one character and the next. */
@@ -165,6 +131,16 @@ interface RunnerOptions {
   sentenceGapMs?: number;
   /** Recognise the person's speech on the server, from their echo-cancelled microphone track; without it, the browser's recognition is used. */
   recognizer?: Recognizer;
+  /**
+   * Dev and test only (`KAKI_FAKE_STT=1`): accept scripted lines on {@link FAKE_STT_TOPIC} as if the recogniser
+   * had heard them. Never on in production; see `fakeSttFromEnv`.
+   */
+  fakeSpeech?: boolean;
+  /**
+   * Dev-only fake speech: how long a scripted line waits for its speaker to appear in the room.
+   * A line sent just before the join event arrives is held for this long, then dropped (default 10 s).
+   */
+  fakeSpeechJoinWaitMs?: number;
   /** Receives each stretch of audio sent to the recogniser, to save it for listening. */
   debugAudio?(samples: Int16Array): void;
   vad?: Partial<VadOptions>;
@@ -297,6 +273,7 @@ interface Character {
 export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner> {
   const { scenario: bootScenario, livekitUrl } = options;
   const log = options.log ?? (() => undefined);
+  const fakeSpeechJoinWaitMs = options.fakeSpeechJoinWaitMs ?? 10_000;
   const logError = options.logError ?? log;
   // Everything that can change during the meeting is read from this one snapshot. The boot pack
   // only supplies content the snapshot does not carry (situation and knowledge).
@@ -429,8 +406,8 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     participantIdentity: string;
     seat: string;
     text: string;
-    source: 'speech';
     clientLineId: string;
+    micLevel?: number;
   }
 
   // Recognition finishes in any order per person; the transcript must still read in speech order.
@@ -522,10 +499,6 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
   let closing = false;
   /** True while the runner deliberately leaves an old room for a meeting's new one. */
   let movingRoom = false;
-  /** While keys are being pressed, a short sound in the microphone is more likely the keyboard than speech. */
-  const TYPING_QUIET_MS = 500;
-  let typingUntil = 0;
-  const suppressed = new Set<string>();
 
   /** Make the room match the people in it: everyone but their seats, and a conversation for exactly that cast. */
   let castQueue: Promise<void> = Promise.resolve();
@@ -539,28 +512,12 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
   };
   /**
    * The person has read their briefing and pressed Start. Until then the AI attendees are in the room but silent, and
-   * nothing the person says or types reaches them. A person in the host's seat opens the meeting themselves, so they skip this.
+   * nothing the person says reaches them. A person in the host's seat opens the meeting themselves, so they skip this.
    * This is the runner having opened the conversation locally, not a mirror of the server snapshot's `started`.
    */
   let openedLocally = false;
   /** The conversation's local playback pause; it follows the server snapshot, except while a Stop holds. */
   let pausedLocally = false;
-  /**
-   * The snapshot the runner held when a person pressed Stop. Local playback stays paused until a
-   * snapshot newer than this arrives, so an in-flight `paused:false` made before the Stop cannot
-   * undo it. The server still owns the real pause; this is only the instant speech gate.
-   */
-  let stopGate: { seq: number; epoch?: RunnerSnapshotVersion['epoch'] } | undefined;
-  /** The safety timeout that releases a Stop the server never confirmed. */
-  let stopGateTimer: ReturnType<typeof setTimeout> | undefined;
-  /**
-   * Typed lines that arrived before the server's resume snapshot: they are answered in the order they
-   * arrived once the meeting is running again, and dropped if that never comes or the meeting moves
-   * on first.
-   */
-  let heldTypedLines: Array<{ text: string; meetingId: string | undefined; timer: ReturnType<typeof setTimeout> }> = [];
-  /** The timer that re-reads the server state while a local pause waits for a resume. */
-  let resumeBackstop: ReturnType<typeof setInterval> | undefined;
   /**
    * A server snapshot showed the empty-room pause ending after a person returned (or is about to
    * return); their one welcome-back line waits here until the cast and playback are ready for it.
@@ -734,10 +691,8 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     openingAgendaIndex = 0;
     startResumed = false;
     pausedLocally = false;
-    clearStopGate();
-    stopResumeBackstop();
-    dropHeldTypedLine('dropped the typed line held for the old meeting');
     speechLines.reset();
+    clearPendingFakeSpeech();
     greetReturnPending = false;
     endedTerminal = false;
     memory.reset();
@@ -765,7 +720,6 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
   /** Adopt a server snapshot without opening anything: used by prepare and by catch-up reads. */
   function adoptSnapshot(state: RunnerMeetingSnapshot): void {
     const held = meeting.meetingId();
-    const heldEpoch = meeting.version()?.epoch;
     // No held identity is a move too: a boot-room runner must follow its first accepted snapshot.
     const changed = held !== state.meetingId;
     const previous = meeting.current();
@@ -783,17 +737,8 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     } else if (restarted) {
       log(`the server says ended meeting ${state.meetingId} is live again; clearing it as a new meeting`);
       clearLocalMeeting();
-    } else if (accepted && heldEpoch !== undefined && !sameRunnerEpoch(state.version.epoch, heldEpoch)) {
-      clearStopGate();
     }
     if (accepted && !changed && !restarted) notePauseTransition(previous, state);
-  }
-
-  /** Forget the local Stop and its safety timeout: the server snapshot now owns the pause. */
-  function clearStopGate(): void {
-    if (stopGateTimer !== undefined) clearTimeout(stopGateTimer);
-    stopGateTimer = undefined;
-    stopGate = undefined;
   }
 
   /**
@@ -812,91 +757,10 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     greetReturnPending = true;
   }
 
-  /** Stop re-reading the server state: the local pause is no longer waiting for a resume. */
-  function stopResumeBackstop(): void {
-    if (resumeBackstop === undefined) return;
-    clearInterval(resumeBackstop);
-    resumeBackstop = undefined;
-  }
-
-  /**
-   * The runner is paused locally but has a reason to expect a resume (a LiveKit Resume, or a typed
-   * line waiting to be answered). The server's snapshot ends that pause; if the snapshot is lost,
-   * re-read it through the meeting sync's fenced read so the AI is not silent for the rest of the
-   * meeting. The re-reads are bounded, and give up loudly when the server still says paused.
-   */
-  function expectResume(reason: string): void {
-    if (!pausedLocally || resumeBackstop !== undefined) return;
-    const recheck = options.recheckMeetingState;
-    if (recheck === undefined) return;
-    const intervalMs = options.resumeBackstopIntervalMs ?? RESUME_BACKSTOP_INTERVAL_MS;
-    const windowMs = options.resumeBackstopWindowMs ?? RESUME_BACKSTOP_WINDOW_MS;
-    const startedAt = Date.now();
-    log(`waiting for a resume (${reason}); re-reading the server state every ${intervalMs} ms`);
-    const timer = setInterval(() => {
-      if (!pausedLocally || endedTerminal) {
-        stopResumeBackstop();
-        return;
-      }
-      const waited = Date.now() - startedAt;
-      if (waited >= windowMs) {
-        stopResumeBackstop();
-        logError(
-          `the meeting is still paused ${waited} ms after a resume was asked for (${reason}); ` +
-            'the server never confirmed the resume, so the AI stays silent until its next snapshot',
-        );
-        return;
-      }
-      recheck(`the runner is paused locally and waiting for a resume (${reason})`);
-    }, intervalMs);
-    timer.unref?.();
-    resumeBackstop = timer;
-  }
-
-  /** Forget held typed lines, saying why when they were dropped rather than answered. */
-  function dropHeldTypedLine(reason?: string): void {
-    if (heldTypedLines.length === 0) return;
-    for (const held of heldTypedLines) clearTimeout(held.timer);
-    heldTypedLines = [];
-    if (reason !== undefined) log(reason);
-  }
-
-  /** Keep the lines until the server's next snapshot says the meeting is running again. */
-  function holdTypedLine(text: string): void {
-    const timeoutMs = options.heldTypedLineTimeoutMs ?? HELD_TYPED_LINE_TIMEOUT_MS;
-    const timer = setTimeout(() => {
-      heldTypedLines = heldTypedLines.filter((held) => held.timer !== timer);
-      log(`dropped a typed line: the meeting did not resume within ${timeoutMs} ms`);
-    }, timeoutMs);
-    timer.unref?.();
-    heldTypedLines.push({ text, meetingId: meeting.meetingId(), timer });
-    log('holding a typed line until the server says the meeting is running again');
-    expectResume('a typed line is waiting for the meeting to resume');
-  }
-
-  /** Answer the held lines, in the order they arrived, once the meeting is open again — never before. */
-  function flushHeldTypedLine(): void {
-    if (heldTypedLines.length === 0 || !meetingOpen()) return;
-    if (heldTypedLines.some((held) => held.meetingId !== meeting.meetingId())) {
-      dropHeldTypedLine('dropped a held typed line: the meeting changed before it resumed');
-      return;
-    }
-    const held = [...heldTypedLines];
-    dropHeldTypedLine();
-    typingUntil = Date.now() + TYPING_QUIET_MS;
-    for (const line of held) conversation?.humanTyped(line.text);
-    log(`answered ${held.length} typed line${held.length === 1 ? '' : 's'} held during the pause`);
-  }
-
   /** Apply a pause locally, without asking the server. */
   function applyLocalPause(next: boolean): void {
-    // The pause is ending (or already ended): nothing is waiting for a resume any more.
-    if (!next) stopResumeBackstop();
     if (pausedLocally === next) {
-      if (!next) {
-        greetReturn();
-        flushHeldTypedLine();
-      }
+      if (!next) greetReturn();
       return;
     }
     pausedLocally = next;
@@ -918,82 +782,18 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
           ? 'Welcome back.'
           : `Welcome back — we were on ${spokenAgendaName(meeting.scenario(), title)}.`;
       conversation.resumeAfterRejoin(hostName, line);
-      flushHeldTypedLine();
       return;
     }
     // A greeting that no longer belongs to a running AI-hosted meeting is dropped; one waiting
     // for a person to reappear in LiveKit stays pending.
     if (greetReturnPending && !meeting.started()) greetReturnPending = false;
     conversation?.resumeFromPause();
-    flushHeldTypedLine();
   }
 
-  /**
-   * A person pressed Stop. Stop the speech now and hold the local pause until a server snapshot
-   * newer than the one held right now arrives. The person's browser sends the real pause straight
-   * to the server; the runner never forwards it. When the snapshot already says paused, there is
-   * nothing newer to wait for, so no safety timeout is armed.
-   */
-  function holdLocalStop(): void {
-    // A fresh Stop supersedes any resume the runner was waiting for.
-    stopResumeBackstop();
-    if (meeting.paused() === true) {
-      clearStopGate();
-      applyLocalPause(true);
-      return;
-    }
-    holdStopGate();
-    applyLocalPause(true);
-  }
-
-  /**
-   * A person pressed Resume. This only asks the server to resume: the runner starts speaking again
-   * when a snapshot says the meeting is running, so a Resume whose command never reached the
-   * server cannot reopen a paused meeting locally.
-   */
-  function releaseLocalStop(): void {
-    log('the LiveKit resume only asks; waiting for a server snapshot that says the meeting is running');
-    expectResume('a person pressed resume');
-  }
-
-  /** Remember where the runner was when a Stop arrived, and arm the safety release. */
-  function holdStopGate(): void {
-    clearStopGate();
-    const held = meeting.version();
-    stopGate = { seq: held?.seq ?? 0, ...(held === undefined ? {} : { epoch: held.epoch }) };
-    const timeoutMs = options.stopGateTimeoutMs ?? STOP_GATE_TIMEOUT_MS;
-    const timer = setTimeout(() => {
-      if (stopGate === undefined) return;
-      log(
-        `no server snapshot newer than the one held at the Stop arrived within ${timeoutMs} ms; ` +
-          'releasing the local stop and following the server snapshot',
-      );
-      clearStopGate();
-      applyLocalPause(meeting.paused());
-    }, timeoutMs);
-    timer.unref?.();
-    stopGateTimer = timer;
-  }
-
-  /** True when `version` is newer than the snapshot held at the moment of the Stop. */
-  function isNewerThanStopGate(version: RunnerSnapshotVersion | undefined): boolean {
-    if (stopGate === undefined) return true;
-    if (version === undefined) return false;
-    if (stopGate.epoch === undefined) return true;
-    if (!sameRunnerEpoch(version.epoch, stopGate.epoch)) return true;
-    return version.seq > stopGate.seq;
-  }
-
-  /** The snapshot is the truth, except while a person's Stop is still newer than every snapshot. */
+  /** The server's pause snapshot is the truth. */
   function adoptPaused(next: boolean): void {
     // A pause that arrives before the welcome-back line is spoken means the return no longer holds.
     if (next) greetReturnPending = false;
-    if (stopGate !== undefined && !isNewerThanStopGate(meeting.version())) {
-      log('kept the person\'s stop locally; no newer server snapshot has arrived yet');
-      applyLocalPause(true);
-      return;
-    }
-    clearStopGate();
     if (!next && greetReturnPending && humans.size === 0) {
       // The server has resumed, but the person is not back in LiveKit yet. Keep the local hold so
       // the greeting and the resumed conversation start together when they join.
@@ -1078,7 +878,6 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     options?: { currentConnection?: boolean; authoritative?: boolean },
   ): boolean {
     const held = meeting.meetingId();
-    const heldEpoch = meeting.version()?.epoch;
     // No held identity is a move too: a boot-room runner must follow its first accepted snapshot.
     const changed = held !== state.meetingId;
     const previous = meeting.current();
@@ -1098,9 +897,6 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     } else if (restarted) {
       log(`the server says ended meeting ${state.meetingId} is live again; clearing it as a new meeting`);
       clearLocalMeeting();
-    } else if (accepted && heldEpoch !== undefined && !sameRunnerEpoch(state.version.epoch, heldEpoch)) {
-      // A new server incarnation owns the state now: a local hold from the old one cannot apply to it.
-      clearStopGate();
     }
     if (state.phase === 'ended') {
       // A reconnect can learn the meeting ended without hearing the live END cue. A closing line is
@@ -1112,9 +908,8 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
       startResumed = false;
       pausedLocally = true;
       endedTerminal = true;
-      clearStopGate();
-      stopResumeBackstop();
-      dropHeldTypedLine('dropped the typed line held before the meeting ended');
+      // The meeting is over: a scripted line still waiting for its speaker must never reach the next one.
+      clearPendingFakeSpeech();
       greetReturnPending = false;
       prepared = undefined;
       talking.clear();
@@ -1165,6 +960,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     humans.set(participant.identity, { name, role, seat });
     if (known === undefined) log(`${name} joined as ${role}`);
     syncCast();
+    flushPendingFakeSpeech(participant.identity);
   }
 
   /** Each person's recorder, so going off the record can stop every one of them at once. */
@@ -1183,6 +979,119 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     }
     for (const recorder of recorders.values()) recorder.resume();
     log('the room is back on the record; speech recognition resumes');
+  }
+
+  /**
+   * Words the recogniser heard from one person: the conversation hears them, then the app server's one
+   * human-line writer records them in speech order. The dev-only fake recogniser enters here too, so a
+   * scripted line behaves exactly like real speech from this point on.
+   */
+  function acceptRecognisedText(identity: string, text: string, timing: SpeechTiming): void {
+    if (offTheRecord) {
+      speechLines.settle(timing);
+      return;
+    }
+    if (!meetingOpen()) {
+      log(`ignored "${text}": the meeting has not started`);
+      speechLines.settle(timing);
+      return;
+    }
+    log(`recognised "${text}"`);
+    // With the server-side recogniser the browser has no final line to send, so the
+    // accepted words are forwarded through the app server's one human-line writer.
+    const accepted = conversation === undefined ? text : conversation.humanText(text);
+    if (accepted === undefined) {
+      speechLines.settle(timing);
+      noteSpeechSuccess(identity);
+      return;
+    }
+    const seat = humans.get(identity)?.role;
+    const meetingId = meeting.meetingId();
+    if (seat === undefined || meetingId === undefined) {
+      speechLines.settle(timing);
+      noteSpeechSuccess(identity);
+      return;
+    }
+    noteSpeechSuccess(identity);
+    speechLines.settle(timing, {
+      meetingId,
+      participantIdentity: identity,
+      seat,
+      text: accepted,
+      clientLineId: randomUUID(),
+      ...(timing.micLevel === undefined ? {} : { micLevel: timing.micLevel }),
+    });
+  }
+
+  let fakeSpeechCount = 0;
+  /**
+   * Scripted lines that arrived before their speaker's join event. LiveKit delivers the data message
+   * before this client has processed ParticipantConnected, so dropping it would lose the first line
+   * of every scripted meeting; hold it until the person registers, or let it expire. Each line carries
+   * the meeting it was said in, so a late join can only ever deliver lines for the meeting it joins.
+   */
+  const pendingFakeSpeech = new Map<
+    string,
+    Array<{ text: string; meetingId: string | undefined; timer: ReturnType<typeof setTimeout> }>
+  >();
+
+  /** Deliver the lines held for `identity` once they are a person in the room, in the order sent. */
+  function flushPendingFakeSpeech(identity: string): void {
+    const pending = pendingFakeSpeech.get(identity);
+    if (pending === undefined) return;
+    pendingFakeSpeech.delete(identity);
+    for (const item of pending) clearTimeout(item.timer);
+    const currentMeetingId = meeting.meetingId();
+    for (const item of pending) {
+      if (item.meetingId !== currentMeetingId) {
+        log(`dropped a fake-speech line for ${identity}: it was said in a different meeting`);
+        continue;
+      }
+      acceptFakeSpeech(identity, item.text);
+    }
+  }
+
+  /** Forget held lines: the meeting they were meant for is gone. */
+  function clearPendingFakeSpeech(): void {
+    for (const pending of pendingFakeSpeech.values()) {
+      for (const item of pending) clearTimeout(item.timer);
+    }
+    pendingFakeSpeech.clear();
+  }
+
+  /** A line from the dev-only fake recogniser, said by `identity` as if their microphone had carried it. */
+  function acceptFakeSpeech(identity: string, text: string): void {
+    if (!humans.has(identity)) {
+      const meetingId = meeting.meetingId();
+      const pending = pendingFakeSpeech.get(identity) ?? [];
+      const timer = setTimeout(() => {
+        const held = pendingFakeSpeech.get(identity);
+        if (held === undefined) return;
+        const remaining = held.filter((item) => item.timer !== timer);
+        if (remaining.length === 0) pendingFakeSpeech.delete(identity);
+        else pendingFakeSpeech.set(identity, remaining);
+        log(`dropped a fake-speech line for ${identity}: they never joined the room`);
+      }, fakeSpeechJoinWaitMs);
+      timer.unref?.();
+      pendingFakeSpeech.set(identity, [...pending, { text, meetingId, timer }]);
+      log(`held fake speech for ${identity}: they have not joined the room yet`);
+      return;
+    }
+    fakeSpeechCount += 1;
+    const now = Date.now();
+    const start = { id: `fake-speech-${fakeSpeechCount}`, startedAt: now };
+    speechLines.begin(start);
+    log(`fake speech from ${identity}`);
+    // Real speech reaches the recogniser only after the voice detector heard it start and stop. The speech gate
+    // refuses words with no voice behind them while the AI is (or just was) talking, as echo would be, so the fake
+    // line carries the same short voice first.
+    if (meetingOpen() && !offTheRecord) {
+      talking.add(identity);
+      conversation?.humanSpeech(true);
+      talking.delete(identity);
+      conversation?.humanSpeech(talking.size > 0);
+    }
+    acceptRecognisedText(identity, text, { ...start, endedAt: now });
   }
 
   async function listenTo(track: RemoteTrack, identity: string): Promise<void> {
@@ -1216,54 +1125,12 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
             onSpeechDiscarded: (timing) => {
               speechLines.settle(timing);
             },
-            onText: (text, timing) => {
-              if (offTheRecord) {
-                speechLines.settle(timing);
-                return;
-              }
-              if (!meetingOpen()) {
-                log(`ignored "${text}": the meeting has not started`);
-                speechLines.settle(timing);
-                return;
-              }
-              log(`recognised "${text}"`);
-              // With the server-side recogniser the browser has no final line to send, so the
-              // accepted words are forwarded through the app server's one human-line writer.
-              const accepted = conversation === undefined ? text : conversation.humanText(text);
-              if (accepted === undefined) {
-                speechLines.settle(timing);
-                noteSpeechSuccess(identity);
-                return;
-              }
-              const seat = humans.get(identity)?.role;
-              const meetingId = meeting.meetingId();
-              if (seat === undefined || meetingId === undefined) {
-                speechLines.settle(timing);
-                noteSpeechSuccess(identity);
-                return;
-              }
-              noteSpeechSuccess(identity);
-              speechLines.settle(timing, {
-                meetingId,
-                participantIdentity: identity,
-                seat,
-                text: accepted,
-                source: 'speech',
-                clientLineId: randomUUID(),
-              });
-            },
+            onText: (text, timing) => acceptRecognisedText(identity, text, timing),
           });
     if (recorder !== undefined) recorders.set(identity, recorder);
     const vad: EnergyVad = new EnergyVad(
       (speaking) => {
         if (!meetingOpen()) return;
-        if (speaking && Date.now() < typingUntil) {
-          // Typing: the sound is probably a key press. Not speech, not a cut-in; its end is ignored too.
-          suppressed.add(identity);
-          log(`ignored a sound from ${identity} while they were typing`);
-          return;
-        }
-        if (!speaking && suppressed.delete(identity)) return;
         if (speaking) talking.add(identity);
         else talking.delete(identity);
         log(
@@ -1290,19 +1157,6 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
       for await (const frame of new AudioStream(track, SAMPLE_RATE, 1)) {
         if (!meetingOpen() || offTheRecord) continue;
         vad.push(frame.data, frame.sampleRate);
-        if (suppressed.has(identity) && vad.isSpeaking && Date.now() >= typingUntil) {
-          suppressed.delete(identity);
-          talking.add(identity);
-          log(`${identity} kept speaking past keystroke window; unsuppressing mic`);
-          conversation?.humanSpeech(talking.size > 0);
-          setSpeechState(identity, 'listening');
-          try {
-            recorder?.speaking(true);
-          } catch (error) {
-            log(`speech recognition could not start: ${String(error)}`);
-            reportSpeechFailure(identity, error);
-          }
-        }
         try {
           recorder?.push(frame.data);
         } catch (error) {
@@ -1418,49 +1272,21 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     void listenTo(track, participant.identity);
   });
   room.on(RoomEvent.DataReceived, (payload, participant, _kind, topic) => {
-    if (topic === CONTROL_TOPIC && participant !== undefined && !isKakiListener(participant.identity) && !meeting.castNames().has(participant.identity)) {
-      let message: ReturnType<typeof parseControlMessage>;
+    if (topic === FAKE_STT_TOPIC) {
+      // Only the LiveKit server (an API-key holder) sends without a participant; a browser cannot forge this.
+      if (options.fakeSpeech !== true || participant !== undefined) {
+        log('ignored a fake-speech message: the fake recogniser is off or the sender is a participant');
+        return;
+      }
+      let message: ReturnType<typeof parseFakeSpeechMessage>;
       try {
-        message = parseControlMessage(JSON.parse(new TextDecoder().decode(payload)));
+        message = parseFakeSpeechMessage(JSON.parse(new TextDecoder().decode(payload)));
       } catch {
         message = undefined;
       }
-      if (message === undefined) {
-        log('ignored a malformed control message');
-      } else if (endedTerminal) {
-        log(`ignored ${message.kind} from ${participant.identity}: the meeting has ended`);
-      } else if (message.kind === 'typing') {
-        typingUntil = Date.now() + TYPING_QUIET_MS;
-        conversation?.humanTyping();
-      } else if (message.kind === 'start') {
-        // The server owns Start now: it prepares the cast, commits the meeting and announces
-        // MEETING_STARTED. A browser Start that still arrives here must not open anything.
-        log(`ignored a LiveKit Start from ${participant.identity}: the meeting starts on the server`);
-      } else if (message.kind === 'stop') {
-        if (!openedLocally && !hostIsHuman()) {
-          log('ignored stop: the meeting has not started');
-          return;
-        }
-        log(`${participant.identity} pressed stop`);
-        holdLocalStop();
-      } else if (message.kind === 'resume') {
-        if (!openedLocally && !hostIsHuman()) {
-          log('ignored resume: the meeting has not started');
-          return;
-        }
-        log(`${participant.identity} pressed resume`);
-        releaseLocalStop();
-      } else if (!openedLocally && !hostIsHuman()) {
-        log('ignored typed text: the meeting has not started');
-      } else {
-        typingUntil = Date.now() + TYPING_QUIET_MS;
-        if (message.kind === 'text') {
-          // Typing does not resume the meeting by itself: the browser asks the server, and this
-          // line waits for the snapshot that proves it resumed.
-          if (meetingOpen()) conversation?.humanTyped(message.text);
-          else holdTypedLine(message.text);
-        }
-      }
+      if (message === undefined) log('ignored a malformed fake-speech message');
+      else if (endedTerminal) log(`ignored fake speech from ${message.identity}: the meeting has ended`);
+      else acceptFakeSpeech(message.identity, message.text);
       return;
     }
     if (topic !== STT_TOPIC || participant === undefined || isKakiListener(participant.identity) || meeting.castNames().has(participant.identity)) return;
@@ -1725,20 +1551,17 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
       conversation.markCardShown(options);
     },
     pause() {
-      clearStopGate();
       applyLocalPause(true);
     },
     announceClosing(text) {
       const hostName = meeting.hostName();
       if (hostName === undefined || conversation === undefined) return;
-      clearStopGate();
       applyLocalPause(true);
       conversation.announceClosing(hostName, text);
     },
     async stop() {
       closing = true;
       if (listenerRetryTimer !== undefined) clearTimeout(listenerRetryTimer);
-      stopResumeBackstop();
       if (guardTimer !== undefined) clearTimeout(guardTimer);
       await castQueue;
       conversation?.close();

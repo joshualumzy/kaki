@@ -11,6 +11,8 @@ import {
   Run,
   signedInPerson,
   stamp,
+  withJourneyLock,
+  closeBrowser,
 } from './lib';
 
 const JOURNEY = 'k';
@@ -19,7 +21,6 @@ const JOURNEY = 'k';
 const LIVE_ROUTES = [
   /^\/$/,
   /^\/practice$/,
-  /^\/demo$/,
   /^\/signin$/,
   /^\/new$/,
   /^\/workspaces\/[^/]+$/,
@@ -67,9 +68,7 @@ async function main(): Promise<void> {
   const browser = await launch();
   const suffix = stamp();
   try {
-    const anon = await guestPerson(browser, run, {
-      expected: (status, url) => status === 401 && url.includes('/api/auth/me'),
-    });
+    const anon = await guestPerson(browser, run);
     const page = anon.page;
 
     async function landsOnLivePage(what: string, expectedPath: RegExp): Promise<void> {
@@ -193,11 +192,11 @@ async function main(): Promise<void> {
     await anon.context.close();
   } finally {
     run.save();
-    await browser.close();
+    await closeBrowser(browser);
   }
 }
 
-void main().catch((error: unknown) => {
+void withJourneyLock(JOURNEY, main).catch((error: unknown) => {
   console.error(error instanceof Error ? error.message : error);
   process.exitCode = 1;
 });

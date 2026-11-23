@@ -16,9 +16,10 @@ vi.mock('../kaki', () => ({
 }));
 
 vi.mock('./room/Meeting', () => ({
-  default: ({ practiceMeetingId, onNewPractice }: { practiceMeetingId?: string; onNewPractice?: () => void }) => (
+  default: ({ practiceMeetingId, signedIn, onNewPractice }: { practiceMeetingId?: string; signedIn?: boolean; onNewPractice?: () => void }) => (
     <div>
       <div data-testid="practice-room">{practiceMeetingId}</div>
+      <div data-testid="practice-signed-in">{signedIn === true ? 'signed-in' : 'signed-out'}</div>
       {onNewPractice === undefined ? null : (
         <button type="button" onClick={onNewPractice}>
           Start a new practice
@@ -61,6 +62,14 @@ describe('PracticePage', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/practice', { method: 'POST' });
   });
 
+  it('passes the sign-in state so a signed-in practice can keep its minutes', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => reply(200, { meetingId: 'practice-1', signedIn: true })));
+
+    render(<PracticePage />);
+
+    expect(await screen.findByTestId('practice-signed-in')).toHaveProperty('textContent', 'signed-in');
+  });
+
   it('opens a fresh practice from the room once the old one has ended, without a page load', async () => {
     const fetchMock = vi
       .fn()
@@ -96,6 +105,23 @@ describe('PracticePage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
 
     expect(await screen.findByTestId('practice-room')).toHaveProperty('textContent', 'practice-2');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('shows the plain rate-limit sentence with a Retry that asks again', async () => {
+    const message = 'Too many practice rooms were opened from here. Try again in a minute.';
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(reply(429, { error: message }))
+      .mockResolvedValueOnce(reply(200, { meetingId: 'practice-3' }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<PracticePage />);
+
+    expect(await screen.findByRole('alert')).toHaveProperty('textContent', message);
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+
+    expect(await screen.findByTestId('practice-room')).toHaveProperty('textContent', 'practice-3');
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 

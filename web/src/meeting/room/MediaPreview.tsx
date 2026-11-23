@@ -12,25 +12,17 @@ interface MediaPreviewProps {
   onChange(next: MediaChoice): void;
   /** Called when the browser refuses a device, so the toggle can fall back to off and say why. */
   onProblem(message: string | undefined): void;
-  /** What typing does with the microphone off; the default stays neutral for a team meeting. */
-  typingHint?: string;
-  /** Practice is speech only, so a microphone problem must not suggest joining to type. */
-  speechOnly?: boolean;
 }
 
-function describeFailure(kind: 'microphone' | 'camera', error: unknown, speechOnly = false): string {
+function describeFailure(kind: 'microphone' | 'camera', error: unknown): string {
   const name = error instanceof DOMException ? error.name : '';
   if (name === 'NotFoundError') {
     if (kind === 'camera') return 'No camera was found.';
-    return speechOnly
-      ? 'No microphone was found. Connect one to speak in the meeting.'
-      : 'No microphone was found. You can join to type instead.';
+    return 'No microphone was found. Connect one to speak in the meeting.';
   }
   if (name === 'NotAllowedError' || name === 'SecurityError') {
     if (kind === 'camera') return "Your camera is blocked. Allow it in your browser's site settings to use it.";
-    return speechOnly
-      ? "Your microphone is blocked. Allow it in your browser's site settings to speak in the meeting."
-      : "Your microphone is blocked. Allow it in your browser's site settings, or join to type instead.";
+    return "Your microphone is blocked. Allow it in your browser's site settings to speak in the meeting.";
   }
   return `The ${kind} could not be started.`;
 }
@@ -67,7 +59,7 @@ function useCameraStream(on: boolean, fail: (message: string) => void): MediaStr
 }
 
 /** Opens the microphone while `on`, and returns its current loudness from 0 to 1. */
-function useMicrophoneLevel(on: boolean, fail: (message: string) => void, speechOnly: boolean): number {
+function useMicrophoneLevel(on: boolean, fail: (message: string) => void): number {
   const [level, setLevel] = useState(0);
   const failRef = useRef(fail);
   failRef.current = fail;
@@ -110,7 +102,7 @@ function useMicrophoneLevel(on: boolean, fail: (message: string) => void, speech
         }, 80);
       })
       .catch((error: unknown) => {
-        if (!cancelled) failRef.current(describeFailure('microphone', error, speechOnly));
+        if (!cancelled) failRef.current(describeFailure('microphone', error));
       });
     return () => {
       cancelled = true;
@@ -119,7 +111,7 @@ function useMicrophoneLevel(on: boolean, fail: (message: string) => void, speech
       void context?.close().catch(() => undefined);
       setLevel(0);
     };
-  }, [on, speechOnly]);
+  }, [on]);
   return level;
 }
 
@@ -149,8 +141,6 @@ export function MediaPreview({
   onChange,
   onProblem,
   name = '',
-  typingHint = 'Microphone off: you will type your lines',
-  speechOnly = false,
 }: MediaPreviewProps & { name?: string }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const turnOff = (kind: keyof MediaChoice) => (message: string) => {
@@ -158,7 +148,7 @@ export function MediaPreview({
     onProblem(message);
   };
   const camera = useCameraStream(value.camera, turnOff('camera'));
-  const level = useMicrophoneLevel(value.microphone, turnOff('microphone'), speechOnly);
+  const level = useMicrophoneLevel(value.microphone, turnOff('microphone'));
 
   useEffect(() => {
     if (videoRef.current !== null) videoRef.current.srcObject = camera ?? null;
@@ -200,7 +190,7 @@ export function MediaPreview({
         </button>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div className="kd-meter-text">
-            {value.microphone ? 'Say something to test your microphone' : typingHint}
+            {value.microphone ? 'Say something to test your microphone' : 'Microphone off: turn it on to speak'}
           </div>
           <div role="meter" aria-label="Microphone level" aria-valuemin={0} aria-valuemax={1} aria-valuenow={Number(level.toFixed(2))} className="kd-meter">
             {Array.from({ length: 24 }, (_, i) => (

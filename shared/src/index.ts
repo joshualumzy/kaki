@@ -17,5 +17,5 @@ export * from './meetingMemory';
 export * from './catch';
 export * from './commands';
 export * from './services';
-export * from './demo';
+export * from './practice';
 export * from './errors';

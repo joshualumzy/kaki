@@ -7,10 +7,12 @@ import {
   inviteLink,
   launch,
   Run,
-  sendTyped,
+  speakLine,
   signedInPerson,
   stamp,
   workspaces,
+  withJourneyLock,
+  closeBrowser,
 } from './lib';
 
 const JOURNEY = 'a';
@@ -33,9 +35,7 @@ async function main(): Promise<void> {
   let workspaceId = '';
 
   try {
-    const anon = await guestPerson(browser, run, {
-      expected: (status, url) => status === 401 && url.includes('/api/auth/me'),
-    });
+    const anon = await guestPerson(browser, run);
     const anonPage = anon.page;
 
     await step(run, anonPage, 'landing', async () => {
@@ -151,8 +151,7 @@ async function main(): Promise<void> {
     if (invite === '') run.finding('DEAD-END', '/m/:id/room', 'no invite link could be produced, so the guest could not join');
 
     const guest = await guestPerson(browser, run, {
-      expected: (status, url) =>
-        status === 401 && url.includes('/api/auth/me') || (status === 404 && url.includes('/api/meeting-code')),
+      expected: (status, url) => status === 404 && url.includes('/api/meeting-code'),
     });
     const guestPage = guest.page;
 
@@ -184,20 +183,20 @@ async function main(): Promise<void> {
     const guestLine = `Guest line ${suffix}: the supplier is confirmed.`;
     const closingLine = `Owner closing line ${suffix}: minutes must keep this.`;
 
-    await step(run, ownerPage, 'owner types', async () => {
+    await step(run, ownerPage, 'owner speaks', async () => {
       if (!roomOpened) return;
-      await sendTyped(ownerPage, ownerLine);
+      await speakLine(ownerPage, ownerLine);
       await ownerPage.getByText(ownerLine).first().waitFor({ timeout: 15_000 });
-      const shot = await run.shot(ownerPage, 'owner-typed');
-      run.pass(`Owner can type into the meeting and sees the line (${shot}).`);
+      const shot = await run.shot(ownerPage, 'owner-spoken');
+      run.pass(`Owner can speak into the meeting and sees the line (${shot}).`);
     });
 
-    await step(run, guestPage, 'guest types', async () => {
+    await step(run, guestPage, 'guest speaks', async () => {
       if (!roomOpened) return;
-      await sendTyped(guestPage, guestLine);
+      await speakLine(guestPage, guestLine);
       await guestPage.getByText(guestLine).first().waitFor({ timeout: 15_000 });
-      const shot = await run.shot(guestPage, 'guest-typed');
-      run.pass(`Guest can type into the meeting and sees the line (${shot}).`);
+      const shot = await run.shot(guestPage, 'guest-spoken');
+      run.pass(`Guest can speak into the meeting and sees the line (${shot}).`);
     });
 
     await step(run, ownerPage, 'names in transcript', async () => {
@@ -238,7 +237,7 @@ async function main(): Promise<void> {
 
     await step(run, ownerPage, 'closing line and end', async () => {
       if (!roomOpened) return;
-      await sendTyped(ownerPage, closingLine);
+      await speakLine(ownerPage, closingLine);
       await ownerPage.getByText(closingLine).first().waitFor({ timeout: 15_000 });
       await ownerPage.getByRole('button', { name: 'End for everyone' }).click();
       await ownerPage.getByText('End for everyone?').waitFor({ timeout: 10_000 });
@@ -264,14 +263,14 @@ async function main(): Promise<void> {
       const stillPreparing = /still being prepared/i.test(body);
       const closingKept = body.includes(closingLine);
       if (closingKept) {
-        run.pass(`The line typed just before End reaches the minutes (${shotMinutes}).`);
+        run.pass(`The line spoken just before End reaches the minutes (${shotMinutes}).`);
       } else {
         run.finding(
           'ERROR',
           '/workspaces/:id/meetings/:meetingId minutes',
           stillPreparing
             ? 'minutes still "being prepared" 5 s after End, so the closing line is not yet in the record'
-            : 'the line typed just before End is missing from the minutes',
+            : 'the line spoken just before End is missing from the minutes',
           shotMinutes,
         );
       }
@@ -315,11 +314,11 @@ async function main(): Promise<void> {
     await phone.context.close();
   } finally {
     run.save();
-    await browser.close();
+    await closeBrowser(browser);
   }
 }
 
-void main().catch((error: unknown) => {
+void withJourneyLock(JOURNEY, main).catch((error: unknown) => {
   console.error(error instanceof Error ? error.message : error);
   process.exitCode = 1;
 });

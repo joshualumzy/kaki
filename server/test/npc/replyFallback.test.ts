@@ -4,6 +4,13 @@ import { NpcConversation, type NpcPorts } from '../../src/npc/conversation';
 import type { Utterance } from '../../src/npc/director';
 import { testScenario } from '../fixtures/scenario';
 
+/** Say one line as the guest, through the same speech path the recogniser uses. */
+function speak(conversation: { humanSpeech(talking: boolean): void; humanText(text: string): string | undefined }, text: string): void {
+  conversation.humanSpeech(true);
+  conversation.humanSpeech(false);
+  conversation.humanText(text);
+}
+
 const scenario = {
   ...testScenario,
   npcs: [
@@ -108,7 +115,7 @@ describe('backup model on a stalled reply', () => {
     const h = harness(() => (async function* () {
       yield 'Ada: We can start with the till.';
     })());
-    h.conversation.humanTyped('What should we do about the till?');
+    speak(h.conversation, 'What should we do about the till?');
     await vi.advanceTimersByTimeAsync(60);
     await flush();
 
@@ -125,7 +132,7 @@ describe('backup model on a stalled reply', () => {
     const h = harness(() => (async function* () {
       await Promise.resolve();
     })());
-    h.conversation.humanTyped('What should we do about the till?');
+    speak(h.conversation, 'What should we do about the till?');
     await vi.advanceTimersByTimeAsync(120);
     await flush();
     await playOut(h.playing);

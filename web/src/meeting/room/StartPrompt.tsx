@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { AgendaItem, Scenario, ScenarioRole } from '@kaki/shared';
 import { useScenario } from '../../kaki';
 import { meetingApiPath } from '../../kaki/meetingScope';
-import './demo.css';
+import './practice.css';
 
 interface StartPromptProps {
   /** The person pressed the button: the meeting should begin. */
@@ -176,16 +176,14 @@ export function StartPrompt({ onStart, role, viewerName, seatName, starting = fa
             <>
               <button
                 type="button"
-                className="kd-chip"
-                style={{ padding: '10px 14px', fontWeight: 600 }}
+                className="kd-go kd-go-secondary kd-start-back"
                 onClick={() => setStepIndex(0)}
               >
                 ← Back
               </button>
               <button
                 type="button"
-                className="kd-go"
-                style={{ marginTop: 0, flex: 1 }}
+                className="kd-go kd-start-go"
                 onClick={onStart}
                 disabled={starting}
                 autoFocus
@@ -219,8 +217,8 @@ export function ConnectedStartPrompt({
   role?: ScenarioRole;
   viewerName?: string;
   seatName?: string;
-  /** The meeting this Start belongs to; absent keeps the legacy unprefixed path. */
-  meetingId?: string;
+  /** The meeting this Start belongs to. */
+  meetingId: string;
 }) {
   const scenario = safeUseScenario();
   const [phase, setPhase] = useState<'idle' | 'waiting' | 'failed'>('idle');
@@ -234,7 +232,10 @@ export function ConnectedStartPrompt({
     mounted.current = true;
     return () => {
       mounted.current = false;
-      request.current?.abort();
+      // Start is one server-owned command, not a cancellable query: the room can confirm it (MEETING_STARTED)
+      // and unmount this prompt before the POST's answer arrives. Aborting then reports ERR_ABORTED for a start
+      // that actually happened, so let the request finish and ignore its answer. Its own deadline still fires,
+      // and the handlers stay silent because request.current is cleared.
       request.current = undefined;
     };
   }, []);

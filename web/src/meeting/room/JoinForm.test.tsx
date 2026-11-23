@@ -53,7 +53,30 @@ describe('JoinForm', () => {
   it('shows the meeting and offers exactly the roles it was given', () => {
     const { role } = setup();
     expect(screen.getByText('Launch readiness')).toBeTruthy();
+    expect(screen.getByText('Practice meeting')).toBeTruthy();
+    expect(screen.queryByText('Live meeting')).toBeNull();
     expect([...role.options].map((option) => option.text)).toEqual(['Producer', 'Marketing Lead']);
+  });
+
+  it('links every company system from the server-provided public tool URLs', () => {
+    setup({
+      toolUrls: {
+        wiki: 'https://kaki.example.com:8081',
+        gitea: 'https://kaki.example.com:8082',
+        mattermost: 'https://kaki.example.com:8443',
+        email: 'https://kaki.example.com:8084',
+        calendar: 'https://kaki.example.com',
+      },
+    });
+    const link = (name: string) => screen.getByRole('link', { name }).getAttribute('href');
+    expect(link('Wiki')).toBe('https://kaki.example.com:8081/en/home');
+    expect(link('Gitea')).toBe('https://kaki.example.com:8082/kopitiam/kopitiam-pos/issues');
+    expect(link('Mattermost')).toContain('/api/mattermost/open?url=');
+    expect(link('Mattermost')).toContain(
+      encodeURIComponent('https://kaki.example.com:8443/kopitiam/channels/kopitiam-launch'),
+    );
+    expect(link('Mailpit')).toBe('https://kaki.example.com:8084');
+    expect(link('Calendar')).toBe('https://kaki.example.com/api/calendar/seed-sfa-inspection');
   });
 
   it('cannot join without a name', () => {
@@ -121,6 +144,15 @@ describe('JoinForm', () => {
     expect(button.textContent).toBe('Join with mic off');
     fireEvent.click(button);
     expect(onJoin).toHaveBeenCalledWith('Josh', 'operations_director', { microphone: false, camera: false });
+  });
+
+  it('never mentions typing: the microphone off hint only asks for the mic', () => {
+    const { container } = (() => {
+      const view = render(<JoinForm meetingTitle="Launch readiness" roles={roles} onJoin={vi.fn()} />);
+      return { container: view.container };
+    })();
+    expect(screen.getByText('Microphone off: turn it on to speak')).toBeTruthy();
+    expect(container.textContent).not.toMatch(/\btype\b/i);
   });
 
   it('has no code box until a code is needed or came with the link', () => {

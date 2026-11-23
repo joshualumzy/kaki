@@ -2,14 +2,11 @@ import { randomUUID } from 'node:crypto';
 import {
   defaultMeetingSetup,
   demoPackNpcProfileIds,
-  demoRoomName,
   deriveMeetingScenario,
   hostIdentityOf,
   isHumanParticipant,
   isPackFreeMeeting,
-  joinSeatRoles,
   KAKI_LISTENER_IDENTITY,
-  MAX_TYPED_LENGTH,
   MEETING_ENDED_MESSAGE,
   meetingScenarioFromSetup,
   parseMeetingSetup,
@@ -50,7 +47,8 @@ import {
 } from './realMeeting';
 import type { MeetingCodeSource } from './meetingCode';
 import { assertReadableSavedMeeting, assertReadableSavedSetup } from '../persist/state';
-import { createRejoinGuard, createRoomPoll, departedSeatGraceMs, rejoinGraceMsFromEnv, roomPollIntervalMs, REJOIN_POLL_MS } from './rejoin';
+import { createRejoinGuard, createRoomPoll, rejoinGraceMsFromEnv, roomPollIntervalMs, REJOIN_POLL_MS } from './rejoin';
+import { findCrossSeatDuplicate, rememberSpeechLine, type SpeechLine } from './crossSeatBleed';
 import { buildRunnerMeetingSnapshot, hostIsHumanFromSession } from './runnerState';
 import { createMeetingSession, type MeetingSession } from './session';
 import { createTaskStore, type TaskStore } from './tasks';
@@ -71,18 +69,20 @@ export interface RunnerPresence {
 
 /** One meeting's live state: its own session, hub, task list, room and agenda clock. */
 export interface MeetingInstance {
-  /** The registry key: the meeting row id, or 'meeting' for the legacy practice instance. */
+  /** The registry key: the meeting row id, or a random id for a practice meeting. */
   id: string;
   /** The workspace this meeting belongs to. */
   workspaceId: string;
-  /** The kind this instance runs at the AI runner; the legacy instance runs everything. */
+  /** The kind this instance runs at the AI runner. */
   runnerKind: 'real' | 'practice';
-  /** True for a practice meeting that belongs to one visitor (prefixed paths, not the legacy one). */
+  /** True for a practice meeting that belongs to one visitor. */
   perVisitorPractice: boolean;
   session: MeetingSession;
   hub: MeetingHub;
   tasks: TaskStore;
   memory: MeetingMemoryEntry[];
+  /** Fresh modules for this instance; started once and stopped on dispose. */
+  modules: KakiModule[];
   /** The LiveKit room this meeting uses right now. */
   roomName: string;
   /** The row meeting_state.id = id; absent when no database is configured. */
@@ -103,15 +103,9 @@ export interface MeetingInstance {
 
 /** Everything one meeting needs from the server-wide app. */
 export interface MeetingInstanceDeps {
-  /** The registry key; new meetings use their row id, the legacy instance is 'meeting'. */
+  /** The registry key: the meeting row id, or a random id for a practice meeting. */
   id: string;
   workspaceId: string;
-  /**
-   * Where this instance's routes live: the legacy instance keeps today's unprefixed `/api/...`
-   * paths, the demo room and the sign-in seat binding; every other instance serves the same
-   * handlers under `/api/meetings/:id`.
-   */
-  paths: 'legacy' | 'prefixed';
   /** Which journey this instance is for: a real product meeting or a practice meeting. */
   kind: 'real' | 'practice';
   /** The pack this meeting runs; a practice instance always keeps it unchanged. */
@@ -150,7 +144,7 @@ export interface MeetingInstanceDeps {
   ownerName?: string;
   /** The runner's control channel, so a real meeting can say loudly when Kaki cannot hear. */
   runnerPresence?: RunnerPresence;
-  /** Record that this meeting's row is over; the legacy practice instance has no row. */
+  /** Record that this meeting's row is over. */
   onEnded?: (endedAt: string) => Promise<void>;
   /** Keep Kaki's own copy of the minutes with the meeting row; absent for the sample practice meeting. */
   onMinutes?: (archive: { minutes: string; todos: ArchivedMeetingTodo[] }) => Promise<void>;
@@ -161,7 +155,6 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
   const {
     id,
     workspaceId,
-    paths,
     kind,
     scenario,
     meetingRow,
@@ -195,9 +188,8 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
     onEnded,
     onMinutes,
   } = deps;
-  const legacyPaths = paths === 'legacy';
   const runnerKind: 'real' | 'practice' = kind;
-  const perVisitorPractice = kind === 'practice' && !legacyPaths;
+  const perVisitorPractice = kind === 'practice';
   let lastActivity = Date.now();
   let people = 0;
   const touch = (): void => {
@@ -205,10 +197,7 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
   };
   const agendaPick = process.env.KAKI_AGENDA_PICK?.trim();
   // A real product meeting owns its own empty scenario. A practice instance keeps today's pack.
-  const baseScenario =
-    legacyPaths || meetingRow === undefined
-      ? scenario
-      : realBaseScenario(meetingRow);
+  const baseScenario = meetingRow === undefined ? scenario : realBaseScenario(meetingRow);
   const fullScenario = {
     ...baseScenario,
     agenda: [...baseScenario.agenda],
@@ -225,7 +214,7 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
   let restoredRoles: Scenario['roles'] | undefined;
   if (savedMeeting !== undefined) {
     // A malformed save must give the friendly message before its roles are derived from it.
-    assertReadableSavedSetup(savedMeeting, fullScenario, !legacyPaths);
+    assertReadableSavedSetup(savedMeeting, fullScenario, kind === 'real');
     const sealed =
       savedMeeting.phase === 'running' || savedMeeting.phase === 'ended' ? savedMeeting.sealed : undefined;
     restoredRoles = sealed === undefined ? undefined : setupScenarioRoles(fullScenario, sealed);
@@ -237,7 +226,7 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
             ...fullScenario.roles,
             ...restoredRoles.filter((role) => !fullScenario.roles.some((packRole) => packRole.id === role.id)),
           ];
-    assertReadableSavedMeeting(savedMeeting, { ...fullScenario, roles: validationRoles }, !legacyPaths);
+    assertReadableSavedMeeting(savedMeeting, { ...fullScenario, roles: validationRoles }, kind === 'real');
     if (meetingCode.fixed) {
       if (savedMeeting.meetingCode !== meetingCode.value) {
         console.log('kaki persist: KAKI_MEETING_CODE replaced the saved meeting code');
@@ -248,10 +237,9 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
   }
   const restoredAgendaIndex =
     savedMeeting?.phase === 'running' ? savedMeeting.state.clock.agendaIndex : 0;
-  const meeting = { id: legacyPaths ? (savedMeeting?.meetingId ?? randomUUID()) : id };
-  /** The LiveKit room: the legacy demo room, or one room per meeting. */
-  const roomNameFor = (meetingId: string): string =>
-    legacyPaths ? demoRoomName(session.active(), meetingId) : `kaki-${id}`;
+  const meeting = { id };
+  /** One LiveKit room per registry meeting; a reset never moves it. */
+  const roomNameFor = (_meetingId: string): string => `kaki-${id}`;
   const roomName = (): string => roomNameFor(meeting.id);
   /** A fresh copy of the pack; the active scenario is a value, never the pack object itself. */
   function packScenario(): Scenario {
@@ -396,9 +384,8 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
     rejoin.close();
   };
   /**
-   * The practice visitor's capability, read from the cookie. A per-visitor practice cookie names
-   * its own meeting (`<meetingId>.<capability>`), so another practice's cookie is never accepted
-   * here. The legacy practice instance keeps its token-only cookie until it is removed.
+   * The practice visitor's capability, read from the cookie. The cookie names its own meeting
+   * (`<meetingId>.<capability>`), so another practice's cookie is never accepted here.
    */
   function practicePrincipal(request: IncomingMessage): Principal | undefined {
     if (session.kind() !== 'practice') return undefined;
@@ -407,13 +394,9 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
     if (session.practiceGeneration() !== session.generation()) return undefined;
     const raw = cookieValue(request, PRACTICE_COOKIE);
     if (raw === undefined) return undefined;
-    let given = raw;
-    if (perVisitorPractice) {
-      const dot = raw.indexOf('.');
-      if (dot === -1 || raw.slice(0, dot) !== id) return undefined;
-      given = raw.slice(dot + 1);
-    }
-    return tokenMatches(given, token) ? { kind: 'practice' } : undefined;
+    const dot = raw.indexOf('.');
+    if (dot === -1 || raw.slice(0, dot) !== id) return undefined;
+    return tokenMatches(raw.slice(dot + 1), token) ? { kind: 'practice' } : undefined;
   }
   let roomCleanupWarned = false;
   /**
@@ -475,7 +458,7 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
       if (auth === undefined) return isLoopbackAddress(request.socket.remoteAddress)
         ? { ok: true, principal: { kind: 'service' } }
         : { ok: false, message: 'Service sign-in required' };
-      return auth.authorize(request, audience, legacyPaths ? undefined : id);
+      return auth.authorize(request, audience, id);
     }
     if (runnerRequest) {
       if (audience.kind === 'screen') {
@@ -518,9 +501,7 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
       }
       return { ok: false, message: 'Practice access belongs to its practice meeting only' };
     }
-    return auth.authorize(request, audience, legacyPaths ? undefined : id, {
-      ...(legacyPaths ? {} : { anyOfferedSeat: true }),
-    });
+    return auth.authorize(request, audience, id, { anyOfferedSeat: true });
   };
   const authorizeUpgrade = async (
     request: IncomingMessage,
@@ -583,26 +564,11 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
       idle.recordAction();
     },
   });
-  // Sign-in and phone seats belong to the legacy meeting only until step 3/4 add guests to real
-  // meetings; binding them from a second instance would make one meeting answer as the other.
-  if (legacyPaths) {
-    auth?.bindMeetingIdentity(() => meeting.id);
-    auth?.bindOfferedSeats(() => joinSeatRoles(visibleScenario()).map((role) => role.id));
-    auth?.bindJoinGuard({
-      meetingKind: () => session.kind(),
-      practiceSeat: () => session.practiceSeat(),
-      hasPracticeCapability: (request) => practicePrincipal(request) !== undefined,
-      admit,
-      departedSeatGraceMs: (seat) =>
-        departedSeatGraceMs({
-          seat,
-          holders: session.holders(),
-          graceActive: rejoin.graceActive(),
-          graceMs: rejoin.graceMs(),
-        }),
-    });
-    auth?.onSessionEnded((sessionTokenHash) => hub.endSession?.(sessionTokenHash));
-  }
+  // A revoked session is gone, so every hub closes its sockets. A replaced one (the same person
+  // signed in again or took a seat) leaves an owner's screen open in a real meeting.
+  const stopSessionEnded = auth?.onSessionEnded((sessionTokenHash, reason) => {
+    if (reason === 'revoked') hub.endSession?.(sessionTokenHash);
+  });
   const tasks = createTaskStore({ hub, scenario: () => session.active() });
   hub.onCommand(tasks.handleCommand);
   // The ended team meeting is the owner's until the minutes are published or dismissed. Any other
@@ -785,8 +751,7 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
     ...(kind === 'real' ? { allowEmptyScenario: true } : {}),
     ...(persistence === undefined ? {} : { persistence }),
   });
-  // A real meeting is fixed at creation: it is never a practice meeting. A practice instance keeps
-  // today's journeys (an owner opens real, or a visitor starts practice) until step 6 removes them.
+  // A real meeting is fixed at creation: it is never a practice meeting.
   if (kind === 'real') {
     session.setKind('real');
     if (session.holders().length > 0) {
@@ -822,9 +787,9 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
   const HUMAN_LINE_MEMORY_PER_SEAT = 200;
 
   /**
-   * The one writer for a person's finalized speech or typed line. The speaker is always resolved
-   * from the socket's current seat holder and the setup, never from the client payload. The line
-   * is published as an ordinary transcript chunk, so the screen, notetaker and minutes all see it.
+   * The one writer for a person's finalized speech line. The speaker is always resolved from the
+   * socket's current seat holder and the setup, never from the client payload. The line is
+   * published as an ordinary transcript chunk, so the screen, notetaker and minutes all see it.
    */
   interface HumanLineMemory {
     ids: Set<string>;
@@ -832,9 +797,9 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
   }
   const humanLineIds = new Map<string, HumanLineMemory>();
   /**
-   * A real meeting keeps its latest typed or spoken lines on the hub, so a person who refreshes or
-   * rejoins sees the recent conversation again instead of an empty transcript. Practice rooms and
-   * their AI runner hear lines live only.
+   * A real meeting keeps its latest spoken lines on the hub, so a person who refreshes or rejoins
+   * sees the recent conversation again instead of an empty transcript. Practice rooms and their AI
+   * runner hear lines live only.
    */
   const RETAINED_LINES = 50;
   const retainedLineKeys: string[] = [];
@@ -851,10 +816,13 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
     return { retainKey };
   }
   const humanLineTimes = new Map<string, number[]>();
+  /** Accepted speech lines, so a second seat's microphone picking up the same voice is not written twice. */
+  const recentSpeechLines: SpeechLine[] = [];
   hub.subscribe((event) => {
     if (event.type !== 'MEETING_RESET') return;
     humanLineIds.clear();
     humanLineTimes.clear();
+    recentSpeechLines.length = 0;
   });
 
   function seatKey(seat: string): string {
@@ -864,22 +832,22 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
   function writeHumanLine({
     seat,
     text,
-    source,
     clientLineId,
     meetingId,
     participantIdentity,
     speechStartedAt,
     speechEndedAt,
+    micLevel,
     overlap,
   }: {
     seat: string;
     text: string;
-    source: 'speech' | 'typed';
     clientLineId: string;
     meetingId?: string;
     participantIdentity?: string;
     speechStartedAt?: string;
     speechEndedAt?: string;
+    micLevel?: number;
     overlap?: boolean;
   }): void {
     if (meetingId !== undefined && meetingId !== meeting.id) {
@@ -909,22 +877,42 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
     }
     const cleaned = text.trim();
     if (cleaned === '') throw new CommandError('A line needs some words');
-    const cap = source === 'typed' ? MAX_TYPED_LENGTH : HUMAN_LINE_MAX_SPEECH_CHARS;
-    if (cleaned.length > cap) {
-      throw new CommandError(`That line is too long; keep it under ${cap} characters`);
+    if (cleaned.length > HUMAN_LINE_MAX_SPEECH_CHARS) {
+      throw new CommandError(`That line is too long; keep it under ${HUMAN_LINE_MAX_SPEECH_CHARS} characters`);
     }
     const key = seatKey(holder.seat);
     const seen = humanLineIds.get(key);
     if (seen?.ids.has(clientLineId)) return;
-    const now = Date.now();
-    const times = (humanLineTimes.get(key) ?? []).filter((at) => now - at < HUMAN_LINE_RATE_WINDOW_MS);
-    if (times.length >= HUMAN_LINE_RATE_LIMIT) {
-      throw new CommandError('Too many lines at once; wait a moment and try again');
-    }
     // The admitted person is the speaker; the setup seat is only the role they took.
     const speaker = holder.displayName?.trim() || holder.name;
     if (speaker.trim() === '') {
       throw new CommandError('That person has no name in this meeting');
+    }
+    const now = Date.now();
+    const startedAtMs = speechStartedAt === undefined ? undefined : Date.parse(speechStartedAt);
+    const endedAtMs = speechEndedAt === undefined ? undefined : Date.parse(speechEndedAt);
+    // Two microphones in one room can both recognise the same voice. Only audio evidence proves it:
+    // the two stretches must overlap in time and this microphone must have been clearly quieter.
+    // The same words alone are not enough, because two people really do both say "Yes".
+    const line = {
+      seat: key,
+      speaker,
+      text: cleaned,
+      ...(startedAtMs === undefined || !Number.isFinite(startedAtMs) ? {} : { speechStartedAt: startedAtMs }),
+      ...(endedAtMs === undefined || !Number.isFinite(endedAtMs) ? {} : { speechEndedAt: endedAtMs }),
+      ...(micLevel === undefined ? {} : { micLevel }),
+    };
+    const duplicate = findCrossSeatDuplicate(line, recentSpeechLines);
+    if (duplicate !== undefined) {
+      console.warn(
+        `kaki transcript: dropped "${cleaned}" from ${speaker}; ${duplicate.speaker}'s line overlaps it and this microphone was quieter (${micLevel?.toFixed(3)} vs ${duplicate.micLevel?.toFixed(3)}), so another seat's microphone heard it too`,
+      );
+      return;
+    }
+    rememberSpeechLine(recentSpeechLines, line);
+    const times = (humanLineTimes.get(key) ?? []).filter((at) => now - at < HUMAN_LINE_RATE_WINDOW_MS);
+    if (times.length >= HUMAN_LINE_RATE_LIMIT) {
+      throw new CommandError('Too many lines at once; wait a moment and try again');
     }
     times.push(now);
     humanLineTimes.set(key, times);
@@ -967,7 +955,7 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
     if (command.type !== 'HUMAN_LINE') return;
     const seat = seatForSender(sender);
     if (seat === undefined) throw new CommandError('Only a person seated in this meeting can add a line');
-    // A held line names the seat it was typed in. A socket that now writes as another seat must not
+    // A line names the seat it was spoken in. A socket that now writes as another seat must not
     // deliver it as that other person.
     if (command.seat !== undefined && seatKey(command.seat) !== seatKey(seat)) {
       throw new CommandError('That line belongs to a different seat');
@@ -975,7 +963,6 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
     writeHumanLine({
       seat,
       text: command.text,
-      source: command.source,
       clientLineId: command.clientLineId,
       ...(command.meetingId === undefined ? {} : { meetingId: command.meetingId }),
     });
@@ -983,7 +970,7 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
 
   hub.onCommand((command, sender) => {
     if (command.type !== 'SET_OFF_THE_RECORD') return;
-    // Off the record belongs to a real meeting only: the Kopitiam legacy instance keeps its flow.
+    // Off the record belongs to a real meeting only.
     if (runnerKind !== 'real' || session.kind() !== 'real') {
       throw new CommandError('Off the record is only available in a real meeting');
     }
@@ -1037,7 +1024,7 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
   }
   /** Broadcast the one state every participant reads; retained so a late joiner sees it at once. */
   function publishMeetingState(): void {
-    // The legacy practice instance keeps its own flow and takes no part in real-meeting state.
+    // A practice meeting takes no part in real-meeting state.
     if (runnerKind !== 'real') return;
     hub.publish(
       { type: 'MEETING_STATE', audience: { kind: 'all' }, payload: buildMeetingState() },
@@ -1754,7 +1741,7 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
       ...(pickedAgenda === undefined ? {} : { pickedAgenda }),
       devRoutes,
       ...(auth === undefined ? {} : { auth }),
-      ...(legacyPaths ? {} : { authMeetingId: id }),
+      authMeetingId: id,
       ...(serviceToken === undefined ? {} : { serviceToken }),
       routes,
       idle,
@@ -1817,7 +1804,6 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
         serializeChange: (task) => admit(async () => task()),
         onReset: session.onReset,
         session,
-        // Host cues are quiet only on a real product instance; the legacy demo keeps its scripted voice.
         meetingKind: () => (session.kind() === 'practice' ? 'practice' : runnerKind === 'real' ? 'real' : undefined),
         quietCue: (text: string) => {
           meetingCue = { text, at: new Date().toISOString() };
@@ -1853,6 +1839,7 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
       }
       closeRejoin();
       stopRunnerPresence?.();
+      stopSessionEnded?.();
       hub.close();
       await persistence
         ?.flush()
@@ -1903,6 +1890,7 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
     hub,
     tasks,
     memory,
+    modules,
     get roomName() {
       return roomName();
     },
@@ -1935,6 +1923,7 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
       }
       closeRejoin();
       stopRunnerPresence?.();
+      stopSessionEnded?.();
       hub.close();
       await persistence
         ?.flush()

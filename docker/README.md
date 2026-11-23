@@ -31,7 +31,7 @@ npm run index:knowledge   # embeds and indexes all 5 data sources into pgvector
 | **Mailpit** | `http://127.0.0.1:8084` | `8084` (SMTP `1025`) | Email server & web inbox (RAG source + `email` action) |
 | **Radicale CalDAV** | `http://127.0.0.1:5232` | `5232` | CalDAV calendar server (`calendar_event` action) |
 | **PostgreSQL (`pgvector`)** | `postgres://kaki:kaki_dev_password@127.0.0.1:5433/kaki` | `5433` | Structured company tables + `knowledge_chunks` vector store |
-| **LiveKit** | `ws://127.0.0.1:7880` | `7880` | WebRTC audio room for `/demo` |
+| **LiveKit** | `ws://127.0.0.1:7880` | `7880` | WebRTC audio room for `/practice` |
 
 ## Dev Logins (Unified `demo` / `demo`)
 

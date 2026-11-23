@@ -86,6 +86,11 @@ interface AccessContext {
 interface AccessProblem {
   status: number;
   error: string;
+  /**
+   * True only when the refusal means the caller has no session to act with, so the app may send
+   * them to sign in. A signed-in caller refused a permission is false, and must see the refusal.
+   */
+  signInEnded?: boolean;
 }
 
 function matchPath(pattern: string, pathname: string): Record<string, string> | undefined {
@@ -140,10 +145,10 @@ export function accessProblem(
       return undefined;
 
     case 'dev': {
-      // The local dev routes answer both at the legacy `/dev/...` paths and under one meeting's
-      // own prefix, so a dev tool can name exactly which meeting it is poking.
+      // The local dev routes answer only under one meeting's own prefix, so a dev tool names
+      // exactly which meeting it is poking.
       const prefixedDev = /^\/api\/meetings\/[^/?#]+\/dev\//.test(context.rawPath);
-      if (!context.devRoutes || !context.loopback || !(context.rawPath.startsWith('/dev/') || prefixedDev)) {
+      if (!context.devRoutes || !context.loopback || !prefixedDev) {
         return { status: 404, error: 'Not found' };
       }
       if (context.authEnabled) return { status: 404, error: 'Not found' };
@@ -155,10 +160,12 @@ export function accessProblem(
       if (context.serviceTokenConfigured || context.authEnabled) {
         return principal.kind === 'service'
           ? undefined
-          : { status: 401, error: 'Service sign-in required.' };
+          : { status: 401, error: 'Service sign-in required.', signInEnded: false };
       }
       // With no credentials configured, only the machine running Kaki may act as the runner.
-      return context.loopback ? undefined : { status: 401, error: 'Service sign-in required.' };
+      return context.loopback
+        ? undefined
+        : { status: 401, error: 'Service sign-in required.', signInEnded: false };
 
     case 'loopback':
       // The VM's own idle checker: nothing arriving through the public proxy may read it, even if
@@ -172,12 +179,17 @@ export function accessProblem(
       return {
         status: principal.kind === 'anonymous' ? 401 : 403,
         error: 'Sign in with Google to do that.',
+        signInEnded: principal.kind === 'anonymous',
       };
 
     case 'session':
       if (!context.authEnabled) return undefined;
       if (principal.kind === 'host' || principal.kind === 'seat') return undefined;
-      return { status: 401, error: 'Sign in required.' };
+      return {
+        status: 401,
+        error: 'Sign in required.',
+        signInEnded: principal.kind === 'anonymous',
+      };
 
     case 'host':
       if (!context.authEnabled) return undefined;
@@ -185,6 +197,7 @@ export function accessProblem(
       return {
         status: principal.kind === 'anonymous' ? 401 : 403,
         error: 'Only the meeting owner can do that.',
+        signInEnded: principal.kind === 'anonymous',
       };
 
     case 'host-or-practice':
@@ -195,6 +208,7 @@ export function accessProblem(
       return {
         status: principal.kind === 'anonymous' ? 401 : 403,
         error: 'Only the meeting owner can start this meeting.',
+        signInEnded: principal.kind === 'anonymous',
       };
 
     case 'seat':
@@ -203,6 +217,7 @@ export function accessProblem(
       return {
         status: principal.kind === 'anonymous' ? 401 : 403,
         error: 'Join this meeting with a seat first.',
+        signInEnded: principal.kind === 'anonymous',
       };
   }
 }

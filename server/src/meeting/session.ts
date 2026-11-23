@@ -345,6 +345,9 @@ export function createMeetingSession(deps: MeetingSessionDeps): MeetingSession {
       meetingId = deps.meetingId();
     }
 
+    // A reset of a practice meeting is still that visitor's practice: keep the capability it was
+    // created with, rebound to the new generation, so its cookie lets the visitor back in.
+    const keptPractice = meetingKind === 'practice' ? practiceGrant : undefined;
     phase = 'lobby';
     pending = undefined;
     pendingSealed = undefined;
@@ -352,8 +355,8 @@ export function createMeetingSession(deps: MeetingSessionDeps): MeetingSession {
     restoredNoMeeting = false;
     storedEnded = false;
     endedTeamReview = false;
-    meetingKind = undefined;
-    practiceGrant = undefined;
+    meetingKind = keptPractice === undefined ? undefined : 'practice';
+    practiceGrant = keptPractice === undefined ? undefined : { ...keptPractice, generation };
     deps.memory.splice(0, deps.memory.length);
 
     // Resetting a practice meeting touches only its own seal: the owner's draft, seal and edit mark

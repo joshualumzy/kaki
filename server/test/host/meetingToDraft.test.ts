@@ -3,7 +3,16 @@ import type { KakiCommand, KakiEvent, Task } from '@kaki/shared';
 import { createMattermostModule, type MattermostSettings } from '../../src/action/mattermost';
 import { createMeetingModule } from '../../src/host/meeting';
 import { createFakeLlm } from '../../src/services/llm';
-import { connectClient, createTestApp, portOf, settle, waitFor, waitForEvent, type TestClient } from '../helpers';
+import {
+  connectMeetingClient,
+  createPracticeTestApp,
+  portOf,
+  practiceModulesWith,
+  settle,
+  waitFor,
+  waitForEvent,
+  type TestClient,
+} from '../helpers';
 
 // A test verifier: trust the extraction model's suggested owner for the cards it extracted.
 function verifierLlm() {
@@ -58,7 +67,7 @@ function taskOf(event: KakiEvent): Task {
 }
 
 const clients: TestClient[] = [];
-let app: Awaited<ReturnType<typeof createTestApp>> | undefined;
+let app: Awaited<ReturnType<typeof createPracticeTestApp>> | undefined;
 
 afterEach(async () => {
   for (const client of clients.splice(0)) client.close();
@@ -68,7 +77,7 @@ afterEach(async () => {
 });
 
 async function connect(role?: string): Promise<TestClient> {
-  const client = await connectClient(portOf(app!), role);
+  const client = await connectMeetingClient(portOf(app!), app!.meetingId, role);
   clients.push(client);
   return client;
 }
@@ -100,9 +109,9 @@ describe('meeting to task to draft', () => {
       throw new Error('unexpected Mattermost request');
     });
 
-    app = await createTestApp({
+    app = await createPracticeTestApp({
       actionTools: { env: mattermostEnv },
-      modules: [
+      practiceModules: practiceModulesWith([
         createMeetingModule({
           llm: notetakerLlm,
           verifier: verifierLlm(),
@@ -114,7 +123,7 @@ describe('meeting to task to draft', () => {
           ],
         }),
         createMattermostModule({ llm: draftLlm, mattermost: settings, fetchImpl }),
-      ],
+      ]),
     });
     const screen = await connect('screen');
     const chef = await connect('chef');
@@ -202,9 +211,9 @@ describe('meeting to task to draft', () => {
       throw new Error('unexpected Mattermost request');
     });
 
-    app = await createTestApp({
+    app = await createPracticeTestApp({
       actionTools: { env: mattermostEnv },
-      modules: [
+      practiceModules: practiceModulesWith([
         createMeetingModule({
           llm: notetakerLlm,
           verifier: verifierLlm(),
@@ -217,7 +226,7 @@ describe('meeting to task to draft', () => {
           ],
         }),
         createMattermostModule({ llm: draftLlm, mattermost: settings, fetchImpl }),
-      ],
+      ]),
     });
     const screen = await connect('screen');
     await connect('chef');
@@ -255,9 +264,9 @@ describe('meeting to task to draft', () => {
         ],
       });
     });
-    app = await createTestApp({
+    app = await createPracticeTestApp({
       actionTools: { env: {} },
-      modules: [
+      practiceModules: practiceModulesWith([
         createMeetingModule({
           llm: notetakerLlm,
           verifier: verifierLlm(),
@@ -268,7 +277,7 @@ describe('meeting to task to draft', () => {
             { at: 100, speaker: 'Bao (Cashier)', text: assignment },
           ],
         }),
-      ],
+      ]),
     });
     const screen = await connect('screen');
     await connect('chef');

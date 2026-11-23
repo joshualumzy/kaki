@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, Navigate, useSearchParams } from 'react-router-dom';
 import { useMe } from '../auth/useMe';
 import { Button, Card } from '../ui';
@@ -50,10 +50,18 @@ function safeNext(value: string | null): string {
 export function SignInPage() {
   const [reloadKey, setReloadKey] = useState(0);
   const auth = useMe(reloadKey);
-  const [search] = useSearchParams();
+  const [search, setSearch] = useSearchParams();
+  const [deleted] = useState(() => search.get('deleted') === '1');
   const next = safeNext(search.get('next'));
   const startHref = `/api/auth/google/start?next=${encodeURIComponent(next)}`;
   const error = search.get('error');
+
+  useEffect(() => {
+    if (search.get('deleted') !== '1') return;
+    const rest = new URLSearchParams(search);
+    rest.delete('deleted');
+    setSearch(rest, { replace: true });
+  }, [search, setSearch]);
 
   if (auth.status === 'loading') {
     return (
@@ -96,6 +104,11 @@ export function SignInPage() {
         <p className="signin-line">
           Kaki writes the minutes and to-dos so your workspace can just talk.
         </p>
+        {deleted ? (
+          <p className="product-note" role="status">
+            Your account has been deleted, along with everything in it.
+          </p>
+        ) : null}
         {search.get('next') === null ? null : (
           <p className="product-hint">Sign in to open the page you were going to.</p>
         )}

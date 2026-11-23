@@ -507,6 +507,17 @@ export function parseScenario(value: unknown, options: ParseScenarioOptions = {}
     problems.push('vocabulary must be an array of non-empty strings when present');
   }
   readNpcs(value.npcs, value.attendees, roleIds, problems);
+  if (value.toolUrls !== undefined) {
+    if (!isObject(value.toolUrls)) {
+      problems.push('toolUrls must be an object when present');
+    } else {
+      for (const key of ['wiki', 'gitea', 'mattermost', 'email', 'calendar'] as const) {
+        if (!isNonEmptyString(value.toolUrls[key])) {
+          problems.push(`toolUrls.${key} must be a non-empty string when present`);
+        }
+      }
+    }
+  }
 
   if (problems.length > 0) {
     throw new Error(`Invalid scenario:\n- ${problems.join('\n- ')}`);

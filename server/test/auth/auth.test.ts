@@ -1,23 +1,25 @@
 import { randomUUID } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
-import { createApp, type KakiApp } from '../../src/app';
+import type { KakiApp } from '../../src/app';
 import { createAuth } from '../../src/auth/module';
 import { hashPassword, hashToken, verifyPassword } from '../../src/auth/password';
-import { createMemoryAuthStore, type AuthStore } from '../../src/auth/store';
-import { createMeetingCodeSource } from '../../src/meeting/meetingCode';
-import { testScenario } from '../fixtures/scenario';
-import { createTestApp, portOf, waitFor } from '../helpers';
+import { createMemoryAuthStore, type AuthStore, type UserRecord } from '../../src/auth/store';
+import { createTestApp, meetingUrl, openRealMeeting, portOf, waitFor, type TestMeeting } from '../helpers';
 
 const HOST_EMAIL = 'host@example.com';
 const HOST_PASSWORD = 'correct-horse-battery';
-const MEETING_CODE = 'K7M2Q9';
 
 interface OpenSocket {
   ws: WebSocket;
 }
 
 type ConnectResult = { ok: true; ws: WebSocket } | { ok: false; status: number; error?: string };
+
+interface SignedIn {
+  user: UserRecord;
+  cookie: string;
+}
 
 function cookieFrom(response: Response): string | undefined {
   const header = response.headers.get('set-cookie');
@@ -26,11 +28,16 @@ function cookieFrom(response: Response): string | undefined {
   return pair === undefined || pair === '' ? undefined : pair;
 }
 
-function connect(port: number, role: string, cookie?: string, authorization?: string): Promise<ConnectResult> {
-  const url = `ws://127.0.0.1:${port}/ws?role=${encodeURIComponent(role)}`;
+function connect(
+  port: number,
+  meetingId: string,
+  query: string,
+  options: { cookie?: string; authorization?: string } = {},
+): Promise<ConnectResult> {
+  const url = `ws://127.0.0.1:${port}/ws?meeting=${encodeURIComponent(meetingId)}&${query}`;
   const headers: Record<string, string> = {};
-  if (cookie !== undefined) headers.cookie = cookie;
-  if (authorization !== undefined) headers.authorization = authorization;
+  if (options.cookie !== undefined) headers.cookie = options.cookie;
+  if (options.authorization !== undefined) headers.authorization = options.authorization;
   const ws = new WebSocket(url, Object.keys(headers).length === 0 ? undefined : { headers });
 
   return new Promise((resolve) => {
@@ -57,6 +64,23 @@ function connect(port: number, role: string, cookie?: string, authorization?: st
   });
 }
 
+async function signInGoogle(store: AuthStore, name: string): Promise<SignedIn> {
+  const email = `${randomUUID()}@example.com`;
+  const user = await store.createGoogleUser({ googleSub: randomUUID(), name, email });
+  const token = randomUUID();
+  await store.createSession({
+    tokenHash: hashToken(token),
+    kind: 'user',
+    role: null,
+    meetingCode: null,
+    meetingId: null,
+    displayName: name,
+    userId: user.id,
+    expiresAt: new Date(Date.now() + 60_000),
+  });
+  return { user, cookie: `kaki_session=${token}` };
+}
+
 describe('auth', () => {
   let app: KakiApp;
   let store: AuthStore;
@@ -66,9 +90,8 @@ describe('auth', () => {
   beforeEach(async () => {
     store = createMemoryAuthStore();
     await store.createUser({ email: HOST_EMAIL, passwordHash: await hashPassword(HOST_PASSWORD) });
-    const meetingCode = createMeetingCodeSource(MEETING_CODE);
-    const auth = createAuth({ store, offeredRoles: () => ['chef', 'cashier'], meetingCode });
-    app = await createTestApp({ auth, meetingCode, serviceToken: 'runner-secret' });
+    const auth = createAuth({ store, offeredRoles: () => ['chef', 'cashier']});
+    app = await createTestApp({ auth, serviceToken: 'runner-secret' });
     port = portOf(app);
     sockets = [];
   });
@@ -95,23 +118,34 @@ describe('auth', () => {
     );
   }
 
-  async function signInAsHost(): Promise<string> {
-    const response = await post('/api/auth/login', {
-      email: HOST_EMAIL,
-      password: HOST_PASSWORD,
-    });
-    expect(response.status).toBe(200);
-    const cookie = cookieFrom(response);
-    if (cookie === undefined) throw new Error('Login did not set a cookie');
-    return cookie;
+  /** Open a real meeting as its signed-in owner; every host route is now open to this cookie. */
+  async function openMeeting(): Promise<{ meeting: TestMeeting; owner: SignedIn }> {
+    const owner = await signInGoogle(store, 'Ada');
+    const meeting = await openRealMeeting(app, { ownerUserId: owner.user.id, title: 'Weekly planning' });
+    const opened = await post(meetingUrl(app, meeting.id, '/api/meeting/open').replace(`http://127.0.0.1:${port}`, ''), {}, owner.cookie);
+    expect(opened.status).toBe(200);
+    return { meeting, owner };
   }
 
-  async function joinAs(role: string): Promise<string> {
-    const response = await post('/api/join', { code: MEETING_CODE, role });
-    expect(response.status).toBe(200);
-    const cookie = cookieFrom(response);
-    if (cookie === undefined) throw new Error('Join did not set a cookie');
-    return cookie;
+  /** A guest joins the meeting's link, then takes a seat through the token route. */
+  async function joinGuest(meeting: TestMeeting, name: string): Promise<string> {
+    const joined = await post(meetingUrl(app, meeting.id, '/join').replace(`http://127.0.0.1:${port}`, ''), { name });
+    expect(joined.status).toBe(200);
+    const guest = cookieFrom(joined);
+    if (guest === undefined) throw new Error('Join did not set a cookie');
+    const seated = await post(
+      meetingUrl(app, meeting.id, '/api/livekit/token').replace(`http://127.0.0.1:${port}`, ''),
+      { participantName: name },
+      guest,
+    );
+    expect(seated.status).toBe(200);
+    const seat = cookieFrom(seated);
+    if (seat === undefined) throw new Error('Taking a seat did not set a cookie');
+    return seat;
+  }
+
+  function pathFor(meeting: TestMeeting, path: string): string {
+    return meetingUrl(app, meeting.id, path).replace(`http://127.0.0.1:${port}`, '');
   }
 
   it('hashes passwords with a random salt and verifies them', async () => {
@@ -171,15 +205,16 @@ describe('auth', () => {
     expect(await me.json()).toEqual({ kind: 'host', authEnabled: true });
 
     const anonymous = await get('/api/auth/me');
-    expect(anonymous.status).toBe(401);
-    expect(await anonymous.json()).toEqual({ error: 'Not signed in', authEnabled: true });
+    expect(anonymous.status).toBe(200);
+    expect(await anonymous.json()).toEqual({ authEnabled: true, kind: null });
 
     const logout = await post('/api/auth/logout', {}, cookie);
     expect(logout.status).toBe(200);
     expect(logout.headers.get('set-cookie')).toContain('Max-Age=0');
 
     const afterLogout = await get('/api/auth/me', cookie);
-    expect(afterLogout.status).toBe(401);
+    expect(afterLogout.status).toBe(200);
+    expect(await afterLogout.json()).toEqual({ authEnabled: true, kind: null });
   });
 
   it('rate-limits five login failures per minute per address and email', async () => {
@@ -207,91 +242,73 @@ describe('auth', () => {
     expect(otherEmail.status).toBe(401);
   });
 
-  it('validates the meeting code and role before joining', async () => {
-    const host = await signInAsHost();
-    expect((await post('/api/meeting/open', {}, host)).status).toBe(200);
-    const noCode = await post('/api/join', { role: 'chef' });
-    expect(noCode.status).toBe(400);
-    expect(await noCode.json()).toEqual({ error: 'Enter the meeting code.' });
-
-    const wrongCode = await post('/api/join', { code: 'ZZZZZZ', role: 'chef' });
-    expect(wrongCode.status).toBe(403);
-    expect(await wrongCode.json()).toEqual({ error: 'That meeting code is not valid.' });
-
-    const noRole = await post('/api/join', { code: MEETING_CODE });
-    expect(noRole.status).toBe(400);
-    expect(await noRole.json()).toEqual({ error: 'Choose your role.' });
-
-    const unknownRole = await post('/api/join', { code: MEETING_CODE, role: 'waiter' });
-    expect(unknownRole.status).toBe(403);
-    expect(await unknownRole.json()).toEqual({
-      error: 'That role is not a human seat in this meeting.',
-    });
-
-    const cookie = await joinAs('chef');
-    const me = await get('/api/auth/me', cookie);
-    expect(me.status).toBe(200);
-    expect(await me.json()).toEqual({ kind: 'participant', role: 'chef', authEnabled: true });
-  });
-
   it('shows the meeting code to the host only', async () => {
-    const anonymous = await get('/api/meeting-code');
+    const { meeting, owner } = await openMeeting();
+
+    const anonymous = await get(pathFor(meeting, '/api/meeting-code'));
     expect(anonymous.status).toBe(401);
 
-    const host = await signInAsHost();
-    expect((await post('/api/meeting/open', {}, host)).status).toBe(200);
-    const participant = await joinAs('chef');
-    const forbidden = await get('/api/meeting-code', participant);
+    const guest = await joinGuest(meeting, 'Guest');
+    const forbidden = await get(pathFor(meeting, '/api/meeting-code'), guest);
     expect(forbidden.status).toBe(403);
 
-    const allowed = await get('/api/meeting-code', host);
+    const allowed = await get(pathFor(meeting, '/api/meeting-code'), owner.cookie);
     expect(allowed.status).toBe(200);
-    expect(await allowed.json()).toEqual({ code: MEETING_CODE });
+    expect(await allowed.json()).toEqual({ code: meeting.instance.meetingCode() });
   });
 
   it('gates WebSocket upgrades by session kind and role', async () => {
-    const anonymousScreen = await connect(port, 'screen');
+    const anonymousScreen = await connect(port, 'not-a-meeting', 'audience=screen');
+    // An unknown meeting is refused before any WebSocket exists.
     expect(anonymousScreen.ok).toBe(false);
-    if (!anonymousScreen.ok) expect(anonymousScreen.status).toBe(401);
+    if (!anonymousScreen.ok) expect(anonymousScreen.status).toBe(404);
 
-    const anonymousChef = await connect(port, 'chef');
-    expect(anonymousChef.ok).toBe(false);
-    if (!anonymousChef.ok) expect(anonymousChef.status).toBe(401);
+    const { meeting, owner } = await openMeeting();
 
-    const host = await signInAsHost();
-    expect((await post('/api/meeting/open', {}, host)).status).toBe(200);
-    const hostScreen = await connect(port, 'screen', host);
+    const anonymousScreenKnown = await connect(port, meeting.id, 'audience=screen');
+    expect(anonymousScreenKnown.ok).toBe(false);
+    if (!anonymousScreenKnown.ok) expect(anonymousScreenKnown.status).toBe(401);
+
+    const anonymousSeat = await connect(port, meeting.id, 'role=chef');
+    expect(anonymousSeat.ok).toBe(false);
+    if (!anonymousSeat.ok) expect(anonymousSeat.status).toBe(401);
+
+    const hostScreen = await connect(port, meeting.id, 'audience=screen', { cookie: owner.cookie });
     expect(hostScreen.ok).toBe(true);
     if (hostScreen.ok) sockets.push({ ws: hostScreen.ws });
 
-    const hostAsChef = await connect(port, 'chef', host);
+    const hostAsChef = await connect(port, meeting.id, 'role=chef', { cookie: owner.cookie });
     expect(hostAsChef.ok).toBe(false);
     if (!hostAsChef.ok) expect(hostAsChef.status).toBe(401);
 
-    const chef = await joinAs('chef');
-    const chefSocket = await connect(port, 'chef', chef);
-    expect(chefSocket.ok).toBe(true);
-    if (chefSocket.ok) sockets.push({ ws: chefSocket.ws });
+    const seat = await joinGuest(meeting, 'Ada');
+    const guestSeat = await connect(port, meeting.id, 'role=everyone', { cookie: seat });
+    expect(guestSeat.ok).toBe(false);
+    if (!guestSeat.ok) expect(guestSeat.status).toBe(401);
 
-    const wrongRole = await connect(port, 'cashier', chef);
-    expect(wrongRole.ok).toBe(false);
-    if (!wrongRole.ok) expect(wrongRole.status).toBe(401);
+    // The seat the person actually holds is the only one they may follow.
+    const holder = meeting.instance.session.holders()[0];
+    expect(holder).toBeDefined();
+    const seatFeed = await connect(port, meeting.id, `role=${encodeURIComponent(holder!.seat)}`, { cookie: seat });
+    expect(seatFeed.ok).toBe(true);
+    if (seatFeed.ok) sockets.push({ ws: seatFeed.ws });
 
-    // A participant never reads the owner's screen; their own projection is the shared feed.
-    const participantAsScreen = await connect(port, 'screen', chef);
+    // A guest never reads the owner's screen.
+    const participantAsScreen = await connect(port, meeting.id, 'audience=screen', { cookie: seat });
     expect(participantAsScreen.ok).toBe(false);
     if (!participantAsScreen.ok) expect(participantAsScreen.status).toBe(401);
 
-    const participant = await connect(port, 'participant', chef);
+    const participant = await connect(port, meeting.id, 'audience=participant', { cookie: seat });
     expect(participant.ok).toBe(true);
     if (participant.ok) sockets.push({ ws: participant.ws });
   });
 
   it('gives a participant a read-only projection that cannot command the meeting', async () => {
-    const host = await signInAsHost();
-    expect((await post('/api/meeting/open', {}, host)).status).toBe(200);
-    const chef = await joinAs('chef');
-    const participant = await connect(port, 'participant', chef);
+    const { meeting } = await openMeeting();
+    const seat = await joinGuest(meeting, 'Ada');
+    const holder = meeting.instance.session.holders()[0]!;
+
+    const participant = await connect(port, meeting.id, 'audience=participant', { cookie: seat });
     expect(participant.ok).toBe(true);
     if (!participant.ok) return;
     sockets.push({ ws: participant.ws });
@@ -307,85 +324,59 @@ describe('auth', () => {
       }
     });
 
-    participant.ws.send(JSON.stringify({ type: 'DISPATCH_TASK', taskId: 'not-a-task', assignee: 'cashier' }));
+    participant.ws.send(JSON.stringify({ type: 'DISPATCH_TASK', taskId: 'not-a-task', assignee: holder.seat }));
     const reason = await waitFor(() => rejected[0], 'participant command rejection');
     expect(reason).toMatch(/Only the shared screen can do that/);
   });
 
   it('lets signed-in people read the lifecycle and the runner use its authenticated service channel', async () => {
-    const host = await signInAsHost();
-    expect((await post('/api/meeting/open', {}, host)).status).toBe(200);
-    const chef = await joinAs('chef');
-    const participantLifecycle = await connect(port, 'lifecycle', chef);
+    const { meeting, owner } = await openMeeting();
+    const seat = await joinGuest(meeting, 'Ada');
+
+    const participantLifecycle = await connect(port, meeting.id, 'audience=lifecycle', { cookie: seat });
     expect(participantLifecycle.ok).toBe(true);
     if (participantLifecycle.ok) sockets.push({ ws: participantLifecycle.ws });
 
-    const hostLifecycle = await connect(port, 'lifecycle', host);
+    const hostLifecycle = await connect(port, meeting.id, 'audience=lifecycle', { cookie: owner.cookie });
     expect(hostLifecycle.ok).toBe(true);
     if (hostLifecycle.ok) sockets.push({ ws: hostLifecycle.ws });
 
-    const anonymousLifecycle = await connect(port, 'lifecycle');
+    const anonymousLifecycle = await connect(port, meeting.id, 'audience=lifecycle');
     expect(anonymousLifecycle.ok).toBe(false);
     if (!anonymousLifecycle.ok) expect(anonymousLifecycle.status).toBe(401);
 
-    const anonymousService = await connect(port, 'service');
+    const anonymousService = await connect(port, meeting.id, 'audience=service');
     expect(anonymousService.ok).toBe(false);
     if (!anonymousService.ok) expect(anonymousService.status).toBe(401);
 
-    const wrongToken = await connect(port, 'service', undefined, 'Bearer not-the-secret');
+    const wrongToken = await connect(port, meeting.id, 'audience=service', {
+      authorization: 'Bearer not-the-secret',
+    });
     expect(wrongToken.ok).toBe(false);
     if (!wrongToken.ok) expect(wrongToken.status).toBe(401);
 
-    const runner = await connect(port, 'service', undefined, 'Bearer runner-secret');
+    const runner = await connect(port, meeting.id, 'audience=service', {
+      authorization: 'Bearer runner-secret',
+    });
     expect(runner.ok).toBe(true);
     if (runner.ok) sockets.push({ ws: runner.ws });
   });
 
-  it('lets the AI runner command only on the screen and its AI seats, never a human seat', async () => {
-    await app.close();
-    const scenario = {
-      ...testScenario,
-      roles: [...testScenario.roles, { id: 'manager', label: 'Manager' }],
-      attendees: [...testScenario.attendees, { name: 'Cy', role: 'manager', displayName: 'Cy' }],
-      npcs: [
-        { attendee: 'Cy', voice: 'test-voice', personality: 'Quiet.', agenda: 'Keep the kitchen running.', concerns: [] },
-      ],
-    };
-    const meetingCode = createMeetingCodeSource(MEETING_CODE);
-    const aiAuth = createAuth({ store, offeredRoles: () => ['chef', 'cashier'], meetingCode });
-    app = await createApp({ speechRecognition: 'browser', scenario, auth: aiAuth, meetingCode, serviceToken: 'runner-secret' });
-    port = portOf(app);
-
-    const task = app.tasks.suggest({ title: 'Approve the order', context: 'Lunch prep', suggestedAssignee: 'manager' });
-    app.tasks.transition(task.id, 'DISPATCHED', { assignee: 'manager' });
-    app.tasks.transition(task.id, 'CLAIMED', { mode: 'MANUAL' });
-    const draft = { target: 'orders@example.com', subject: 'Order', body: 'Please confirm.' };
-    app.tasks.transition(task.id, 'DRAFT_READY', { draft });
+  it('lets the runner drive the screen but never take a human seat', async () => {
+    const { meeting } = await openMeeting();
+    await joinGuest(meeting, 'Ada');
+    const holder = meeting.instance.session.holders()[0]!;
 
     // The runner's token may not open a human seat, even though it may drive the screen.
-    const humanSeat = await connect(port, 'chef', undefined, 'Bearer runner-secret');
+    const humanSeat = await connect(port, meeting.id, `role=${encodeURIComponent(holder.seat)}`, {
+      authorization: 'Bearer runner-secret',
+    });
     expect(humanSeat.ok).toBe(false);
     if (!humanSeat.ok) expect(humanSeat.status).toBe(401);
 
-    const runnerRole = await connect(port, 'manager', undefined, 'Bearer runner-secret');
-    expect(runnerRole.ok).toBe(true);
-    if (!runnerRole.ok) return;
-    sockets.push({ ws: runnerRole.ws });
-    const roleEvents: Array<{ type?: string }> = [];
-    runnerRole.ws.on('message', (data) => roleEvents.push(JSON.parse(data.toString()) as { type?: string }));
-
-    runnerRole.ws.send(JSON.stringify({ type: 'APPROVE_ACTION', taskId: task.id, draft }));
-    await waitFor(() => (app.tasks.get(task.id)?.status === 'RUNNING' ? true : undefined), 'the runner to approve');
-    expect(roleEvents.some((event) => event.type === 'COMMAND_REJECTED')).toBe(false);
-
-    // The runner may act only for its own roles: dispatching a task is not one of its commands.
-    runnerRole.ws.send(JSON.stringify({ type: 'DISPATCH_TASK', taskId: task.id, assignee: 'manager' }));
-    await waitFor(
-      () => (roleEvents.some((event) => event.type === 'COMMAND_REJECTED') ? true : undefined),
-      'the forbidden runner command to be refused',
-    );
-
-    const runnerScreen = await connect(port, 'screen', undefined, 'Bearer runner-secret');
+    const runnerScreen = await connect(port, meeting.id, 'audience=screen', {
+      authorization: 'Bearer runner-secret',
+    });
     expect(runnerScreen.ok).toBe(true);
     if (!runnerScreen.ok) return;
     sockets.push({ ws: runnerScreen.ws });
@@ -395,43 +386,53 @@ describe('auth', () => {
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(screenEvents.some((event) => event.type === 'COMMAND_REJECTED')).toBe(false);
 
-    // The command path is the runner's: a browser without the service token still cannot use it.
-    const anonymousService = await connect(port, 'service');
+    // The service channel still requires the token: a browser cannot use it.
+    const anonymousService = await connect(port, meeting.id, 'audience=service');
     expect(anonymousService.ok).toBe(false);
     if (!anonymousService.ok) expect(anonymousService.status).toBe(401);
   });
 
   it('rejects an expired session cookie over HTTP and WebSocket', async () => {
+    const { meeting } = await openMeeting();
+    const user = await store.createGoogleUser({
+      googleSub: randomUUID(),
+      name: 'Expired',
+      email: `${randomUUID()}@example.com`,
+    });
     const token = `expired-${randomUUID()}`;
     await store.createSession({
       tokenHash: hashToken(token),
-      kind: 'host',
+      kind: 'user',
       role: null,
       meetingCode: null,
       meetingId: null,
+      displayName: 'Expired',
+      userId: user.id,
       expiresAt: new Date(Date.now() - 1_000),
     });
 
     const cookie = `kaki_session=${encodeURIComponent(token)}`;
     const me = await get('/api/auth/me', cookie);
-    expect(me.status).toBe(401);
+    expect(me.status).toBe(200);
+    expect(await me.json()).toEqual({ authEnabled: true, kind: null });
 
-    const socket = await connect(port, 'screen', cookie);
+    const socket = await connect(port, meeting.id, 'audience=screen', { cookie });
     expect(socket.ok).toBe(false);
     if (!socket.ok) expect(socket.status).toBe(401);
   });
 
-  it('reports auth off and keeps the old open WebSocket flow when no auth is injected', async () => {
+  it('reports auth off and keeps the open WebSocket flow when no auth is injected', async () => {
     const plain = await createTestApp();
     try {
       const plainPort = portOf(plain);
+      const meeting = await openRealMeeting(plain);
       const me = await fetch(`http://127.0.0.1:${plainPort}/api/auth/me`);
       expect(me.status).toBe(200);
       expect(await me.json()).toEqual({ authEnabled: false });
 
-      const chef = await connect(plainPort, 'chef');
-      expect(chef.ok).toBe(true);
-      if (chef.ok) chef.ws.terminate();
+      const screen = await connect(plainPort, meeting.id, 'audience=screen');
+      expect(screen.ok).toBe(true);
+      if (screen.ok) screen.ws.terminate();
     } finally {
       await plain.close();
     }

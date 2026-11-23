@@ -54,6 +54,21 @@ key_is_set() { # key file...
   return 1
 }
 
+# Whether a /health body reports the dev-only scripted speech as on.
+# Returns 0 when it is on, 1 when it is off, and 2 when the body does not say (so a check fails loudly).
+health_reports_fake_speech() { # health-json
+  local body
+  body=$(printf '%s' "$1" | tr -d '[:space:]')
+  case "$body" in
+    *'"fakeSpeech":true'*) return 0 ;;
+    *'"fakeSpeech":false'*) return 1 ;;
+    *)
+      echo "FAIL  /health did not report fakeSpeech; cannot check this deployment." >&2
+      return 2
+      ;;
+  esac
+}
+
 # The port the Kaki API listens on: PORT from the shell, else the root .env, else the server default.
 kaki_api_port() { # env-file
   local port="${PORT:-}"

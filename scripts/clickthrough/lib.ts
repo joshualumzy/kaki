@@ -1,12 +1,94 @@
 /// <reference lib="dom" />
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
+// The fake speaker reads the LiveKit keys from the repo's .env, like the runner does.
+import '../../server/src/env';
+import { createFakeSpeaker } from '../../server/src/npc/fakeStt';
 
 export const BASE = 'http://localhost:5173';
 export const ROOT = process.cwd();
 export const LOG_DIR = resolve(ROOT, '.live-logs/clickthrough');
+
+/** The one cross-process lock the journeys share, so parallel runs never exhaust the meeting caps. */
+const JOURNEY_LOCK_DIR = resolve(LOG_DIR, '.journey-lock');
+const JOURNEY_LOCK_WAIT_MS = 45 * 60_000;
+const JOURNEY_LOCK_POLL_MS = 2_000;
+const JOURNEY_LOCK_STALE_MS = 60 * 60_000;
+
+interface JourneyLockOwner {
+  journey: string;
+  pid: number;
+  at: string;
+}
+
+function readJourneyLock(): JourneyLockOwner | undefined {
+  try {
+    return JSON.parse(readFileSync(resolve(JOURNEY_LOCK_DIR, 'owner.json'), 'utf8')) as JourneyLockOwner;
+  } catch {
+    return undefined;
+  }
+}
+
+function processIsRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
+function releaseJourneyLock(): void {
+  rmSync(JOURNEY_LOCK_DIR, { recursive: true, force: true });
+}
+
+/**
+ * Run one journey while holding the shared journey lock. The click-through meetings count toward the
+ * server's open-meeting caps, so starting every journey at once can make a practice or real meeting
+ * fail with "busy". Serialising the journeys keeps every run well inside the caps the product ships.
+ */
+export async function withJourneyLock<T>(journey: string, run: () => Promise<T>): Promise<T> {
+  mkdirSync(LOG_DIR, { recursive: true });
+  const started = Date.now();
+  for (;;) {
+    try {
+      mkdirSync(JOURNEY_LOCK_DIR);
+      writeFileSync(
+        resolve(JOURNEY_LOCK_DIR, 'owner.json'),
+        JSON.stringify({ journey, pid: process.pid, at: new Date().toISOString() } satisfies JourneyLockOwner),
+      );
+      break;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+      const owner = readJourneyLock();
+      const age = owner === undefined
+        ? Date.now() - statSync(JOURNEY_LOCK_DIR).mtimeMs
+        : Date.now() - Date.parse(owner.at);
+      const stale = age > JOURNEY_LOCK_STALE_MS || (owner !== undefined && !processIsRunning(owner.pid));
+      if (stale) {
+        releaseJourneyLock();
+        continue;
+      }
+      if (Date.now() - started > JOURNEY_LOCK_WAIT_MS) {
+        throw new Error(
+          `click-through journeys run one at a time, and ${owner?.journey ?? 'another journey'} has held the lock for over 45 minutes`,
+        );
+      }
+      await new Promise((resolve) => setTimeout(resolve, JOURNEY_LOCK_POLL_MS));
+    }
+  }
+  const release = (): void => releaseJourneyLock();
+  process.once('exit', release);
+  console.log(`click-through journey ${journey}: running alone (journeys are serialised to stay inside the meeting caps)`);
+  try {
+    return await run();
+  } finally {
+    process.removeListener('exit', release);
+    release();
+  }
+}
 
 export type FindingKind = 'ERROR' | 'DEAD-END' | 'CONFUSING' | 'LAYOUT' | 'SLOW';
 
@@ -230,6 +312,55 @@ export function stamp(): string {
   return String(Date.now()).slice(-7);
 }
 
+/** Meetings this process created, so finishing a journey can end them and free the open-meeting caps. */
+const createdMeetings: Array<{ page: Page; meetingId: string }> = [];
+
+/**
+ * End every meeting this journey opened that is still running, then close the browser.
+ * The click-through meetings count toward the server's open-meeting caps, so a suite that leaves
+ * them running eventually makes the next journey fail with "busy". Cleanup runs after the journey's
+ * own checks and screenshots, so it never changes what the journey measured.
+ */
+export async function closeBrowser(browser: Browser): Promise<void> {
+  for (const opened of createdMeetings.splice(0)) {
+    if (opened.page.isClosed()) continue;
+    try {
+      const info = (await opened.page.request
+        .get(`${BASE}/api/meetings/${encodeURIComponent(opened.meetingId)}/info`)
+        .then((response) => response.json())
+        .catch(() => null)) as { status?: unknown } | null;
+      if (info?.status === 'ended') continue;
+      // The owner's screen feed carries END_MEETING even when the page has moved on to the minutes.
+      // No named helper functions here: tsx's name-keeping helper does not exist inside the page.
+      await opened.page.evaluate(async (meetingId) => {
+        await new Promise<void>((resolve) => {
+          const socket = new WebSocket(
+            `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws?audience=screen&meeting=${encodeURIComponent(meetingId)}`,
+          );
+          socket.addEventListener('open', () => {
+            socket.send(JSON.stringify({ type: 'END_MEETING' }));
+            window.setTimeout(() => {
+              socket.close();
+              resolve();
+            }, 1_000);
+          });
+          socket.addEventListener('error', () => {
+            socket.close();
+            resolve();
+          });
+          window.setTimeout(() => {
+            socket.close();
+            resolve();
+          }, 5_000);
+        });
+      }, opened.meetingId);
+    } catch {
+      // Cleanup must never turn a passing journey into a failure; a leftover room expires on its own.
+    }
+  }
+  await browser.close();
+}
+
 /** Create a meeting on /new and return its link; leaves the page on the created-meeting card. */
 export async function createMeeting(
   page: Page,
@@ -262,7 +393,13 @@ export async function createMeeting(
   await page.getByText('The meeting is ready').waitFor({ timeout: 20_000 });
   const link = await page.locator('.product-invite-link a').first().getAttribute('href');
   if (link === null) throw new Error('created meeting has no link');
-  return new URL(link, BASE).toString();
+  const url = new URL(link, BASE);
+  const [, route, rawMeetingId] = url.pathname.split('/');
+  if (route !== 'm' || rawMeetingId === undefined || rawMeetingId === '') {
+    throw new Error(`created meeting link ${url.toString()} has no meeting id`);
+  }
+  createdMeetings.push({ page, meetingId: decodeURIComponent(rawMeetingId) });
+  return url.toString();
 }
 
 /** Start a real meeting room once the owner's waiting overlay shows; harmless when already running. */
@@ -324,15 +461,34 @@ export async function inviteLink(page: Page): Promise<string> {
   return new URL(href, BASE).toString();
 }
 
-export async function sendTyped(page: Page, line: string): Promise<void> {
-  const box = page.getByLabel('Type to the meeting');
-  // The Type button toggles: pressing it while the box is open would close it again.
-  if (!(await box.isVisible().catch(() => false))) {
-    await page.getByRole('button', { name: 'Type', exact: true }).click();
-  }
-  await box.waitFor({ timeout: 10_000 });
-  await box.fill(line);
-  await box.press('Enter');
+let fakeSpeaker: ReturnType<typeof createFakeSpeaker> | undefined;
+
+/** The name this page joined with, remembered by the app for a reload. */
+async function joinedName(page: Page): Promise<string> {
+  const name = await page.evaluate(() => {
+    for (let index = 0; index < sessionStorage.length; index += 1) {
+      const key = sessionStorage.key(index);
+      if (key === null || (!key.startsWith('kaki.join.') && !key.startsWith('kaki.real.'))) continue;
+      try {
+        const value = JSON.parse(sessionStorage.getItem(key) ?? '{}') as { name?: unknown };
+        if (typeof value.name === 'string' && value.name.trim() !== '') return value.name.trim();
+      } catch {
+        // A malformed stored join is not this helper's problem; keep looking.
+      }
+    }
+    return undefined;
+  });
+  if (name === undefined) throw new Error('fake speech: this page has no remembered join name');
+  return name;
+}
+
+/**
+ * Make a person speak through the dev-only fake recogniser (`KAKI_FAKE_STT=1`). There is no text
+ * box in either mode any more, so a scripted visitor says its line as its own LiveKit identity.
+ */
+export async function speakLine(page: Page, line: string): Promise<void> {
+  fakeSpeaker ??= createFakeSpeaker();
+  await fakeSpeaker.say(await joinedName(page), line);
 }
 
 export async function joinAsGuest(page: Page, link: string, name: string): Promise<void> {

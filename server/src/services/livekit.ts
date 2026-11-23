@@ -4,7 +4,7 @@ import { AccessToken, RoomServiceClient } from 'livekit-server-sdk';
  * `livekit-server --dev` accepts this key pair; set LIVEKIT_API_KEY / LIVEKIT_API_SECRET to override.
  * With sign-in on, a missed variable must stop the server rather than let anyone forge room tokens.
  */
-function livekitCredentials(): { key: string; secret: string } {
+export function livekitCredentials(): { key: string; secret: string } {
   const key = process.env.LIVEKIT_API_KEY?.trim();
   const secret = process.env.LIVEKIT_API_SECRET?.trim();
   if (process.env.KAKI_AUTH === '1') {

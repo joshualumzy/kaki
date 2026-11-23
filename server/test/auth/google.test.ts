@@ -7,7 +7,6 @@ import { createGoogleSignIn, GOOGLE_NOT_SET_UP_MESSAGE } from '../../src/auth/go
 import { createAuth, type Auth } from '../../src/auth/module';
 import { createMemoryAuthStore, type AuthStore } from '../../src/auth/store';
 import { createMemoryMeetingStore } from '../../src/meeting/registry';
-import { createMeetingCodeSource } from '../../src/meeting/meetingCode';
 import { testScenario } from '../fixtures/scenario';
 import { portOf } from '../helpers';
 
@@ -95,10 +94,8 @@ interface BuiltApp {
 
 async function buildApp(withGoogle = true): Promise<BuiltApp> {
   const store = createMemoryAuthStore();
-  const meetingCode = createMeetingCodeSource('K7M2Q9');
   const auth = createAuth({
     store,
-    meetingCode,
     ...(withGoogle
       ? {
           google: createGoogleSignIn({
@@ -120,7 +117,6 @@ async function buildApp(withGoogle = true): Promise<BuiltApp> {
     scenario: testScenario,
     speechRecognition: 'browser',
     auth,
-    meetingCode,
     meetings: createMemoryMeetingStore(),
   });
   apps.push(app);

@@ -1,19 +1,18 @@
 // Must stay the first import: later modules read process.env as they load.
 import './env';
-import { createActionModules, calendarFromEnv, logMissingActionConfig } from './action';
+import { calendarFromEnv, logMissingActionConfig } from './action';
 import { createApp } from './app';
 import { createAuthFromEnv } from './auth/module';
-import { createHostModules } from './host';
+import { createPracticeModules } from './modules';
 import { loadScenario } from './core/loadScenario';
-import { createMeetingCodeSource } from './meeting/meetingCode';
 import { createMeetingPersistenceFromEnv } from './persist/persistence';
 import { Pool } from 'pg';
 import { ensureMeetingsSchema, ensureWorkspaceToolsSchema } from './auth/schema';
 import { createPostgresMeetingStore, type MeetingStore } from './meeting/registry';
 import type { MeetingPersistence } from './persist/persistence';
-import { createWingmanModules } from './wingman';
 import { logMissingSecretKey } from './workspace/secrets';
 import { createPostgresWorkspaceToolStore, type WorkspaceToolStore } from './workspace/tools';
+import { createPostgresAccountDataDeletion } from './account/deleteAccountData';
 
 logMissingActionConfig();
 logMissingSecretKey();
@@ -26,7 +25,6 @@ if (!Number.isInteger(port) || port < 1 || port > 65535) {
 
 const bindHost = process.env.KAKI_BIND?.trim() || '0.0.0.0';
 const scenario = await loadScenario();
-const persistence = await createMeetingPersistenceFromEnv();
 const postgresUrl = process.env.POSTGRES_URL?.trim();
 let meetings: MeetingStore | undefined;
 let findSavedIdByCode: ((code: string) => Promise<string | undefined>) | undefined;
@@ -50,27 +48,28 @@ if (postgresUrl !== undefined && postgresUrl !== '') {
   const codePool = meetingsPool;
   findSavedIdByCode = async (code: string) => {
     const result = await codePool.query<{ id: string }>(
-      "select id from meeting_state where meeting_code = $1 and id <> 'meeting' limit 1",
+      'select id from meeting_state where meeting_code = $1 limit 1',
       [code],
     );
     return result.rows[0]?.id;
   };
 }
-const host = createHostModules(scenario);
 /** Every practice meeting gets its own clock and modules; sharing one set would share their state. */
-const practiceModules = () => {
-  const practiceHost = createHostModules(scenario);
-  return {
-    modules: [...practiceHost.modules, ...createWingmanModules(), ...createActionModules()],
-    meetingElapsedSeconds: practiceHost.meetingElapsedSeconds,
-    meetingAgendaIndex: practiceHost.meetingAgendaIndex,
-    meetingPaused: practiceHost.meetingPaused,
-    meetingPause: practiceHost.meetingPause,
-  };
-};
-const meetingCode = createMeetingCodeSource();
+const practiceModules = () => createPracticeModules(scenario);
 const authEnabled = process.env.KAKI_AUTH === '1';
-const auth = authEnabled ? await createAuthFromEnv({ meetingCode }) : undefined;
+const auth = authEnabled ? await createAuthFromEnv() : undefined;
+const accountDeletion =
+  auth !== undefined &&
+  meetings !== undefined &&
+  workspaceTools !== undefined &&
+  meetingsPool !== undefined
+    ? createPostgresAccountDataDeletion({
+        pool: meetingsPool,
+        auth: auth.store,
+        meetings,
+        tools: workspaceTools,
+      })
+    : undefined;
 
 let app: Awaited<ReturnType<typeof createApp>>;
 try {
@@ -78,26 +77,19 @@ try {
     port,
     host: bindHost,
     scenario,
-    modules: [...host.modules, ...createWingmanModules(), ...createActionModules()],
     practiceModules,
     devRoutes: process.env.KAKI_DEV_ROUTES === '1',
     auth,
     calendar: calendarFromEnv(),
     draftOnly: process.env.KAKI_DRAFT_ONLY === '1',
-    meetingElapsedSeconds: host.meetingElapsedSeconds,
-    meetingAgendaIndex: host.meetingAgendaIndex,
-    meetingPaused: host.meetingPaused,
-    meetingPause: host.meetingPause,
-    persistence,
-    meetingCode,
     ...(meetings === undefined ? {} : { meetings }),
     ...(workspaceTools === undefined ? {} : { workspaceTools }),
+    ...(accountDeletion === undefined ? {} : { accountDeletion }),
     ...(persistenceFor === undefined ? {} : { persistenceFor }),
     ...(findSavedIdByCode === undefined ? {} : { findSavedIdByCode }),
   });
 } catch (error) {
   await auth?.close().catch(() => undefined);
-  await persistence?.close().catch(() => undefined);
   await meetingsPool?.end().catch(() => undefined);
   throw error;
 }

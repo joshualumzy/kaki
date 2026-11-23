@@ -1,11 +1,19 @@
+import { randomUUID } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { deriveMeetingScenario, parseScenario, type MeetingSetup, type Scenario } from '@kaki/shared';
-import { createApp, type KakiApp } from '../src/app';
+import type { KakiApp } from '../src/app';
 import { createAuth } from '../src/auth/module';
-import { hashPassword } from '../src/auth/password';
-import { createMemoryAuthStore } from '../src/auth/store';
-import { createMeetingCodeSource } from '../src/meeting/meetingCode';
-import { createTestApp, portOf } from './helpers';
+import { hashToken } from '../src/auth/password';
+import { createMemoryAuthStore, type AuthStore } from '../src/auth/store';
+import { realBaseScenario } from '../src/meeting/realMeeting';
+import type { MeetingRow } from '../src/meeting/types';
+import {
+  createPracticeTestApp,
+  createRealTestApp,
+  createTestApp,
+  meetingUrl,
+  type TestAppWithMeeting,
+} from './helpers';
 import { testScenario } from './fixtures/scenario';
 
 interface SetupResponse {
@@ -19,21 +27,78 @@ function cookieFrom(response: Response): string | undefined {
   return pair === undefined || pair === '' ? undefined : pair;
 }
 
+/** A signed-in product account; a real meeting's owner is an account, not a password host. */
+async function signInGoogle(store: AuthStore, name: string): Promise<{ userId: string; cookie: string }> {
+  const email = `${randomUUID()}@example.com`;
+  const user = await store.createGoogleUser({ googleSub: randomUUID(), name, email });
+  const token = randomUUID();
+  await store.createSession({
+    tokenHash: hashToken(token),
+    kind: 'user',
+    role: null,
+    meetingCode: null,
+    meetingId: null,
+    displayName: name,
+    userId: user.id,
+    expiresAt: new Date(Date.now() + 60_000),
+  });
+  return { userId: user.id, cookie: `kaki_session=${token}` };
+}
+
+interface RealSetup {
+  app: TestAppWithMeeting;
+  row: MeetingRow;
+  ownerCookie: string;
+}
+
+async function realAuthApp(store: AuthStore): Promise<RealSetup> {
+  const owner = await signInGoogle(store, 'Ada Owner');
+  const auth = createAuth({ store, offeredRoles: () => ['chef', 'cashier']});
+  const app = (await createTestApp({
+    auth,
+    roomRoster: async () => [],
+  })) as TestAppWithMeeting;
+  const row = await app.registry.create({
+    workspaceId: 'workspace-1',
+    ownerUserId: owner.userId,
+    title: 'Lunch service readiness',
+    agenda: testScenario.agenda.map((item) => ({
+      title: item.title,
+      minutes: item.minutes,
+      ownerRoleId: 'everyone',
+    })),
+  });
+  const instance = await app.registry.get(row.id);
+  if (instance === undefined) throw new Error(`the real meeting ${row.id} did not load`);
+  Object.assign(app, {
+    id: instance.id,
+    instance,
+    hub: instance.hub,
+    tasks: instance.tasks,
+    session: instance.session,
+    memory: instance.memory,
+    roomName: instance.roomName,
+    meetingId: row.id,
+  });
+  return { app, row, ownerCookie: owner.cookie };
+}
+
 describe('setup API', () => {
-  let app: KakiApp;
-  let base: string;
+  let app: TestAppWithMeeting;
+  let meetings: KakiApp[];
 
   beforeEach(async () => {
-    app = await createTestApp({ roomRoster: async () => [] });
-    base = `http://127.0.0.1:${portOf(app)}`;
+    meetings = [];
+    app = await createPracticeTestApp({ roomRoster: async () => [] });
+    meetings.push(app);
   });
 
   afterEach(async () => {
-    await app.close();
+    for (const meeting of meetings.splice(0)) await meeting.close();
   });
 
   async function getSetup(): Promise<SetupResponse> {
-    const response = await fetch(`${base}/api/setup`);
+    const response = await fetch(meetingUrl(app, app.meetingId, '/api/setup'));
     expect(response.status).toBe(200);
     return (await response.json()) as SetupResponse;
   }
@@ -41,7 +106,7 @@ describe('setup API', () => {
   function putSetup(setup: unknown, cookie?: string): Promise<Response> {
     const headers: Record<string, string> = { 'content-type': 'application/json' };
     if (cookie !== undefined) headers.cookie = cookie;
-    return fetch(`${base}/api/setup`, {
+    return fetch(meetingUrl(app, app.meetingId, '/api/setup'), {
       method: 'PUT',
       headers,
       body: JSON.stringify(setup),
@@ -72,25 +137,6 @@ describe('setup API', () => {
     expect((await getSetup()).setup.title).toBe('Friday lunch readiness');
   });
 
-  it('shows the saved plan title and person seats before the meeting starts', async () => {
-    const { setup } = await getSetup();
-    setup.title = 'Friday lunch readiness';
-    setup.source.title = 'typed';
-    setup.roles = setup.roles.map((role, index) => ({
-      ...role,
-      label: index === 0 ? 'Owner' : 'Ana',
-    }));
-    expect((await putSetup(setup)).status).toBe(200);
-
-    const response = await fetch(`${base}/api/scenario`);
-    expect(response.status).toBe(200);
-    const scenario = (await response.json()) as Scenario;
-    expect(scenario.meetingTitle).toBe('Friday lunch readiness');
-    expect(scenario.joinSeats).toEqual(setup.roles.map((role) => role.id));
-    expect(scenario.roles.map((role) => role.label)).toEqual(['Owner', 'Ana']);
-    expect(scenario.agenda.map((item) => item.title)).toEqual(setup.agenda.map((item) => item.title));
-  });
-
   it('returns field-specific errors and keeps the previous draft', async () => {
     const { setup } = await getSetup();
     setup.agenda[0]!.minutes = 0;
@@ -107,14 +153,16 @@ describe('setup API', () => {
   });
 
   it('refuses changes after the meeting has started', async () => {
-    expect((await fetch(`${base}/api/meeting/open`, { method: 'POST' })).status).toBe(200);
-    const joined = await fetch(`${base}/api/livekit/token`, {
+    const joined = await fetch(meetingUrl(app, app.meetingId, '/api/livekit/token'), {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ roomName: 'test-room', participantName: 'Cook', participantRole: 'chef' }),
+      headers: { 'content-type': 'application/json', cookie: app.cookie! },
+      body: JSON.stringify({ participantName: 'Cook', participantRole: 'chef', kind: 'practice' }),
     });
     expect(joined.status).toBe(200);
-    const started = await fetch(`${base}/api/meeting/start`, { method: 'POST' });
+    const started = await fetch(meetingUrl(app, app.meetingId, '/api/meeting/start'), {
+      method: 'POST',
+      headers: { cookie: app.cookie! },
+    });
     expect(started.status).toBe(200);
 
     const { setup } = await getSetup();
@@ -137,107 +185,120 @@ describe('setup API', () => {
   });
 });
 
+describe('a saved plan shown before the meeting starts', () => {
+  it('shows the saved plan title and person seats', async () => {
+    const app = await createRealTestApp(
+      { roomRoster: async () => [] },
+      { title: 'Lunch service readiness', agenda: [{ title: 'Prep', minutes: 5 }] },
+    );
+    const meetings: KakiApp[] = [app];
+    try {
+      const loaded = await fetch(meetingUrl(app, app.meetingId, '/api/setup'));
+      expect(loaded.status).toBe(200);
+      const { setup } = (await loaded.json()) as SetupResponse;
+      setup.title = 'Friday lunch readiness';
+      setup.source.title = 'typed';
+      setup.roles = setup.roles.map((role, index) => ({
+        ...role,
+        label: index === 0 ? 'Owner' : 'Ana',
+      }));
+      const saved = await fetch(meetingUrl(app, app.meetingId, '/api/setup'), {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(setup),
+      });
+      expect(saved.status).toBe(200);
+
+      const response = await fetch(meetingUrl(app, app.meetingId, '/api/scenario'));
+      expect(response.status).toBe(200);
+      const scenario = (await response.json()) as Scenario;
+      expect(scenario.meetingTitle).toBe('Friday lunch readiness');
+      expect(scenario.joinSeats).toEqual(setup.seats.map((seat) => seat.roleId));
+      expect(scenario.roles.map((role) => role.label)).toEqual(['Owner', 'Ana']);
+      expect(scenario.agenda.map((item) => item.title)).toEqual(setup.agenda.map((item) => item.title));
+    } finally {
+      for (const meeting of meetings.splice(0)) await meeting.close();
+    }
+  });
+});
+
 describe('scenario shown for a touched draft', () => {
-  const scenarioWithPairs: Scenario = {
-    id: 'test-pairs',
-    organisation: 'Test Kitchen',
-    meetingTitle: 'Lunch service readiness',
-    roles: [
-      { id: 'chef', label: 'Chef' },
-      { id: 'cashier', label: 'Cashier' },
-    ],
-    attendees: [
-      { name: 'Ada', role: 'chef', displayName: 'Ada (Chef)' },
-      { name: 'Bao', role: 'cashier', displayName: 'Bao (Cashier)' },
-    ],
-    agenda: [
-      {
-        title: 'Prep',
-        minutes: 5,
-        canWait: false,
-        deadline: 'before service',
-        ownerRole: 'chef',
-        links: [{ with: 'Restock', effect: 'Restocking waits until prep is done.' }],
-      },
-      { title: 'Restock', minutes: 5, canWait: false, deadline: 'before service', ownerRole: 'cashier' },
-      { title: 'Service', minutes: 5, canWait: false, deadline: 'before service', ownerRole: 'chef' },
-    ],
-    excludedPairs: [
-      ['Prep', 'Restock'],
-      ['Restock', 'Service'],
-    ],
-  };
-  let app: KakiApp;
-  let base: string;
+  const agenda = [
+    { title: 'Prep', minutes: 5 },
+    { title: 'Restock', minutes: 5 },
+    { title: 'Service', minutes: 5 },
+  ];
+  let app: TestAppWithMeeting;
+  let meetings: KakiApp[];
 
   beforeEach(async () => {
-    app = await createApp({ scenario: scenarioWithPairs, speechRecognition: 'browser', roomRoster: async () => [] });
-    base = `http://127.0.0.1:${portOf(app)}`;
+    meetings = [];
+    app = await createRealTestApp(
+      { roomRoster: async () => [] },
+      { title: 'Lunch service readiness', agenda },
+    );
+    meetings.push(app);
   });
 
   afterEach(async () => {
-    await app.close();
+    for (const meeting of meetings.splice(0)) await meeting.close();
   });
 
-  it('drops excluded pairs and links that named an agenda item the draft removed', async () => {
-    const loaded = await fetch(`${base}/api/setup`);
+  it('drops agenda items the draft removed from the visible plan', async () => {
+    const loaded = await fetch(meetingUrl(app, app.meetingId, '/api/setup'));
     expect(loaded.status).toBe(200);
     const { setup } = (await loaded.json()) as SetupResponse;
     setup.title = 'Friday lunch readiness';
     setup.source.title = 'typed';
     setup.agenda = [setup.agenda[0]!];
-    const saved = await fetch(`${base}/api/setup`, {
+    const saved = await fetch(meetingUrl(app, app.meetingId, '/api/setup'), {
       method: 'PUT',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(setup),
     });
     expect(saved.status).toBe(200);
 
-    const response = await fetch(`${base}/api/scenario`);
+    const response = await fetch(meetingUrl(app, app.meetingId, '/api/scenario'));
     expect(response.status).toBe(200);
     const visible = (await response.json()) as Scenario;
-    expect(() => parseScenario(visible)).not.toThrow();
+    expect(() => parseScenario(visible, { requireOrganisation: false })).not.toThrow();
     expect(visible.agenda.map((item) => item.title)).toEqual(['Prep']);
     expect(visible.excludedPairs).toBeUndefined();
     expect(visible.agenda[0]?.links).toBeUndefined();
   });
 
   it('keeps the live agenda while the draft is blank', async () => {
-    const blank = await fetch(`${base}/api/setup/blank`, { method: 'POST' });
+    const blank = await fetch(meetingUrl(app, app.meetingId, '/api/setup/blank'), { method: 'POST' });
     expect(blank.status).toBe(200);
 
-    const response = await fetch(`${base}/api/scenario`);
+    const response = await fetch(meetingUrl(app, app.meetingId, '/api/scenario'));
     expect(response.status).toBe(200);
     const visible = (await response.json()) as Scenario;
-    expect(() => parseScenario(visible)).not.toThrow();
-    expect(visible.agenda.map((item) => item.title)).toEqual(scenarioWithPairs.agenda.map((item) => item.title));
+    expect(() => parseScenario(visible, { requireOrganisation: false })).not.toThrow();
+    expect(visible.agenda.map((item) => item.title)).toEqual(agenda.map((item) => item.title));
   });
 });
 
 describe('setup authorization', () => {
-  const MEETING_CODE = 'K7M2Q9';
-  let app: KakiApp;
-  let base: string;
+  let store: AuthStore;
+  let app: TestAppWithMeeting;
+  let ownerCookie: string;
+  let meetings: KakiApp[];
 
   beforeEach(async () => {
-    const store = createMemoryAuthStore();
-    await store.createUser({
-      email: 'host@example.com',
-      passwordHash: await hashPassword('correct-horse-battery'),
-    });
-    const meetingCode = createMeetingCodeSource(MEETING_CODE);
-    const auth = createAuth({ store, offeredRoles: () => ['chef', 'cashier'], meetingCode });
-    app = await createTestApp({ auth, meetingCode });
-    base = `http://127.0.0.1:${portOf(app)}`;
+    meetings = [];
+    store = createMemoryAuthStore();
+    ({ app, ownerCookie } = await realAuthApp(store));
+    meetings.push(app);
   });
 
   afterEach(async () => {
-    await app.close();
+    for (const meeting of meetings.splice(0)) await meeting.close();
   });
 
   async function getSetup(cookie?: string): Promise<Response> {
     return fetch(
-      `${base}/api/setup`,
+      meetingUrl(app, app.meetingId, '/api/setup'),
       cookie === undefined ? undefined : { headers: { cookie } },
     );
   }
@@ -245,41 +306,35 @@ describe('setup authorization', () => {
   function putSetup(setup: unknown, cookie?: string): Promise<Response> {
     const headers: Record<string, string> = { 'content-type': 'application/json' };
     if (cookie !== undefined) headers.cookie = cookie;
-    return fetch(`${base}/api/setup`, {
+    return fetch(meetingUrl(app, app.meetingId, '/api/setup'), {
       method: 'PUT',
       headers,
       body: JSON.stringify(setup),
     });
   }
 
-  async function signInAsHost(): Promise<string> {
-    const response = await fetch(`${base}/api/auth/login`, {
+  async function joinAsGuest(name: string): Promise<string> {
+    const joined = await fetch(meetingUrl(app, app.meetingId, '/join'), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ email: 'host@example.com', password: 'correct-horse-battery' }),
+      body: JSON.stringify({ name }),
     });
-    expect(response.status).toBe(200);
-    const cookie = cookieFrom(response);
-    if (cookie === undefined) throw new Error('Login did not set a cookie');
-    return cookie;
-  }
-
-  async function joinAs(role: string): Promise<string> {
-    const host = await signInAsHost();
-    expect((await fetch(`${base}/api/meeting/open`, { method: 'POST', headers: { cookie: host } })).status).toBe(200);
-    const response = await fetch(`${base}/api/join`, {
+    expect(joined.status).toBe(200);
+    const guest = cookieFrom(joined);
+    if (guest === undefined) throw new Error('Guest join did not set a cookie');
+    const seated = await fetch(meetingUrl(app, app.meetingId, '/api/livekit/token'), {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ code: MEETING_CODE, role }),
+      headers: { 'content-type': 'application/json', cookie: guest },
+      body: JSON.stringify({ participantName: name }),
     });
-    expect(response.status).toBe(200);
-    const cookie = cookieFrom(response);
-    if (cookie === undefined) throw new Error('Join did not set a cookie');
-    return cookie;
+    expect(seated.status).toBe(200);
+    const participant = cookieFrom(seated);
+    if (participant === undefined) throw new Error('Taking a seat did not set a cookie');
+    return participant;
   }
 
   it('lets the host edit and a participant only read', async () => {
-    const participant = await joinAs('chef');
+    const participant = await joinAsGuest('Bao');
     const read = await getSetup(participant);
     expect(read.status).toBe(200);
     const { setup } = (await read.json()) as SetupResponse;
@@ -287,8 +342,7 @@ describe('setup authorization', () => {
     const refused = await putSetup(setup, participant);
     expect(refused.status).toBe(403);
 
-    const host = await signInAsHost();
-    const allowed = await putSetup(setup, host);
+    const allowed = await putSetup(setup, ownerCookie);
     expect(allowed.status).toBe(200);
   });
 
@@ -298,55 +352,43 @@ describe('setup authorization', () => {
 });
 
 describe('scenario after an ended team meeting', () => {
-  let app: KakiApp;
-  let base: string;
+  let store: AuthStore;
+  let app: TestAppWithMeeting;
+  let row: MeetingRow;
+  let ownerCookie: string;
+  let meetings: KakiApp[];
 
   beforeEach(async () => {
-    const store = createMemoryAuthStore();
-    await store.createUser({
-      email: 'host@example.com',
-      passwordHash: await hashPassword('correct-horse-battery'),
-    });
-    const meetingCode = createMeetingCodeSource('K7M2Q9');
-    const auth = createAuth({ store, offeredRoles: () => ['chef', 'cashier', 'runner'], meetingCode });
-    app = await createTestApp({ auth, meetingCode, roomRoster: async () => [] });
-    base = `http://127.0.0.1:${portOf(app)}`;
+    meetings = [];
+    store = createMemoryAuthStore();
+    ({ app, row, ownerCookie } = await realAuthApp(store));
+    meetings.push(app);
   });
 
   afterEach(async () => {
-    await app.close();
+    for (const meeting of meetings.splice(0)) await meeting.close();
   });
 
-  async function signInAsHost(): Promise<string> {
-    const response = await fetch(`${base}/api/auth/login`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ email: 'host@example.com', password: 'correct-horse-battery' }),
-    });
-    expect(response.status).toBe(200);
-    const cookie = cookieFrom(response);
-    if (cookie === undefined) throw new Error('Login did not set a cookie');
-    return cookie;
-  }
-
   it('serves the setup plan while the owner starts a blank plan after an ended meeting', async () => {
-    const cookie = await signInAsHost();
-    expect((await fetch(`${base}/api/meeting/open`, { method: 'POST', headers: { cookie } })).status).toBe(200);
+    expect((await fetch(meetingUrl(app, app.meetingId, '/api/meeting/open'), {
+      method: 'POST',
+      headers: { cookie: ownerCookie },
+    })).status).toBe(200);
 
-    const loaded = await fetch(`${base}/api/setup`, { headers: { cookie } });
+    const loaded = await fetch(meetingUrl(app, app.meetingId, '/api/setup'), { headers: { cookie: ownerCookie } });
     expect(loaded.status).toBe(200);
     const { setup } = (await loaded.json()) as SetupResponse;
     setup.roles.push({ id: 'runner', label: 'Runner', facilitator: false });
     setup.agenda.push({ id: 'agenda-2', title: 'Runner handover', minutes: 2, ownerRoleId: 'runner' });
     setup.seats.push({ displayName: 'Rina', roleId: 'runner', kind: 'person' });
-    const saved = await fetch(`${base}/api/setup`, {
+    const saved = await fetch(meetingUrl(app, app.meetingId, '/api/setup'), {
       method: 'PUT',
-      headers: { 'content-type': 'application/json', cookie },
+      headers: { 'content-type': 'application/json', cookie: ownerCookie },
       body: JSON.stringify(setup),
     });
     expect(saved.status).toBe(200);
 
-    const derived = deriveMeetingScenario(testScenario, setup);
+    const derived = deriveMeetingScenario(realBaseScenario(row), setup);
     if (!derived.ok) throw new Error(`The setup should describe a meeting: ${JSON.stringify(derived.errors)}`);
     app.session.beginStart(derived.scenario, setup);
     app.session.commitStart(new Date().toISOString());
@@ -354,13 +396,16 @@ describe('scenario after an ended team meeting', () => {
     // The owner has published the minutes: the ended review is over, and the next plan is blank.
     app.session.finishReview();
 
-    const blank = await fetch(`${base}/api/setup/blank`, { method: 'POST', headers: { cookie } });
+    const blank = await fetch(meetingUrl(app, app.meetingId, '/api/setup/blank'), {
+      method: 'POST',
+      headers: { cookie: ownerCookie },
+    });
     expect(blank.status).toBe(200);
 
-    const response = await fetch(`${base}/api/scenario`, { headers: { cookie } });
+    const response = await fetch(meetingUrl(app, app.meetingId, '/api/scenario'), { headers: { cookie: ownerCookie } });
     expect(response.status).toBe(200);
     const scenario = (await response.json()) as Scenario;
-    expect(() => parseScenario(scenario)).not.toThrow();
+    expect(() => parseScenario(scenario, { requireOrganisation: false })).not.toThrow();
     // The role the ended meeting used stays in the served plan while the blank draft has none.
     expect(scenario.roles.map((role) => role.id)).toContain('runner');
   });

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { UtteranceRecorder, type Recognizer, type SpeechStart, type SpeechTiming, type SttSession } from '../../src/npc/utterance';
+import { SttError, UtteranceRecorder, type Recognizer, type SpeechStart, type SpeechTiming, type SttSession } from '../../src/npc/utterance';
 
 const RATE = 1000; // 1 sample = 1 ms, to keep the arithmetic readable
 const block = (ms: number, value = 1): Int16Array => new Int16Array(ms).fill(value);
@@ -233,5 +233,91 @@ describe('UtteranceRecorder speech timing', () => {
     recorder.speaking(true);
     recorder.speaking(false);
     expect(discarded).toHaveLength(1);
+  });
+});
+
+describe('UtteranceRecorder retries', () => {
+  function flaky(finishes: Array<() => Promise<string>>) {
+    const sessions: Array<{ pushed: number[]; finished: boolean; cancelled: boolean }> = [];
+    let index = 0;
+    const recognizer: Recognizer = {
+      start(): SttSession {
+        const outcome = finishes[Math.min(index, finishes.length - 1)]!;
+        index += 1;
+        const entry = { pushed: [] as number[], finished: false, cancelled: false };
+        sessions.push(entry);
+        return {
+          push: (samples) => void entry.pushed.push(samples.length),
+          finish: () => ((entry.finished = true), outcome()),
+          cancel: () => void (entry.cancelled = true),
+        };
+      },
+    };
+    const texts: string[] = [];
+    const failures: unknown[] = [];
+    const logs: string[] = [];
+    const recorder = new UtteranceRecorder(recognizer, {
+      sampleRate: RATE,
+      prerollMs: 300,
+      minMs: 200,
+      maxMs: 5000,
+      retryBackoffMs: 1,
+      onText: (text) => texts.push(text),
+      onFailure: (error) => failures.push(error),
+      log: (message) => logs.push(message),
+    });
+    return { sessions, recorder, texts, failures, logs };
+  }
+
+  function speak(recorder: UtteranceRecorder): void {
+    recorder.push(block(300));
+    recorder.speaking(true);
+    recorder.push(block(200));
+    recorder.speaking(false);
+  }
+
+  it('retries a throttled stretch from the same audio and keeps the line once', async () => {
+    const { sessions, recorder, texts, failures, logs } = flaky([
+      () => Promise.reject(new SttError('429 Too Many Requests', true)),
+      () => Promise.resolve('hello there'),
+    ]);
+
+    speak(recorder);
+
+    await vi.waitFor(() => expect(texts).toEqual(['hello there']));
+    expect(failures).toEqual([]);
+    expect(sessions).toHaveLength(2);
+    expect(total(sessions[0]!.pushed)).toBe(500);
+    // The retry sends exactly the same stretch again, pre-roll included.
+    expect(total(sessions[1]!.pushed)).toBe(500);
+    expect(logs.some((message) => message.includes('[stt] retry'))).toBe(true);
+  });
+
+  it('tries a bounded number of times, then tells the person it failed', async () => {
+    const { sessions, recorder, texts, failures, logs } = flaky([
+      () => Promise.reject(new SttError('503 Service Unavailable', true)),
+    ]);
+
+    speak(recorder);
+
+    await vi.waitFor(() => expect(failures).toHaveLength(1));
+    expect(texts).toEqual([]);
+    expect(sessions).toHaveLength(3);
+    expect(logs.filter((message) => message.includes('[stt] retry'))).toHaveLength(2);
+    expect(logs.some((message) => message.includes('[stt] speech recognition failed'))).toBe(true);
+  });
+
+  it('does not retry a bad key and reports it plainly', async () => {
+    const { sessions, recorder, texts, failures, logs } = flaky([
+      () => Promise.reject(new SttError('Authentication failed: bad subscription key', false)),
+    ]);
+
+    speak(recorder);
+
+    await vi.waitFor(() => expect(failures).toHaveLength(1));
+    expect(texts).toEqual([]);
+    expect(sessions).toHaveLength(1);
+    expect(logs.some((message) => message.includes('Authentication failed'))).toBe(true);
+    expect(logs.some((message) => message.includes('[stt] retry'))).toBe(false);
   });
 });

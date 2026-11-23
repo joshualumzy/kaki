@@ -1,5 +1,5 @@
 import { roleLabel, type Scenario } from '@kaki/shared';
-import './demo.css';
+import './practice.css';
 
 /** What the meeting is about and who is in the room, shown from the moment a person joins. */
 export function SituationCard({

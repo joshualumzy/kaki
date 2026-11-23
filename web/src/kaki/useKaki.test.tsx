@@ -1,8 +1,9 @@
 /** @vitest-environment jsdom */
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
-import type { KakiAudience } from './useKaki';
 import { MEETING_ENDED_MESSAGE } from '@kaki/shared';
+import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { MeetingScopeProvider } from './meetingScope';
 
 const scenarioMock = vi.hoisted(() => {
   const original = {
@@ -25,6 +26,23 @@ vi.mock('./ScenarioContext', () => ({ useScenario: () => scenarioMock.current })
 interface FakeSocketInstance {
   emit(type: string, event?: unknown): void;
   readonly sent: string[];
+  readonly url: string;
+}
+
+
+/** Render a meeting hook inside the one meeting every socket and fetch belongs to. */
+function renderMeetingHook<T>(
+  hook: () => T,
+  options: { wrapper?: (props: { children: ReactNode }) => ReactNode } = {},
+) {
+  const Provided = options.wrapper;
+  return renderHook(hook, {
+    wrapper: ({ children }) => (
+      <MeetingScopeProvider meetingId="mtg-1">
+        {Provided === undefined ? children : <Provided>{children}</Provided>}
+      </MeetingScopeProvider>
+    ),
+  });
 }
 
 const sockets = vi.hoisted(() => [] as FakeSocketInstance[]);
@@ -129,7 +147,7 @@ describe('useKaki lifecycle state', () => {
   it('keeps an explicit started flag after a reset clears the event list', async () => {
     // Import after the WebSocket stub is in place and the hook's module graph is fresh.
     const { useKaki } = await import('./useKaki');
-    const { result } = renderHook(() => useKaki({ kind: 'role', role: 'chef' }));
+    const { result } = renderMeetingHook(() => useKaki({ kind: 'role', role: 'chef' }));
     const socket = sockets[0]!;
 
     act(() => socket.emit('open'));
@@ -153,12 +171,12 @@ describe('useKaki lifecycle state', () => {
     }));
     vi.stubGlobal('fetch', fetchMock);
     const { useKaki } = await import('./useKaki');
-    const { result } = renderHook(() => useKaki({ kind: 'lifecycle' }));
+    const { result } = renderMeetingHook(() => useKaki({ kind: 'lifecycle' }));
     const socket = sockets[0]!;
 
     act(() => socket.emit('open'));
     await waitFor(() => expect(result.current.started).toBe(false));
-    expect(fetchMock).toHaveBeenCalledWith('/api/meeting/state');
+    expect(fetchMock).toHaveBeenCalledWith('/api/meetings/mtg-1/meeting/state');
   });
 
   it('discards a state answer from a socket that has been replaced', async () => {
@@ -171,7 +189,7 @@ describe('useKaki lifecycle state', () => {
     );
     vi.stubGlobal('fetch', fetchMock);
     const { useKaki } = await import('./useKaki');
-    const { result } = renderHook(() => useKaki({ kind: 'lifecycle' }));
+    const { result } = renderMeetingHook(() => useKaki({ kind: 'lifecycle' }));
     const first = sockets[0]!;
 
     act(() => first.emit('open'));
@@ -208,7 +226,7 @@ describe('useKaki lifecycle state', () => {
     const { scenarioRevision } = await import('./scenarioRevision');
     const { useKaki } = await import('./useKaki');
     const before = scenarioRevision();
-    const { result } = renderHook(() => useKaki({ kind: 'role', role: 'chef' }));
+    const { result } = renderMeetingHook(() => useKaki({ kind: 'role', role: 'chef' }));
     const first = sockets[0]!;
 
     act(() => first.emit('open'));
@@ -233,7 +251,7 @@ describe('useKaki lifecycle state', () => {
 
   it('does not tear down a live feed or its transcript when the meeting plan refreshes', async () => {
     const { useKaki } = await import('./useKaki');
-    const { result, rerender } = renderHook(() => useKaki({ kind: 'role', role: 'chef' }));
+    const { result, rerender } = renderMeetingHook(() => useKaki({ kind: 'role', role: 'chef' }));
     const first = sockets[0]!;
     act(() => first.emit('open'));
     act(() => first.emit('message', transcriptEvent('Ada', 'The stock count is in.')));
@@ -247,167 +265,9 @@ describe('useKaki lifecycle state', () => {
     expect(result.current.events.some((event) => event.type === 'TRANSCRIPT_CHUNK')).toBe(true);
   });
 
-  it('sends a line typed before the meeting id is known once catch-up names the meeting', async () => {
-    const answers: Array<(value: unknown) => void> = [];
-    vi.stubGlobal('fetch', vi.fn(
-      () =>
-        new Promise((resolve) => {
-          answers.push(resolve);
-        }),
-    ));
-    const { useKaki } = await import('./useKaki');
-    const { result } = renderHook(() => useKaki({ kind: 'role', role: 'chef' }));
-    const first = sockets[0]! as unknown as {
-      readyState: number;
-      emit(type: string, event?: unknown): void;
-      sent: string[];
-    };
-    // The socket is still opening and this feed has not heard any meeting id yet (a page that
-    // mounted during Start). The person's line must not be thrown away for that.
-    first.readyState = 0;
-    act(() => {
-      expect(result.current.send({
-        type: 'HUMAN_LINE',
-        text: 'I will confirm the stock count before lunch.',
-        source: 'typed',
-        clientLineId: 'no-id-yet',
-      })).toBe(true);
-    });
-    first.readyState = 1;
-    act(() => first.emit('open'));
-    await waitFor(() => expect(answers).toHaveLength(1));
-    await act(async () => {
-      answers[0]!({
-        ok: true,
-        status: 200,
-        json: async () => ({ meetingId: 'meeting-a', started: true }),
-      });
-      await Promise.resolve();
-    });
-    await waitFor(() =>
-      expect(first.sent.map((message) => JSON.parse(message).type)).toContain('HUMAN_LINE'),
-    );
-    const sentLine = JSON.parse(first.sent.find((message) => JSON.parse(message).type === 'HUMAN_LINE')!);
-    expect(sentLine.meetingId).toBe('meeting-a');
-    expect(sentLine.seat).toBe('chef');
-    expect(result.current.rejection).toBeNull();
-  });
-
-  it('holds a typed line across a reconnect and sends it only after catch-up confirms the meeting', async () => {
-    const answers: Array<(value: unknown) => void> = [];
-    vi.stubGlobal('fetch', vi.fn(
-      () =>
-        new Promise((resolve) => {
-          answers.push(resolve);
-        }),
-    ));
-    const { useKaki } = await import('./useKaki');
-    const { result } = renderHook(() => useKaki({ kind: 'role', role: 'chef' }));
-    const first = sockets[0]!;
-    act(() => first.emit('open'));
-    act(() => first.emit('message', startEvent('meeting-a')));
-    await waitFor(() => expect(result.current.connected).toBe(true));
-
-    act(() => (first as unknown as { close(): void }).close());
-    act(() => {
-      expect(result.current.send({
-        type: 'HUMAN_LINE',
-        text: 'I will confirm the stock count before lunch.',
-        source: 'typed',
-        clientLineId: 'held-line',
-      })).toBe(true);
-    });
-    expect(result.current.rejection).toBeNull();
-
-    await waitFor(() => expect(sockets[1]).toBeDefined(), { timeout: 2_000 });
-    const second = sockets[1]! as unknown as {
-      emit(type: string, event?: unknown): void;
-      sent: string[];
-    };
-    act(() => second.emit('open'));
-    // Opening alone is not catch-up: the line must wait for the server's meeting identity.
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(second.sent).toEqual([]);
-    await act(async () => {
-      answers[1]!({
-        ok: true,
-        status: 200,
-        json: async () => ({ meetingId: 'meeting-a', started: true }),
-      });
-      await Promise.resolve();
-    });
-    await waitFor(() => expect(second.sent.map((message) => JSON.parse(message).type)).toContain('HUMAN_LINE'));
-    const sentLine = JSON.parse(second.sent.find((message) => JSON.parse(message).type === 'HUMAN_LINE')!);
-    expect(sentLine.meetingId).toBe('meeting-a');
-    expect(sentLine.seat).toBe('chef');
-  });
-
-  it('drops a held line when the room comes back as a different meeting', async () => {
-    const { useKaki } = await import('./useKaki');
-    const { result } = renderHook(() => useKaki({ kind: 'role', role: 'chef' }));
-    const first = sockets[0]!;
-    act(() => first.emit('open'));
-    act(() => first.emit('message', startEvent('meeting-a')));
-    act(() => (first as unknown as { close(): void }).close());
-    act(() => {
-      expect(result.current.send({
-        type: 'HUMAN_LINE',
-        text: 'This belonged to meeting A.',
-        source: 'typed',
-        clientLineId: 'held-line',
-      })).toBe(true);
-    });
-
-    await waitFor(() => expect(sockets[1]).toBeDefined(), { timeout: 2_000 });
-    const second = sockets[1]! as unknown as { emit(type: string, event?: unknown): void; sent: string[] };
-    act(() => second.emit('open'));
-    act(() => second.emit('message', startEvent('meeting-b')));
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(second.sent).toEqual([]);
-    expect(result.current.rejection).toMatchObject({
-      commandType: 'HUMAN_LINE',
-      text: 'This belonged to meeting A.',
-      reason: expect.stringMatching(/different meeting/i),
-    });
-  });
-
-  it('drops a held line when the audience changes', async () => {
-    const { useKaki } = await import('./useKaki');
-    const { result, rerender } = renderHook(({ audience }) => useKaki(audience), {
-      initialProps: { audience: { kind: 'role', role: 'chef' } as KakiAudience },
-    });
-    const first = sockets[0]!;
-    act(() => first.emit('open'));
-    act(() => first.emit('message', startEvent('meeting-a')));
-    act(() => (first as unknown as { close(): void }).close());
-    act(() => {
-      expect(result.current.send({
-        type: 'HUMAN_LINE',
-        text: 'Typed as the chef.',
-        source: 'typed',
-        clientLineId: 'held-line',
-      })).toBe(true);
-    });
-
-    rerender({ audience: { kind: 'role', role: 'operations_director' } });
-    await waitFor(() => expect(sockets.length).toBeGreaterThan(1), { timeout: 2_000 });
-    const second = sockets[sockets.length - 1]! as unknown as {
-      emit(type: string, event?: unknown): void;
-      sent: string[];
-    };
-    act(() => second.emit('open'));
-    act(() => second.emit('message', startEvent('meeting-a')));
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(second.sent).toEqual([]);
-    expect(result.current.rejection).toMatchObject({
-      commandType: 'HUMAN_LINE',
-      text: 'Typed as the chef.',
-    });
-  });
-
   it('keeps the newest meeting record even after it leaves the event window', async () => {
     const { useKaki } = await import('./useKaki');
-    const { result } = renderHook(() => useKaki({ kind: 'screen' }));
+    const { result } = renderMeetingHook(() => useKaki({ kind: 'screen' }));
     const socket = sockets[0]!;
 
     act(() => socket.emit('open'));
@@ -447,7 +307,7 @@ describe('useKaki lifecycle state', () => {
 
   it('does not replay a pause that could not be sent while the hub socket was down', async () => {
     const { useKaki } = await import('./useKaki');
-    const { result } = renderHook(() => useKaki({ kind: 'role', role: 'chef' }));
+    const { result } = renderMeetingHook(() => useKaki({ kind: 'role', role: 'chef' }));
     const first = sockets[0]!;
     act(() => first.emit('open'));
     await waitFor(() => expect(result.current.connected).toBe(true));
@@ -473,7 +333,7 @@ describe('useKaki lifecycle state', () => {
     }));
     vi.stubGlobal('fetch', fetchMock);
     const { useKaki } = await import('./useKaki');
-    const { result } = renderHook(() => useKaki({ kind: 'role', role: 'chef' }));
+    const { result } = renderMeetingHook(() => useKaki({ kind: 'role', role: 'chef' }));
     const first = sockets[0]!;
 
     act(() => first.emit('open'));
@@ -499,7 +359,7 @@ describe('useKaki lifecycle state', () => {
     }));
     vi.stubGlobal('fetch', fetchMock);
     const { useKaki } = await import('./useKaki');
-    const { result } = renderHook(() => useKaki({ kind: 'role', role: 'chef' }));
+    const { result } = renderMeetingHook(() => useKaki({ kind: 'role', role: 'chef' }));
     const first = sockets[0]!;
 
     act(() => first.emit('open'));
@@ -537,7 +397,7 @@ describe('useKaki Wingman notes', () => {
 
   it("keeps this feed's own notes and removes one when the server clears it", async () => {
     const { useKaki } = await import('./useKaki');
-    const { result } = renderHook(() => useKaki({ kind: 'participant' }));
+    const { result } = renderMeetingHook(() => useKaki({ kind: 'participant' }));
     const socket = sockets[0]!;
     act(() => socket.emit('open'));
 
@@ -551,7 +411,7 @@ describe('useKaki Wingman notes', () => {
 
   it('sends ASK_WINGMAN to the server for this seat', async () => {
     const { useKaki } = await import('./useKaki');
-    const { result } = renderHook(() => useKaki({ kind: 'role', role: 'chef' }));
+    const { result } = renderMeetingHook(() => useKaki({ kind: 'role', role: 'chef' }));
     const socket = sockets[0]!;
     act(() => socket.emit('open'));
 
@@ -568,7 +428,7 @@ describe('useKaki Wingman notes', () => {
 describe('useKaki topic speech', () => {
   it('records a seat that spoke on the topic even after its record leaves the event window', async () => {
     const { useKaki } = await import('./useKaki');
-    const { result } = renderHook(() => useKaki({ kind: 'screen' }));
+    const { result } = renderMeetingHook(() => useKaki({ kind: 'screen' }));
     const socket = sockets[0]!;
 
     act(() => socket.emit('open'));
@@ -589,7 +449,7 @@ describe('useKaki topic speech', () => {
 
   it('does not record a colleague seat as the viewer', async () => {
     const { useKaki } = await import('./useKaki');
-    const { result } = renderHook(() => useKaki({ kind: 'screen' }));
+    const { result } = renderMeetingHook(() => useKaki({ kind: 'screen' }));
     const socket = sockets[0]!;
 
     act(() => socket.emit('open'));
@@ -602,7 +462,7 @@ describe('useKaki topic speech', () => {
 
   it('forgets who spoke when the meeting resets', async () => {
     const { useKaki } = await import('./useKaki');
-    const { result } = renderHook(() => useKaki({ kind: 'screen' }));
+    const { result } = renderMeetingHook(() => useKaki({ kind: 'screen' }));
     const socket = sockets[0]!;
 
     act(() => socket.emit('open'));
@@ -612,5 +472,208 @@ describe('useKaki topic speech', () => {
 
     act(() => socket.emit('message', resetEvent('meeting-b')));
     await waitFor(() => expect(result.current.speechByTopic.size).toBe(0));
+  });
+});
+
+describe('one shared socket per feed on a page', () => {
+  function taskEvent(id: string, title: string, audience: { kind: 'screen' } | { kind: 'role'; role: string }) {
+    return {
+      data: JSON.stringify({
+        type: 'TASK_UPDATED',
+        audience,
+        payload: {
+          task: {
+            id,
+            title,
+            context: '',
+            suggestedAssignee: 'chef',
+            status: 'SUGGESTED',
+            updatedAt: '2026-11-19T09:00:00.000Z',
+          },
+        },
+      }),
+    };
+  }
+
+  function socketFor(channel: string): FakeSocketInstance {
+    const socket = sockets.find((candidate) => candidate.url.includes(channel));
+    if (socket === undefined) throw new Error(`no socket for ${channel}`);
+    return socket;
+  }
+
+  it('opens exactly one socket per distinct feed and shares it with every consumer', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ meetingId: 'meeting-a', started: false }),
+    })));
+    const { useKaki } = await import('./useKaki');
+    const { KakiConnectionProvider } = await import('./connection');
+
+    const { result } = renderMeetingHook(
+      () => ({
+        lifecycle: useKaki({ kind: 'lifecycle' }),
+        screenA: useKaki({ kind: 'screen' }),
+        screenB: useKaki({ kind: 'screen' }),
+        roleA: useKaki({ kind: 'role', role: 'chef' }),
+        roleB: useKaki({ kind: 'role', role: 'chef' }),
+      }),
+      {
+        wrapper: ({ children }) => (
+          <KakiConnectionProvider role="chef" sharedAudience="screen">
+            {children}
+          </KakiConnectionProvider>
+        ),
+      },
+    );
+
+    expect(sockets).toHaveLength(3);
+    expect(sockets.filter((socket) => socket.url.includes('audience=lifecycle'))).toHaveLength(1);
+    expect(sockets.filter((socket) => socket.url.includes('audience=screen'))).toHaveLength(1);
+    expect(sockets.filter((socket) => socket.url.includes('role=chef'))).toHaveLength(1);
+
+    act(() => {
+      for (const socket of sockets) socket.emit('open');
+    });
+    await waitFor(() => expect(result.current.screenA.connected).toBe(true));
+    expect(result.current.screenB.connected).toBe(true);
+    expect(result.current.roleA.connected).toBe(true);
+    expect(result.current.roleB.connected).toBe(true);
+    expect(result.current.lifecycle.connected).toBe(true);
+  });
+
+  it('routes each feed to its consumers and keeps another feed out', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ meetingId: 'meeting-a', started: false }),
+    })));
+    const { useKaki } = await import('./useKaki');
+    const { KakiConnectionProvider } = await import('./connection');
+    const { result } = renderMeetingHook(
+      () => ({
+        lifecycle: useKaki({ kind: 'lifecycle' }),
+        screen: useKaki({ kind: 'screen' }),
+        role: useKaki({ kind: 'role', role: 'chef' }),
+      }),
+      {
+        wrapper: ({ children }) => (
+          <KakiConnectionProvider role="chef" sharedAudience="screen">
+            {children}
+          </KakiConnectionProvider>
+        ),
+      },
+    );
+    const lifecycle = socketFor('audience=lifecycle');
+    const screen = socketFor('audience=screen');
+    const role = socketFor('role=chef');
+    act(() => {
+      for (const socket of sockets) socket.emit('open');
+    });
+
+    act(() => lifecycle.emit('message', startEvent('meeting-a')));
+    act(() => screen.emit('message', taskEvent('shared', 'Shared card', { kind: 'screen' })));
+    act(() => role.emit('message', taskEvent('mine', 'My card', { kind: 'role', role: 'chef' })));
+
+    await waitFor(() => expect(result.current.lifecycle.started).toBe(true));
+    await waitFor(() => expect(result.current.screen.tasks.size).toBe(1));
+    await waitFor(() => expect(result.current.role.tasks.size).toBe(1));
+    expect(result.current.role.tasks.has('mine')).toBe(true);
+    expect(result.current.screen.tasks.has('shared')).toBe(true);
+    expect(result.current.screen.tasks.has('mine')).toBe(false);
+  });
+
+  it('reconnects only the dropped feed and replays its retained event once per consumer', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ meetingId: 'meeting-a', started: true }),
+    })));
+    const { useKaki } = await import('./useKaki');
+    const { KakiConnectionProvider } = await import('./connection');
+    const { result } = renderMeetingHook(
+      () => ({
+        screenA: useKaki({ kind: 'screen' }),
+        screenB: useKaki({ kind: 'screen' }),
+        role: useKaki({ kind: 'role', role: 'chef' }),
+      }),
+      {
+        wrapper: ({ children }) => (
+          <KakiConnectionProvider role="chef" sharedAudience="screen">
+            {children}
+          </KakiConnectionProvider>
+        ),
+      },
+    );
+    const first = socketFor('audience=screen');
+    act(() => first.emit('open'));
+    act(() => first.emit('message', transcriptEvent('Ada', 'Before the drop.', 'chef')));
+    await waitFor(() => expect(result.current.screenA.events).toHaveLength(1));
+    expect(result.current.screenB.events).toHaveLength(1);
+
+    act(() => (first as unknown as { close(): void }).close());
+    await waitFor(
+      () => expect(sockets.filter((socket) => socket.url.includes('audience=screen'))).toHaveLength(2),
+      { timeout: 2_000 },
+    );
+    const second = sockets.find(
+      (socket) => socket.url.includes('audience=screen') && socket !== first,
+    )!;
+    expect(sockets.filter((socket) => socket.url.includes('role=chef'))).toHaveLength(1);
+    expect(sockets.filter((socket) => socket.url.includes('audience=lifecycle'))).toHaveLength(1);
+
+    act(() => second.emit('open'));
+    act(() => second.emit('message', {
+      data: JSON.stringify({
+        type: 'TRANSCRIPT_CHUNK',
+        audience: { kind: 'all' },
+        payload: { speaker: 'Ada', text: 'Replayed after the drop.', timestamp: new Date().toISOString() },
+        replayed: true,
+      }),
+    }));
+
+    await waitFor(() =>
+      expect(result.current.screenA.events.some((event) => event.type === 'TRANSCRIPT_CHUNK')).toBe(true),
+    );
+    expect(result.current.screenA.events).toHaveLength(1);
+    expect(result.current.screenB.events).toHaveLength(1);
+    expect(result.current.role.events).toHaveLength(0);
+  });
+
+  it('sends each command on the socket of the feed that made it', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ meetingId: 'meeting-a', started: false }),
+    })));
+    const { useKaki } = await import('./useKaki');
+    const { KakiConnectionProvider } = await import('./connection');
+    const { result } = renderMeetingHook(
+      () => ({
+        screen: useKaki({ kind: 'screen' }),
+        role: useKaki({ kind: 'role', role: 'chef' }),
+      }),
+      {
+        wrapper: ({ children }) => (
+          <KakiConnectionProvider role="chef" sharedAudience="screen">
+            {children}
+          </KakiConnectionProvider>
+        ),
+      },
+    );
+    const screen = socketFor('audience=screen');
+    const role = socketFor('role=chef');
+    act(() => {
+      screen.emit('open');
+      role.emit('open');
+    });
+
+    act(() => expect(result.current.screen.send({ type: 'NEXT_AGENDA_ITEM' })).toBe(true));
+    act(() => expect(result.current.role.send({ type: 'CLAIM_TASK', taskId: 't1', mode: 'MANUAL' })).toBe(true));
+
+    expect(JSON.parse(screen.sent[0]!)).toMatchObject({ type: 'NEXT_AGENDA_ITEM' });
+    expect(screen.sent).toHaveLength(1);
+    expect(JSON.parse(role.sent[0]!)).toMatchObject({ type: 'CLAIM_TASK', taskId: 't1' });
+    expect(role.sent).toHaveLength(1);
   });
 });

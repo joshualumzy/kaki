@@ -1,9 +1,16 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
-import { createApp, type KakiApp } from '../src/app';
 import { createIdleTracker, type IdleSnapshot } from '../src/core/idle';
 import { accessProblem, type Route } from '../src/http/access';
-import { createTestApp, portOf, settle } from './helpers';
+import {
+  createPracticeTestApp,
+  createRealTestApp,
+  meetingUrl,
+  meetingWsUrl,
+  portOf,
+  settle,
+  type TestAppWithMeeting,
+} from './helpers';
 import { testScenario } from './fixtures/scenario';
 
 const TOKEN = 'runner-secret';
@@ -101,7 +108,7 @@ describe('idle tracker', () => {
 });
 
 describe('GET /idle', () => {
-  let app: KakiApp | undefined;
+  let app: TestAppWithMeeting | undefined;
   let now: number;
 
   afterEach(async () => {
@@ -110,9 +117,9 @@ describe('GET /idle', () => {
     app = undefined;
   });
 
-  async function start(options: Parameters<typeof createTestApp>[0] = {}): Promise<number> {
+  async function start(options: Parameters<typeof createRealTestApp>[0] = {}): Promise<number> {
     now = START;
-    app = await createTestApp({ idleClock: () => now, serviceToken: TOKEN, ...options });
+    app = await createRealTestApp({ idleClock: () => now, serviceToken: TOKEN, ...options });
     return portOf(app);
   }
 
@@ -144,7 +151,7 @@ describe('GET /idle', () => {
     const port = await start();
 
     now += 100_000;
-    expect((await fetch(`http://127.0.0.1:${port}/api/scenario`)).status).toBe(200);
+    expect((await fetch(meetingUrl(app!, app!.meetingId, '/api/scenario'))).status).toBe(200);
     now += 7_000;
 
     const state = await readIdle(port);
@@ -156,7 +163,7 @@ describe('GET /idle', () => {
     const port = await start();
 
     now += 100_000;
-    const response = await fetch(`http://127.0.0.1:${port}/api/meeting/start`, { method: 'POST' });
+    const response = await fetch(meetingUrl(app!, app!.meetingId, '/api/meeting/start'), { method: 'POST' });
     expect(response.ok).toBe(false);
     now += 7_000;
 
@@ -169,7 +176,7 @@ describe('GET /idle', () => {
     const port = await start();
 
     now += 100_000;
-    const runner = await fetch(`http://127.0.0.1:${port}/api/runner/meeting-state`, {
+    const runner = await fetch(meetingUrl(app!, app!.meetingId, '/api/runner/meeting-state'), {
       headers: { authorization: `Bearer ${TOKEN}` },
     });
     expect(runner.status).toBe(200);
@@ -184,15 +191,14 @@ describe('GET /idle', () => {
     const port = await start();
 
     now += 100_000;
-    const line = await fetch(`http://127.0.0.1:${port}/api/runner/human-line`, {
+    const line = await fetch(meetingUrl(app!, app!.meetingId, '/api/runner/human-line'), {
       method: 'POST',
       headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
       body: JSON.stringify({
         seat: 'chef',
         text: 'The prep list is ready',
-        source: 'speech',
         clientLineId: 'line-1',
-        meetingId: 'm1',
+        meetingId: app!.meetingId,
         participantIdentity: 'Ada',
       }),
     });
@@ -207,7 +213,7 @@ describe('GET /idle', () => {
 
   it('counts people up and down, and a person frame as activity', async () => {
     const port = await start();
-    const person = await openSocket(`ws://127.0.0.1:${port}/ws?audience=screen`);
+    const person = await openSocket(meetingWsUrl(port, app!.meetingId, 'audience=screen'));
 
     try {
       expect((await readIdle(port)).peopleConnected).toBe(1);
@@ -234,7 +240,7 @@ describe('GET /idle', () => {
       ...testScenario,
       npcs: [{ attendee: 'Ada', voice: 'v', personality: 'p', agenda: 'a', concerns: [] }],
     };
-    app = await createApp({
+    app = await createPracticeTestApp({
       scenario: withNpc,
       speechRecognition: 'browser',
       serviceToken: TOKEN,
@@ -242,8 +248,8 @@ describe('GET /idle', () => {
     });
     const port = portOf(app);
 
-    const service = await openSocket(`ws://127.0.0.1:${port}/ws?audience=service`, TOKEN);
-    const role = await openSocket(`ws://127.0.0.1:${port}/ws?role=chef`, TOKEN);
+    const service = await openSocket(meetingWsUrl(port, app.meetingId, 'audience=service'), TOKEN);
+    const role = await openSocket(meetingWsUrl(port, app.meetingId, 'role=chef'), TOKEN);
 
     try {
       expect((await readIdle(port)).peopleConnected).toBe(0);

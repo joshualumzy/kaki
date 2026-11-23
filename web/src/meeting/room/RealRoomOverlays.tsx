@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { getMeetingInfo } from '../../product/api';
 import { plainServerText } from '../../net/plainFailure';
@@ -16,6 +16,7 @@ export function RealRoomBanners() {
   const room = useRealRoom();
   if (room === null) return null;
   const { meetingState, send } = room;
+  if (meetingState?.phase === 'ended' || room.endedWhileAway !== undefined) return null;
   const offTheRecord = meetingState?.offTheRecord ?? null;
   // A newcomer who starts a meeting is usually alone at first: point at Invite until someone joins.
   const alone =
@@ -110,17 +111,54 @@ export function RealWaitingOverlay({ meetingId }: { meetingId: string }) {
   );
 }
 
-/** The one panel a real meeting shows after it ends: where the minutes are, or a thank-you. */
-export function RealEndedPanel({ meetingId }: { meetingId: string }) {
+/**
+ * The same end-of-meeting news over the stage, so the room never looks live after it ends. The
+ * owner's screen and every participant see it; it takes the whole room, so nothing behind it stays
+ * clickable or tabbable.
+ */
+export function RealEndedOverlay({ meetingId }: { meetingId: string }) {
   const room = useRealRoom();
+  const overlay = useRef<HTMLDivElement | null>(null);
+  const card = useRef<HTMLDivElement | null>(null);
+  const titleId = useId();
   const endedWhileAway = room?.endedWhileAway !== undefined && room.meetingState?.phase !== 'ended';
-  if (room === null || (room.meetingState?.phase !== 'ended' && !endedWhileAway)) return null;
+  const open = room !== null && (room.meetingState?.phase === 'ended' || endedWhileAway);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const container = overlay.current?.parentElement;
+    const behind =
+      container === undefined || container === null
+        ? []
+        : Array.from(container.children).filter((child) => child !== overlay.current);
+    for (const sibling of behind) sibling.setAttribute('inert', '');
+    card.current?.focus();
+    return () => {
+      for (const sibling of behind) sibling.removeAttribute('inert');
+    };
+  }, [open]);
+
+  if (!open) return null;
   return (
-    <EndedPanelBody
-      meetingId={meetingId}
-      ownerName={room.meetingState?.ownerName?.trim() ?? ''}
-      title={endedWhileAway ? 'This meeting ended while you were away' : 'Meeting ended'}
-    />
+    <div
+      className="kd-start kd-ended-overlay"
+      role="alertdialog"
+      aria-modal="true"
+      aria-labelledby={titleId}
+      ref={overlay}
+    >
+      <div className="kd-start-card kd-ended-panel" tabIndex={-1} ref={card}>
+        <EndedPanelBody
+          meetingId={meetingId}
+          ownerName={room.meetingState?.ownerName?.trim() ?? ''}
+          title={endedWhileAway ? 'This meeting ended while you were away' : 'The meeting has ended'}
+          titleId={titleId}
+        />
+        <Link className="kd-go kd-go-secondary kd-ended-back" to="/">
+          Back to Kaki
+        </Link>
+      </div>
+    </div>
   );
 }
 
@@ -128,10 +166,12 @@ function EndedPanelBody({
   meetingId,
   ownerName,
   title,
+  titleId,
 }: {
   meetingId: string;
   ownerName: string;
   title: string;
+  titleId: string;
 }) {
   const [workspaceId, setWorkspaceId] = useState<string | null | undefined>(undefined);
   const [failed, setFailed] = useState(false);
@@ -157,17 +197,19 @@ function EndedPanelBody({
     };
   }, [meetingId, attempt]);
   return (
-    <section className="kd-role kd-topic-card" aria-label="Meeting ended">
-      <p className="kd-role-eyebrow">{title}</p>
+    <>
+      <h2 className="kd-ended-title" id={titleId}>
+        {title}
+      </h2>
       {typeof workspaceId === 'string' ? (
         <Link
-          className="artifact-link"
+          className="kd-go kd-ended-primary"
           to={`/workspaces/${encodeURIComponent(workspaceId)}/meetings/${encodeURIComponent(meetingId)}`}
         >
-          Read the meeting notes
+          See the meeting minutes
         </Link>
       ) : workspaceId === null ? (
-        <p>
+        <p className="kd-ended-note">
           Thanks for joining. The notes are kept by {ownerName === '' ? 'the owner' : ownerName}.
         </p>
       ) : failed || slow ? (
@@ -175,16 +217,18 @@ function EndedPanelBody({
           <p role="alert" className="kd-alert">
             Minutes are taking longer than usual. They'll appear in the meeting history when ready.
           </p>
-          <button type="button" className="kd-chip" onClick={() => setAttempt((count) => count + 1)}>
-            Try again
-          </button>{' '}
-          <Link className="artifact-link" to={`/m/${encodeURIComponent(meetingId)}`}>
-            Open the meeting page
-          </Link>
+          <div className="kd-ended-recover">
+            <button type="button" className="kd-chip" onClick={() => setAttempt((count) => count + 1)}>
+              Try again
+            </button>{' '}
+            <Link className="artifact-link" to={`/m/${encodeURIComponent(meetingId)}`}>
+              Open the meeting page
+            </Link>
+          </div>
         </>
       ) : (
         <p className="kd-hint">Checking where the notes are kept…</p>
       )}
-    </section>
+    </>
   );
 }

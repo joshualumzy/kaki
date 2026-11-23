@@ -8,9 +8,11 @@ import {
   joinAsGuest,
   launch,
   Run,
-  sendTyped,
+  speakLine,
   signedInPerson,
   stamp,
+  withJourneyLock,
+  closeBrowser,
 } from './lib';
 
 const JOURNEY = 'l';
@@ -43,14 +45,10 @@ async function roomAnswer(
     const body = await text(page);
     if (/You left the meeting/.test(body)) return 'left';
     if (/Reconnecting to your meeting|Could not get back into the meeting|Rejoin needed/.test(body)) return 'rejoin';
-    // A real meeting shows its Leave button again. Practice has no controls under the stage (speech only), so it
-    // counts as back when the started meeting is on screen with no reconnecting banner.
-    const back =
-      kind === 'real'
-        ? await page.getByRole('button', { name: 'Leave', exact: true }).isVisible().catch(() => false)
-        : (await page.locator('.kd-meeting[data-needs-start="false"]').isVisible().catch(() => false)) &&
-          !(await page.locator('.kd-reconnect-banner').isVisible().catch(() => false));
-    if (back) return 'room';
+    // Both modes have Leave: speaking is the only input, so there is no text box to look for.
+    void kind;
+    const controls = page.getByRole('button', { name: 'Leave', exact: true });
+    if (await controls.isVisible().catch(() => false)) return 'room';
     await page.waitForTimeout(1_000);
   }
   return 'other';
@@ -95,8 +93,8 @@ async function networkDrop(
   return answer;
 }
 
-/** A microphone-denied attempt must explain what to do; where typing is a way in (real meetings), it must still be offered. */
-async function expectMicHelp(run: Run, page: Page, where: string, typingOffered: boolean): Promise<void> {
+/** A microphone-denied attempt must explain exactly how to allow it, with no typing fallback. */
+async function expectMicHelp(run: Run, page: Page, where: string): Promise<void> {
   const alert = page.getByRole('alert').first();
   const shown = await alert.waitFor({ timeout: 15_000 }).then(() => true).catch(() => false);
   const shot = await run.shot(page, where.replace(/[^a-z0-9]+/gi, '-').toLowerCase());
@@ -105,17 +103,15 @@ async function expectMicHelp(run: Run, page: Page, where: string, typingOffered:
     run.finding('ERROR', where, 'a denied microphone showed no message at all', shot);
     return;
   }
-  if (!/allow|setting/i.test(message)) {
+  // A real meeting asks for the microphone "to take part"; a speech-only practice asks "to speak
+  // in the meeting". Both must name the browser's site settings, which is the way out.
+  if (!/Allow it in your browser's site settings to (?:take part|speak in the meeting)\./.test(message)) {
     run.finding('CONFUSING', where, `the message does not say how to allow the microphone: "${message}"`, shot);
-  } else if (typingOffered && !/type/i.test(message)) {
-    run.finding('CONFUSING', where, `the message does not offer typing as the way to take part: "${message}"`, shot);
   } else {
-    run.pass(`${where}: a denied microphone gets a plain message: "${message}" (${shot}).`);
+    run.pass(`${where}: a denied microphone gets the plain site-settings message: "${message}" (${shot}).`);
   }
-  if (typingOffered) {
-    const type = page.getByRole('button', { name: /Join to type|Type$/ });
-    if (await type.isVisible().catch(() => false)) run.pass(`${where}: typing is still offered with the microphone denied.`);
-    else run.finding('DEAD-END', where, 'with the microphone denied there is no way to take part by typing', shot);
+  if (await page.getByRole('button', { name: /Type$/ }).isVisible().catch(() => false)) {
+    run.finding('CONFUSING', where, 'typing is still offered with the microphone denied', shot);
   }
 }
 
@@ -131,8 +127,10 @@ async function main(): Promise<void> {
       expected: (status, url) => status === 403 && url.includes('/meeting-code'),
     });
     let invite = '';
+    let meetingId = '';
     await step(run, owner.page, 'real meeting setup', async () => {
       const link = await createMeeting(owner.page, `Network drop ${suffix}`);
+      meetingId = /\/m\/([^/?#]+)/.exec(link)?.[1] ?? '';
       await enterOwnRoom(owner.page, link);
       invite = await inviteLink(owner.page);
       // Close the invite popover again so it cannot sit over the controls used later.
@@ -141,9 +139,7 @@ async function main(): Promise<void> {
     });
 
     const guest = await guestPerson(browser, run, {
-      expected: (status, url) =>
-        (status === 401 && url.includes('/api/auth/me')) ||
-        (status === 403 && url.includes('/meeting-code')),
+      expected: (status, url) => status === 403 && url.includes('/meeting-code'),
     });
     const guestName = `Drop Guest ${suffix}`;
     await step(run, guest.page, 'guest joins real meeting', async () => {
@@ -156,7 +152,7 @@ async function main(): Promise<void> {
       if (answer === 'room') {
         await step(run, guest.page, 'real captions recover', async () => {
           const line = `After the drop, this line still arrives ${suffix}.`;
-          await sendTyped(owner.page, line);
+          await speakLine(owner.page, line);
           const seen = await guest.page
             .getByText(line)
             .first()
@@ -173,24 +169,22 @@ async function main(): Promise<void> {
       }
     }
 
-    // ---- Microphone denied in a real room: the person joins by typing, then tries the mic. ----
+    // ---- Microphone denied in a real room: the person joins with the mic off, then tries it. ----
     const noMicReal = await guestPerson(browser, run, {
-      expected: (status, url) =>
-        (status === 401 && url.includes('/api/auth/me')) ||
-        (status === 403 && url.includes('/meeting-code')),
+      expected: (status, url) => status === 403 && url.includes('/meeting-code'),
     });
     if (invite !== '') {
       await step(run, noMicReal.page, 'real meeting mic denied', async () => {
         await joinAsGuest(noMicReal.page, invite, `No Mic ${suffix}`);
         const mic = noMicReal.page.getByRole('button', { name: 'Mic off', exact: true });
         await mic.click();
-        await expectMicHelp(run, noMicReal.page, 'real meeting microphone denied', false);
-        // Typing must still work with the microphone denied.
-        const line = `Typing works with the mic denied ${suffix}.`;
-        await sendTyped(noMicReal.page, line);
-        const typed = await noMicReal.page.getByText(line).first().waitFor({ timeout: 20_000 }).then(() => true).catch(() => false);
-        if (typed) run.pass('A person with a denied mic can still type in the real meeting.');
-        else run.finding('DEAD-END', 'real meeting microphone denied', 'typing does not work either when the mic is denied', await run.shot(noMicReal.page, 'real-mic-denied-typing'));
+        await expectMicHelp(run, noMicReal.page, 'real meeting microphone denied');
+        // Speaking still reaches the meeting through the fake recogniser with the browser mic denied.
+        const line = `Speaking works with the mic denied ${suffix}.`;
+        await speakLine(noMicReal.page, line);
+        const seen = await noMicReal.page.getByText(line).first().waitFor({ timeout: 20_000 }).then(() => true).catch(() => false);
+        if (seen) run.pass('A person with a denied mic can still take part by speaking.');
+        else run.finding('DEAD-END', 'real meeting microphone denied', 'a spoken line does not reach the meeting when the browser mic is denied', await run.shot(noMicReal.page, 'real-mic-denied-speaking'));
       });
     }
 
@@ -199,15 +193,17 @@ async function main(): Promise<void> {
       await owner.page.getByRole('button', { name: 'End for everyone' }).click();
       await owner.page.getByRole('button', { name: 'End the meeting' }).click();
       await owner.page.getByRole('region', { name: 'Meeting ended' }).waitFor({ timeout: 30_000 });
-      const response = await owner.page.request.post(`${BASE}/api/meeting/close`);
-      // A 409 here means the ended room was already released for practice (the empty-room watch
-      // finished the review first); anything else is a real failure.
+      const response = await owner.page.request.post(
+        `${BASE}/api/meetings/${encodeURIComponent(meetingId)}/meeting/close`,
+      );
+      // A 409 here means the ended room was already released (the empty-room watch finished the
+      // review first); anything else is a real failure.
       if (!response.ok() && response.status() !== 409) {
         throw new Error(`closing the meeting answered HTTP ${response.status()}`);
       }
       run.pass(
         response.status() === 409
-          ? 'The real meeting ended, and the server had already released the room for practice.'
+          ? 'The real meeting ended, and the server had already released the room.'
           : 'The real meeting was ended and closed.',
       );
     });
@@ -216,14 +212,11 @@ async function main(): Promise<void> {
     await owner.context.close();
 
     // ---- The practice meeting: mic denied on the join form, then join, start, network drop. ----
-    const practice = await guestPerson(browser, run, {
-      expected: (status, url) => status === 401 && url.includes('/api/auth/me'),
-    });
+    const practice = await guestPerson(browser, run);
     await step(run, practice.page, 'practice mic denied', async () => {
       await practice.page.goto(`${BASE}/practice`);
       await practice.page.getByRole('button', { name: 'Microphone', exact: true }).click();
-      // Practice is speech only, so it explains how to allow the microphone and offers no typing.
-      await expectMicHelp(run, practice.page, 'practice microphone denied', false);
+      await expectMicHelp(run, practice.page, 'practice microphone denied');
     });
     await step(run, practice.page, 'practice join and start', async () => {
       await practice.page.locator('#join-name').fill(`Practice Drop ${suffix}`);
@@ -234,11 +227,25 @@ async function main(): Promise<void> {
       await practice.page.getByRole('button', { name: /Next: How to play/ }).click();
       await practice.page.getByRole('button', { name: 'Start the meeting' }).click();
       await briefing.waitFor({ state: 'hidden', timeout: 60_000 });
-      await practice.page.locator('.kd-meeting[data-needs-start="false"]').waitFor({ timeout: 30_000 });
+      await practice.page.getByRole('button', { name: 'Leave', exact: true }).waitFor({ timeout: 30_000 });
       run.pass(`The practice meeting is running for the drop check (${await run.shot(practice.page, 'practice-running')}).`);
     });
     const practiceAnswer = await networkDrop(run, practice.page, practice.context, 'practice meeting', 'practice');
-    if (practiceAnswer !== 'room') {
+    if (practiceAnswer === 'room') {
+      await step(run, practice.page, 'practice speech recovers', async () => {
+        const line = `Still here after the drop ${suffix}.`;
+        await speakLine(practice.page, line);
+        const seen = await practice.page
+          .getByText(line)
+          .first()
+          .waitFor({ timeout: 25_000 })
+          .then(() => true)
+          .catch(() => false);
+        const shot = await run.shot(practice.page, 'practice-after-speech');
+        if (seen) run.pass(`Practice accepts a spoken line again after the drop (${shot}).`);
+        else run.finding('ERROR', 'practice meeting after drop', 'a spoken line does not come back after the network returns', shot);
+      });
+    } else {
       const briefingBack = await practice.page
         .getByRole('region', { name: 'Before the meeting starts' })
         .isVisible()
@@ -256,11 +263,11 @@ async function main(): Promise<void> {
     await practice.context.close();
   } finally {
     run.save();
-    await browser.close();
+    await closeBrowser(browser);
   }
 }
 
-void main().catch((error: unknown) => {
+void withJourneyLock(JOURNEY, main).catch((error: unknown) => {
   console.error(error instanceof Error ? error.message : error);
   process.exitCode = 1;
 });

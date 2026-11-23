@@ -1,17 +1,19 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
-import {
-  DEFAULT_MEETING_PACE,
-  defaultMeetingSetup,
-  type KakiEvent,
-  type MeetingSetup,
-} from '@kaki/shared';
-import { createApp, type KakiApp } from '../../src/app';
+import type { KakiEvent } from '@kaki/shared';
 import { loadScenario } from '../../src/core/loadScenario';
 import { createRunnerClient } from '../../src/npc/runnerClient';
 import { startNpcRunner, type NpcRunner } from '../../src/npc/runner';
 import type { Recognizer } from '../../src/npc/utterance';
-import { portOf, waitFor } from '../helpers';
+import {
+  createRealTestApp,
+  meetingPath,
+  meetingUrl,
+  meetingWsUrl,
+  portOf,
+  waitFor,
+  type TestAppWithMeeting,
+} from '../helpers';
 
 const TOKEN = 'local-test-runner-token';
 const audio = vi.hoisted(() => ({ frames: [] as Int16Array[] }));
@@ -74,7 +76,7 @@ vi.mock('@livekit/rtc-node', () => {
   };
 });
 
-const apps: KakiApp[] = [];
+const apps: TestAppWithMeeting[] = [];
 const sockets: WebSocket[] = [];
 const runners: NpcRunner[] = [];
 
@@ -86,9 +88,14 @@ afterEach(async () => {
   rooms.length = 0;
 });
 
-function connect(port: number, role: string, token?: string): Promise<{ ws: WebSocket; messages: KakiEvent[] }> {
+function connect(
+  port: number,
+  meetingId: string,
+  role: string,
+  token?: string,
+): Promise<{ ws: WebSocket; messages: KakiEvent[] }> {
   const headers: Record<string, string> = token === undefined ? {} : { authorization: `Bearer ${token}` };
-  const ws = new WebSocket(`ws://127.0.0.1:${port}/ws?role=${encodeURIComponent(role)}`, { headers });
+  const ws = new WebSocket(meetingWsUrl(port, meetingId, `role=${encodeURIComponent(role)}`), { headers });
   const messages: KakiEvent[] = [];
   ws.on('message', (data) => messages.push(JSON.parse(data.toString()) as KakiEvent));
   return new Promise((resolve, reject) => {
@@ -97,64 +104,52 @@ function connect(port: number, role: string, token?: string): Promise<{ ws: WebS
   });
 }
 
-function twoPersonSetup(pack: Awaited<ReturnType<typeof loadScenario>>): MeetingSetup {
-  return {
-    ...defaultMeetingSetup(pack),
-    title: 'Opening huddle',
-    agenda: [{ id: 'agenda-1', title: 'Opening checklist', minutes: 5, ownerRoleId: 'operations_director' }],
-    seats: [
-      { displayName: 'Wei Ling', roleId: 'operations_director', kind: 'person' },
-      { displayName: 'Arjun', roleId: 'tech_pos_lead', kind: 'person' },
-    ],
-    pace: { ...DEFAULT_MEETING_PACE },
-  };
-}
-
 describe('the runner\'s real recognised-speech path reaches the server writer', () => {
   it('posts one human line from a mocked recogniser with the meeting, identity and seat', async () => {
     const pack = await loadScenario('kopitiam');
-    const app = await createApp({ scenario: pack, serviceToken: TOKEN, roomRoster: async () => [] });
+    const app = await createRealTestApp(
+      { scenario: pack, serviceToken: TOKEN, roomRoster: async () => [] },
+      {
+        title: 'Opening huddle',
+        agenda: [{ title: 'Opening checklist', minutes: 5 }],
+      },
+    );
     apps.push(app);
     const port = portOf(app);
 
-    const service = await connect(port, 'service', TOKEN);
+    const service = await connect(port, app.meetingId, 'service', TOKEN);
     sockets.push(service.ws);
 
-    const put = await fetch(`http://127.0.0.1:${port}/api/setup`, {
-      method: 'PUT',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(twoPersonSetup(pack)),
-    });
-    expect(put.status).toBe(200);
-    expect((await fetch(`http://127.0.0.1:${port}/api/meeting/open`, { method: 'POST' })).status).toBe(200);
-    const first = await fetch(`http://127.0.0.1:${port}/api/livekit/token`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ roomName: 'room', participantName: 'Alice', participantRole: 'operations_director' }),
-    });
-    expect(first.status).toBe(200);
-    const code = ((await first.json()) as { meetingCode: string }).meetingCode;
     expect(
-      (
-        await fetch(`http://127.0.0.1:${port}/api/livekit/token`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            roomName: 'room',
-            participantName: 'Ben',
-            participantRole: 'tech_pos_lead',
-            meetingCode: code,
-          }),
-        })
-      ).status,
+      (await fetch(meetingUrl(app, app.meetingId, '/api/meeting/open'), { method: 'POST' })).status,
     ).toBe(200);
+    const join = async (participantName: string): Promise<string> => {
+      const response = await fetch(meetingUrl(app, app.meetingId, '/api/livekit/token'), {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ roomName: 'room', participantName }),
+      });
+      expect(response.status).toBe(200);
+      return ((await response.json()) as { participantRole: string }).participantRole;
+    };
+    await join('Alice');
+    await join('Ben');
 
-    const screen = await connect(port, 'screen', TOKEN);
+    const screen = await connect(port, app.meetingId, 'screen', TOKEN);
     sockets.push(screen.ws);
-    expect((await fetch(`http://127.0.0.1:${port}/api/meeting/start`, { method: 'POST' })).status).toBe(200);
+    expect(
+      (await fetch(meetingUrl(app, app.meetingId, '/api/meeting/start'), { method: 'POST' })).status,
+    ).toBe(200);
     await waitFor(() => (app.session.phase() === 'running' ? true : undefined), 'the meeting to run');
 
-    const client = createRunnerClient({ baseUrl: `http://127.0.0.1:${port}`, serviceToken: TOKEN });
+    const aliceSeat = app.session.holders().find((holder) => holder.name.toLowerCase() === 'alice')?.seat;
+    if (aliceSeat === undefined) throw new Error('Alice did not take a seat');
+
+    const client = createRunnerClient({
+      baseUrl: `http://127.0.0.1:${port}`,
+      apiPrefix: meetingPath(app.meetingId, '/api').replace(/\/$/, ''),
+      serviceToken: TOKEN,
+    });
     const recognizer: Recognizer = {
       start: () => ({
         push: () => undefined,
@@ -188,7 +183,7 @@ describe('the runner\'s real recognised-speech path reaches the server writer', 
 
     const snapshot = await client.fetchMeetingState();
     runner.reconcileMeeting(snapshot, { currentConnection: true, authoritative: true });
-    const participant = { identity: 'Alice', name: 'Alice', metadata: 'operations_director' };
+    const participant = { identity: 'Alice', name: 'Alice', metadata: aliceSeat };
     rooms[0]!.emit('participantConnected', participant);
     await runner.markStarted({ meetingId: snapshot.meetingId });
 
@@ -207,7 +202,7 @@ describe('the runner\'s real recognised-speech path reaches the server writer', 
     expect(line).toMatchObject({
       payload: {
         speaker: 'Alice',
-        speakerRole: 'operations_director',
+        speakerRole: aliceSeat,
         text: 'The queue is out the door.',
         speechStartedAt: expect.any(String),
         speechEndedAt: expect.any(String),

@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { encodeWav } from './wav';
 import { createAzureStt } from './azureStt';
 import { createAzureTts } from './azureTts';
+import { fakeSttFromEnv } from './fakeStt';
 import { buildSttPhrases } from './sttPhrases';
 import { DEFAULT_BARGE_IN_MS, DEFAULT_SENTENCE_GAP_MS, DEFAULT_SPEAKER_GAP_MS } from './conversation';
 import { startNpcRunner, type NpcRunner } from './runner';
@@ -77,11 +78,9 @@ if (fault !== undefined) log(`[fault] ${fault} active`);
 
 const loadedScenario = await loadScenario();
 const scenario = kind === 'practice' ? loadedScenario : { ...loadedScenario, npcs: [] };
-const isLegacy = meetingId === 'meeting';
-const apiPrefix = isLegacy ? '' : `/api/meetings/${meetingId}`;
 const runnerClient = createRunnerClient({
   baseUrl: kakiUrl,
-  apiPrefix,
+  apiPrefix: `/api/meetings/${meetingId}`,
   ...(serviceToken === undefined ? {} : { serviceToken }),
   log: logError,
 });
@@ -148,6 +147,9 @@ const synthesize = faultySynthesize(
 // Server-side recognition: it hears the echo-cancelled microphone track, so it does not pick up the
 // AI's own voice, and it can lean towards the names and words of this meeting.
 const sttMode = process.env.NPC_STT || 'azure';
+// Dev and test only: scripted runs "speak" through this instead of a microphone (refused in production).
+const fakeSpeech = fakeSttFromEnv();
+if (fakeSpeech) log('[fake-stt] KAKI_FAKE_STT=1: scripted lines are accepted as speech');
 if (sttMode !== 'azure') throw new Error(`NPC_STT must be "azure"; browser speech recognition was removed, got "${sttMode}"`);
 const recognizer = createAzureStt(requireEnv('AZURE_SPEECH_KEY', azureHint), requireEnv('AZURE_SPEECH_REGION', azureHint), {
   locale: process.env.NPC_STT_LOCALE || 'en-SG',
@@ -169,7 +171,7 @@ let runnerMeetingId: (() => string | undefined) | undefined;
 const commandSockets = createCommandSockets({
   baseUrl: kakiUrl,
   ...(serviceToken === undefined ? {} : { token: serviceToken }),
-  ...(isLegacy ? {} : { meetingId }),
+  meetingId,
   log,
   logError,
   // Queued commands are fenced to the meeting they were sent in, so a reconnect cannot replay
@@ -250,10 +252,10 @@ function postHumanLine(line: {
   participantIdentity: string;
   seat: string;
   text: string;
-  source: 'speech' | 'typed';
   clientLineId: string;
   speechStartedAt?: string;
   speechEndedAt?: string;
+  micLevel?: number;
   overlap?: boolean;
 }): void {
   runnerClient
@@ -289,8 +291,6 @@ const vad: Partial<VadOptions> = {
   leakCap: numberEnv('NPC_VAD_LEAK_CAP', DEFAULT_VAD_OPTIONS.leakCap),
 };
 
-/** Set once the meeting sync exists (it needs the runner); the resume backstop only fires mid-meeting. */
-let recheckMeeting: ((reason: string) => void) | undefined;
 // The room is the meeting's, so learn its identity before joining. A server that is not up yet is
 // fine: the service channel moves the runner to the right room once it can read the snapshot.
 const initialMeeting = await runnerClient.fetchMeetingState().catch((error: unknown) => {
@@ -313,6 +313,7 @@ const runner = await startNpcRunner({
   postHumanLine,
   responseDelayMs: numberEnv('NPC_RESPONSE_DELAY_MS', 950),
   recognizer,
+  fakeSpeech,
   debugAudio: debugAudioDir === undefined ? undefined : debugAudio,
   speakerGapMs: numberEnv('NPC_SPEAKER_GAP_MS', DEFAULT_SPEAKER_GAP_MS),
   sentenceGapMs: numberEnv('NPC_SENTENCE_GAP_MS', DEFAULT_SENTENCE_GAP_MS),
@@ -321,7 +322,6 @@ const runner = await startNpcRunner({
   traceVad: process.env.NPC_DEBUG_VAD === '1',
   log,
   logError,
-  recheckMeetingState: (reason) => recheckMeeting?.(reason),
   // The app server watches the roster and pauses/resumes the meeting itself; the runner only notes
   // that the next person to arrive gets one welcome-back line.
   onRoomEmpty: () => {
@@ -407,7 +407,6 @@ const meetingSync = createMeetingSync({
     resetTaskMaps();
   },
 });
-recheckMeeting = (reason) => meetingSync.recheck(reason);
 
 interface ServiceEvent {
   kind?: string;
@@ -627,7 +626,7 @@ const serviceChannel = createServiceChannel({
   token: serviceToken,
   createSocket: () =>
     new WebSocket(
-      `${kakiUrl.replace(/^http/, 'ws')}/ws?audience=service${isLegacy ? '' : `&meeting=${encodeURIComponent(meetingId)}`}`,
+      `${kakiUrl.replace(/^http/, 'ws')}/ws?audience=service&meeting=${encodeURIComponent(meetingId)}`,
       serviceToken === undefined || serviceToken === ''
         ? undefined
         : { headers: { authorization: `Bearer ${serviceToken}` } },
@@ -643,7 +642,7 @@ const serviceChannel = createServiceChannel({
 serviceChannel.start();
 
 log(`speech recognition: Azure (${process.env.NPC_STT_LOCALE || 'en-SG'})`);
-log('ready: the listener is in the room; AI characters follow the meeting cast. Open /demo and talk.');
+log('ready: the listener is in the room; AI characters follow the meeting cast. Open /practice and talk.');
 
   let stopped = false;
   return {

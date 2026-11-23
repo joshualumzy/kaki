@@ -19,7 +19,7 @@ export interface KakiContext {
   persistence?: MeetingPersistence;
   /** The server-owned identity of the current meeting, saved with it so a restart resumes the same one. */
   meetingId(): string;
-  /** The workspace this meeting belongs to; the sample workspace for the legacy practice meeting. */
+  /** The workspace this meeting belongs to; the sample workspace for a practice meeting. */
   workspaceId(): string;
   /** The workspace's tool connections, read fresh when an action drafts or runs. */
   tools?(): Promise<WorkspaceTools>;

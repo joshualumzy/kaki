@@ -1,5 +1,5 @@
 import type { ScenarioRole } from '@kaki/shared';
-import './demo.css';
+import './practice.css';
 
 /** The short briefing for the role a person plays: who they are, what they know, what they answer for. Facts, not a script. */
 export function RoleCard({

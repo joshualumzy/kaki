@@ -1,18 +1,20 @@
 // Discard the saved meeting so the server starts with a clean screen next time.
-// Run with: npm run meeting:reset
+// Run with: npm run meeting:reset -- <meetingId>
 import '../env';
 import { Pool } from 'pg';
 import { ensureMeetingStateSchema } from './postgres';
-import { MEETING_STATE_ID } from './state';
 
-// Optional first argument: the meeting row to discard. Legacy is 'meeting'.
-const meetingId = process.argv[2]?.trim() || MEETING_STATE_ID;
+// The meeting row to discard, named by the meeting whose saved state it is.
+const meetingId = process.argv[2]?.trim();
+if (meetingId === undefined || meetingId === '') {
+  throw new Error('kaki persist: name the meeting whose saved state to discard: npm run meeting:reset -- <meetingId>');
+}
 
 const connectionString = process.env.POSTGRES_URL?.trim();
 if (connectionString === undefined || connectionString === '') {
   throw new Error(
     'kaki persist: POSTGRES_URL is not set. Set it in the shell, in the repo .env, or in docker/.env ' +
-      '(npm run seed writes it there), then run npm run meeting:reset.',
+      '(npm run seed writes it there), then run npm run meeting:reset -- <meetingId>.',
   );
 }
 

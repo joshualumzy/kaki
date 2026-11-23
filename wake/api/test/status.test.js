@@ -9,18 +9,18 @@ beforeEach(() => {
 
 describe('GET /api/status', () => {
   it.each([
-    ['running', true],
-    ['starting', false],
-    ['deallocated', false],
-    ['deallocating', false],
-    ['stopped', false],
-  ])('reports power "%s"', async (power, expectedHealthy) => {
+    ['running', true, 'ready'],
+    ['starting', false, 'starting'],
+    ['deallocated', false, 'off'],
+    ['deallocating', false, 'switching-off'],
+    ['stopped', false, 'off'],
+  ])('reports power "%s" as state "%s"', async (power, expectedHealthy, expectedState) => {
     const { fetchImpl, calls } = fakeFetch(azureRouter({ power }));
 
     const result = await statusHandler(ENV, { fetchImpl });
 
     expect(result.status).toBe(200);
-    expect(result.jsonBody).toEqual({ power, healthy: expectedHealthy });
+    expect(result.jsonBody).toEqual({ power, healthy: expectedHealthy, state: expectedState });
     expect(calls.filter(isHealth)).toHaveLength(power === 'running' ? 1 : 0);
   });
 
@@ -33,7 +33,7 @@ describe('GET /api/status', () => {
 
     const result = await statusHandler(ENV, { fetchImpl });
 
-    expect(result.jsonBody).toEqual({ power: 'unknown', healthy: false });
+    expect(result.jsonBody).toEqual({ power: 'unknown', healthy: false, state: 'unknown' });
   });
 
   it('probes health only while running and treats a non-200 as unhealthy', async () => {
@@ -41,7 +41,7 @@ describe('GET /api/status', () => {
 
     const result = await statusHandler(ENV, { fetchImpl });
 
-    expect(result.jsonBody).toEqual({ power: 'running', healthy: false });
+    expect(result.jsonBody).toEqual({ power: 'running', healthy: false, state: 'unhealthy' });
     expect(calls.filter(isHealth)).toHaveLength(1);
   });
 
@@ -66,7 +66,7 @@ describe('GET /api/status', () => {
     const started = Date.now();
     const result = await statusHandler(ENV, { fetchImpl, healthTimeoutMs: 25 });
 
-    expect(result.jsonBody).toEqual({ power: 'running', healthy: false });
+    expect(result.jsonBody).toEqual({ power: 'running', healthy: false, state: 'unhealthy' });
     expect(Date.now() - started).toBeLessThan(1000);
   });
 

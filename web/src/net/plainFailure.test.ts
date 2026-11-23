@@ -2,9 +2,17 @@ import { describe, expect, it } from 'vitest';
 import { plainFailureMessage, plainServerText } from './plainFailure';
 
 describe('plainFailureMessage', () => {
-  it('says the sign-in ended for 401 and 403', () => {
+  it('says the sign-in ended only for a missing or expired session', () => {
     expect(plainFailureMessage(401)).toBe('Your sign-in has ended.');
-    expect(plainFailureMessage(403, 'whatever')).toBe('Your sign-in has ended.');
+    expect(plainFailureMessage(401, 'anything')).toBe('Your sign-in has ended.');
+    expect(plainFailureMessage(403, 'anything', true)).toBe('Your sign-in has ended.');
+  });
+  it('shows a permission refusal instead of the sign-in sentence', () => {
+    expect(plainFailureMessage(403, 'You are not a member of that workspace.')).toBe(
+      'You are not a member of that workspace.',
+    );
+    expect(plainFailureMessage(403, 'whatever', false)).toBe('whatever');
+    expect(plainFailureMessage(401, 'Sign in required.', false)).toBe('Sign in required.');
   });
   it('shows a practice refusal instead of the sign-in sentence for a 403', () => {
     expect(plainFailureMessage(403, 'practice-access')).toContain('another visitor');

@@ -5,6 +5,13 @@ import { NpcConversation, type NpcPorts } from '../../src/npc/conversation';
 import type { Utterance } from '../../src/npc/director';
 import type { GuestReaderInput, GuestReading } from '../../src/npc/guestReader';
 
+/** Say one line as the guest, through the same speech path the recogniser uses. */
+function speak(conversation: { humanSpeech(talking: boolean): void; humanText(text: string): string | undefined }, text: string): void {
+  conversation.humanSpeech(true);
+  conversation.humanSpeech(false);
+  conversation.humanText(text);
+}
+
 const scenario: Scenario = {
   id: 'checkpoint-four-review',
   organisation: 'Test Kitchen',
@@ -186,7 +193,7 @@ const flush = async (): Promise<void> => { await vi.advanceTimersByTimeAsync(0);
 
 async function say(h: ReturnType<typeof harness>, text: string, value?: GuestReading): Promise<void> {
   if (value !== undefined) h.readings.push(value);
-  h.conversation.humanTyped(text);
+  speak(h.conversation, text);
   for (let i = 0; i < 20; i += 1) await flush();
 }
 
@@ -302,7 +309,7 @@ describe('checkpoint 4 review fixes', () => {
     let resolveReading: ((value: GuestReading) => void) | undefined;
     const pending = new Promise<GuestReading>((resolve) => { resolveReading = resolve; });
     const h = harness({ reader: () => pending, topicTimeBudgetMs: 100, budgetSilenceMs: 10 });
-    h.conversation.humanTyped('Use the window bar.');
+    speak(h.conversation, 'Use the window bar.');
     await flush();
 
     await vi.advanceTimersByTimeAsync(100);
@@ -324,7 +331,7 @@ describe('checkpoint 4 review fixes', () => {
 
   it('keeps a guest line heard before its reply starts and answers it on resume', async () => {
     const h = harness({ readings: [readyReading('Bao covers the till from 8')], responseDelayMs: 1_000 });
-    h.conversation.humanTyped('Bao covers the till from 8.');
+    speak(h.conversation, 'Bao covers the till from 8.');
     await flush();
 
     h.conversation.stop();
@@ -348,7 +355,7 @@ describe('checkpoint 4 review fixes', () => {
     let resolveReading: ((value: GuestReading) => void) | undefined;
     const pending = new Promise<GuestReading>((resolve) => { resolveReading = resolve; });
     const h = harness({ reader: () => pending });
-    h.conversation.humanTyped('Use the window bar.');
+    speak(h.conversation, 'Use the window bar.');
     await flush();
 
     h.conversation.agendaMoved('Delivery app commission squeeze');
@@ -433,7 +440,7 @@ describe('checkpoint 4 review fixes', () => {
     expect(h.playing.some((entry) => entry.text.includes("So it's"))).toBe(true);
     const before = h.calls.length;
 
-    h.conversation.humanTyped('mm');
+    speak(h.conversation, 'mm');
     for (let i = 0; i < 20; i += 1) await flush();
 
     expect(h.readerInputs.at(-1)?.line).toBe('mm');
@@ -482,7 +489,7 @@ describe('turn-taking (#66, #67, #68)', () => {
       reader: () => new Promise<GuestReading>((resolve) => { resolveReading = resolve; }),
       replies: ['Ada: The eggs are the problem.', 'Ada: The eggs are the problem.', 'Ada: The eggs are the problem.'],
     });
-    h.conversation.humanTyped('Ada, what went wrong?');
+    speak(h.conversation, 'Ada, what went wrong?');
     for (let i = 0; i < 5; i += 1) await flush();
 
     h.conversation.announce('Sam', "Okay, we'll leave prep open for now.");
@@ -506,7 +513,7 @@ describe('turn-taking (#66, #67, #68)', () => {
       reader: () => new Promise<GuestReading>((resolve) => { resolveReading = resolve; }),
       replies: ['Ada: The eggs are the problem.', 'Ada: The eggs are the problem.', 'Ada: The eggs are the problem.'],
     });
-    h.conversation.humanTyped('Ada, what went wrong?');
+    speak(h.conversation, 'Ada, what went wrong?');
     for (let i = 0; i < 5; i += 1) await flush();
 
     resolveReading?.(reading({ kind: 'question', addressee: 'Ada' }));
@@ -596,7 +603,7 @@ describe('turn-taking (#66, #67, #68)', () => {
       readings: [reading({ kind: 'question', addressee: 'Ada' })],
       replies: ['Ada: The eggs are the problem. Ada: We need a second supplier.'],
     });
-    h.conversation.humanTyped('Ada, what went wrong?');
+    speak(h.conversation, 'Ada, what went wrong?');
     for (let i = 0; i < 20; i += 1) await flush();
     const first = h.playing.find((entry) => entry.text.includes('eggs'));
     expect(first).toBeDefined();
@@ -642,7 +649,7 @@ describe('PR #69 review fixes', () => {
       readings: [reading({ kind: 'question', addressee: 'Ada' })],
       replies: ['Ada: The eggs are the problem.'],
     });
-    h.conversation.humanTyped('Ada, what went wrong?');
+    speak(h.conversation, 'Ada, what went wrong?');
     for (let i = 0; i < 20; i += 1) await flush();
     const answer = h.playing.find((entry) => entry.text.includes('eggs'));
     expect(answer?.finished).toBe(false);

@@ -30,9 +30,6 @@ import {
  */
 export const MEETING_STATE_SCHEMA_VERSION = 8;
 
-/** The one saved meeting. A single row: Kaki hosts one meeting at a time. */
-export const MEETING_STATE_ID = 'meeting';
-
 /** Why the meeting clock is paused: an empty room (auto) or a person's explicit Stop. */
 export type MeetingPauseKind = 'empty-room' | 'person';
 
@@ -476,12 +473,12 @@ export function assertCompatibleSavedMeeting(saved: StoredMeeting): void {
   const age = saved.schemaVersion < MEETING_STATE_SCHEMA_VERSION ? 'an older' : 'a newer';
   throw new Error(
     `Saved meeting is from ${age} format (v${saved.schemaVersion}, need v${MEETING_STATE_SCHEMA_VERSION}). ` +
-      'Run `npm run meeting:reset` to discard it.',
+      'Run `npm run meeting:reset -- <meetingId>` to discard it.',
   );
 }
 
 function unreadableSavedMeeting(problem: string): Error {
-  return new Error(`Saved meeting is unreadable (${problem}). Run \`npm run meeting:reset\` to discard it.`);
+  return new Error(`Saved meeting is unreadable (${problem}). Run \`npm run meeting:reset -- <meetingId>\` to discard it.`);
 }
 
 /**
@@ -539,7 +536,7 @@ export function resolveSavedAgenda(saved: StoredMeeting, scenario: Scenario): Sc
   if (missing.length > 0) {
     throw new Error(
       `Saved meeting's agenda has topics this scenario no longer has (${missing.join(', ')}). ` +
-        'Run `npm run meeting:reset` to discard it.',
+        'Run `npm run meeting:reset -- <meetingId>` to discard it.',
     );
   }
   return savedAgendaTitles(saved).map((title) => byTitle.get(title)!);

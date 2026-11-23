@@ -28,7 +28,7 @@ export interface MeetingRow {
   workspaceId: string;
   ownerUserId: string | null;
   title: string;
-  kind: 'real';
+  kind: 'real' | 'practice';
   status: MeetingStatus;
   scheduledFor: string | null;
   agenda: AgendaItem[];

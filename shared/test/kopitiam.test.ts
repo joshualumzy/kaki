@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { parseScenario } from '../src/scenario';
 import type { Scenario } from '../src/scenarioTypes';
-import { setMeetingAgenda, shuffleAgendaForRole } from '../src/demo';
+import { setMeetingAgenda, shuffleAgendaForRole } from '../src/practice';
 
 const scenarioDir = fileURLToPath(new URL('../../scenarios/kopitiam', import.meta.url));
 const scenarioFile = path.join(scenarioDir, 'scenario.json');

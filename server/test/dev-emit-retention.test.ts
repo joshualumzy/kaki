@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { connectClient, createTestApp, portOf, settle } from './helpers';
+import { connectMeetingClient, createPracticeTestApp, meetingUrl, portOf, settle, type TestAppWithMeeting } from './helpers';
 
 describe('/dev/emit retention', () => {
-  let app: Awaited<ReturnType<typeof createTestApp>>;
+  let app: TestAppWithMeeting;
   afterEach(() => app.close());
 
   async function emit(event: unknown): Promise<void> {
-    const response = await fetch(`http://127.0.0.1:${portOf(app)}/dev/emit`, {
+    const response = await fetch(meetingUrl(app, app.meetingId, '/dev/emit'), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(event),
@@ -15,7 +15,7 @@ describe('/dev/emit retention', () => {
   }
 
   it('keeps demo events for late joiners but never replays transcript lines', async () => {
-    app = await createTestApp({ devRoutes: true });
+    app = await createPracticeTestApp({ devRoutes: true });
     await emit({
       type: 'TRANSCRIPT_CHUNK',
       audience: { kind: 'all' },
@@ -32,7 +32,7 @@ describe('/dev/emit retention', () => {
       payload: { kind: 'OPENING', text: 'Welcome.' },
     });
 
-    const late = await connectClient(portOf(app), 'screen');
+    const late = await connectMeetingClient(portOf(app), app.meetingId, 'screen');
     await settle();
     const types = late.messages.map((message) => message.type);
     late.close();

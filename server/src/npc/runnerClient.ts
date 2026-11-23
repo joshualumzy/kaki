@@ -20,10 +20,10 @@ interface RunnerClient {
     participantIdentity: string;
     seat: string;
     text: string;
-    source: 'speech' | 'typed';
     clientLineId: string;
     speechStartedAt?: string;
     speechEndedAt?: string;
+    micLevel?: number;
     overlap?: boolean;
   }): Promise<Response>;
   suggestTask(input: SuggestInput): Promise<Response>;
@@ -35,11 +35,8 @@ interface RunnerClient {
 
 interface RunnerClientOptions {
   baseUrl: string;
-  /**
-   * The meeting's API prefix: empty for the legacy meeting (today's `/api/runner/...`), or
-   * `/api/meetings/<id>` for a real meeting (whose runner routes are `/api/meetings/<id>/runner/...`).
-   */
-  apiPrefix?: string;
+  /** The meeting's API prefix, so its runner routes are `/api/meetings/<id>/runner/...`. */
+  apiPrefix: string;
   serviceToken?: string | undefined;
   fetch?: typeof fetch;
   log?: (message: string) => void;
@@ -54,7 +51,7 @@ interface RunnerClientOptions {
 /** Builds the HTTP client the runner uses to post human lines and follow-ups to the server. */
 export function createRunnerClient({
   baseUrl,
-  apiPrefix = '',
+  apiPrefix,
   serviceToken,
   fetch: fetchImpl = fetch,
   log = () => undefined,
@@ -63,7 +60,7 @@ export function createRunnerClient({
   sleep = (ms) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
 }: RunnerClientOptions): RunnerClient {
   const base = baseUrl.replace(/\/+$/, '');
-  const apiRoot = apiPrefix === '' ? '/api' : apiPrefix;
+  const apiRoot = apiPrefix;
   const authorization: Record<string, string> =
     serviceToken === undefined || serviceToken === ''
       ? {}

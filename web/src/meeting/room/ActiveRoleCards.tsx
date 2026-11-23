@@ -551,7 +551,7 @@ function TaskCardBody({
             {completedPlatformSummary(task)}
           </p>
           {task.artifactUrl === undefined ? null : (
-            <a className="artifact-link" href={resolveArtifactUrl(task.artifactUrl, task.actionKind)} target="_blank" rel="noreferrer">
+            <a className="artifact-link" href={resolveArtifactUrl(task.artifactUrl, task.actionKind, scenario.toolUrls)} target="_blank" rel="noreferrer">
               {artifactLinkText(task)}
             </a>
           )}

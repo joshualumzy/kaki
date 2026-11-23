@@ -42,16 +42,15 @@ export type KakiCommand =
    */
   | { type: 'SET_OFF_THE_RECORD'; on: boolean }
   /**
-   * A person's finalized speech or typed line, sent straight to the server so the transcript is
-   * written even when no AI runner is present. The speaker comes from the sending socket's seat;
-   * `clientLineId` lets a retry be recognised as the same line. `meetingId` (and, for a seat, the
-   * `seat` it was typed in) binds a line held across a reconnect to the meeting it belongs to; the
-   * server refuses a line whose meeting is no longer current.
+   * A person's finalized speech line, sent straight to the server's transcript writer. Speaking is
+   * the only input a browser offers; the server-side recogniser normally forwards accepted speech
+   * through the runner route instead. The speaker comes from the sending socket's seat;
+   * `clientLineId` lets a retry be recognised as the same line. `meetingId` and `seat` bind a line
+   * to the meeting and seat it belongs to; the server refuses a line whose meeting is no longer current.
    */
   | {
       type: 'HUMAN_LINE';
       text: string;
-      source: 'speech' | 'typed';
       clientLineId: string;
       meetingId?: string;
       seat?: Role;
@@ -93,7 +92,6 @@ export function isKakiCommand(value: unknown, scenario: Scenario): value is Kaki
     return (
       isString(value.text) &&
       value.text.trim() !== '' &&
-      (value.source === 'speech' || value.source === 'typed') &&
       isString(value.clientLineId) &&
       value.clientLineId.trim() !== '' &&
       (value.meetingId === undefined || isNonEmptyString(value.meetingId)) &&

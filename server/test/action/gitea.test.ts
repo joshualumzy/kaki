@@ -192,6 +192,23 @@ describe('gitea action module', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
+  it('records the issue link on the server-provided public Gitea base', async () => {
+    const tasks = setup({
+      llm: createFakeLlm(() => issueReply),
+      gitea: { ...settings, publicUrl: 'https://kaki.example.com:8082' },
+      fetchImpl: okFetch(),
+    });
+    const task = startTask(tasks);
+    const ready = await claim(tasks, task);
+
+    tasks.transition(ready.id, 'RUNNING');
+    const completed = await waitForStatus(tasks, ready.id, 'COMPLETED');
+
+    expect(completed.artifactUrl).toBe(
+      'https://kaki.example.com:8082/kopitiam/kopitiam-pos/issues/7',
+    );
+  });
+
   it('sends the configured repo, auth header and approved title and body', async () => {
     const fetchImpl = okFetch();
     const tasks = setup({ llm: createFakeLlm(() => issueReply), gitea: settings, fetchImpl });

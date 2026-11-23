@@ -274,3 +274,35 @@ body::before {
 .kaki-avatar-initials {
   background: hsl(var(--avatar-hue, 210) 52% 46%);
 }
+
+/* Phone widths: a fingertip needs 44px, whatever the control is. */
+@media (max-width: 480px) {
+  button,
+  [role='button'],
+  [role='tab'],
+  summary,
+  select,
+  input:not([type='hidden']):not([type='checkbox']):not([type='radio']),
+  textarea {
+    min-height: var(--tap-target);
+  }
+
+  button,
+  [role='button'],
+  [role='tab'],
+  summary,
+  select {
+    min-width: var(--tap-target);
+  }
+
+  .btn,
+  .artifact-link {
+    min-height: var(--tap-target);
+    font-size: var(--phone-text-min);
+  }
+
+  .kaki-avatar,
+  .kaki-avatar[data-size='sm'] {
+    font-size: var(--phone-text-min);
+  }
+}

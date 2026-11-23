@@ -57,7 +57,7 @@ export async function handleEmit(call: RouteCall): Promise<void> {
   return;
 }
 
-/** Accepts the runner's transcribed or typed human line and writes it through the server's one transcript writer. */
+/** Accepts the runner's transcribed human line and writes it through the server's one transcript writer. */
 export async function handleHumanLine(call: RouteCall): Promise<void> {
   const { request, response, context } = call;
   // The default server-side recogniser hears the person on the runner's echo-cancelled track.
@@ -70,12 +70,12 @@ export async function handleHumanLine(call: RouteCall): Promise<void> {
   const value = body.value as {
     seat?: unknown;
     text?: unknown;
-    source?: unknown;
     clientLineId?: unknown;
     meetingId?: unknown;
     participantIdentity?: unknown;
     speechStartedAt?: unknown;
     speechEndedAt?: unknown;
+    micLevel?: unknown;
     overlap?: unknown;
   };
   if (
@@ -86,7 +86,6 @@ export async function handleHumanLine(call: RouteCall): Promise<void> {
     value.seat.trim() === '' ||
     typeof value.text !== 'string' ||
     value.text.trim() === '' ||
-    (value.source !== 'speech' && value.source !== 'typed') ||
     typeof value.clientLineId !== 'string' ||
     value.clientLineId.trim() === '' ||
     typeof value.meetingId !== 'string' ||
@@ -99,11 +98,16 @@ export async function handleHumanLine(call: RouteCall): Promise<void> {
     (value.speechEndedAt !== undefined &&
       (typeof value.speechEndedAt !== 'string' ||
         !Number.isFinite(Date.parse(value.speechEndedAt)))) ||
+    (value.micLevel !== undefined &&
+      (typeof value.micLevel !== 'number' ||
+        !Number.isFinite(value.micLevel) ||
+        value.micLevel < 0 ||
+        value.micLevel > 1)) ||
     (value.overlap !== undefined && typeof value.overlap !== 'boolean')
   ) {
     sendJson(response, 400, {
       error:
-        'Body must be a human line with a meetingId, participantIdentity, seat, text, source and clientLineId',
+        'Body must be a speech human line with a meetingId, participantIdentity, seat, text and clientLineId',
     });
     return;
   }
@@ -118,12 +122,12 @@ export async function handleHumanLine(call: RouteCall): Promise<void> {
     context.writeHumanLine({
       seat: value.seat,
       text: value.text,
-      source: value.source,
       clientLineId: value.clientLineId,
       meetingId: value.meetingId,
       participantIdentity: value.participantIdentity,
       ...(value.speechStartedAt === undefined ? {} : { speechStartedAt: value.speechStartedAt }),
       ...(value.speechEndedAt === undefined ? {} : { speechEndedAt: value.speechEndedAt }),
+      ...(value.micLevel === undefined ? {} : { micLevel: value.micLevel }),
       ...(value.overlap === undefined ? {} : { overlap: value.overlap }),
     });
   } catch (error) {
@@ -266,6 +270,9 @@ export async function handleSettleTopic(call: RouteCall): Promise<void> {
       if (duplicate.id !== task.id) context.tasks.transition(duplicate.id, 'DISMISSED');
     }
   }
+  // This is the visitor's authoritative follow-up for the topic; a later notetaker suggestion of the same
+  // deliverable and owner must be dropped rather than become a second card.
+  task = context.tasks.markFromSettlement(task.id);
   context.hub.publish({
     type: 'TOPIC_SETTLED',
     audience: { kind: 'screen' },

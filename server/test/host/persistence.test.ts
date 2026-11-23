@@ -1,10 +1,12 @@
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { defaultMeetingSetup, type KakiEvent, type MeetingSetup, type Task } from '@kaki/shared';
-import { createApp, type CreateAppOptions } from '../../src/app';
+import type { KakiApp, CreateAppOptions } from '../../src/app';
 import { createMeetingModule } from '../../src/host/meeting';
 import { loadScenario } from '../../src/core/loadScenario';
 import { createFakeLlm } from '../../src/services/llm';
-import { createMeetingCodeSource } from '../../src/meeting/meetingCode';
+import { createMemoryMeetingStore, type MeetingStore } from '../../src/meeting/registry';
+import type { MeetingRow } from '../../src/meeting/types';
+import type { KakiModule } from '../../src/core/modules';
 import { createMeetingPersistence, type MeetingPersistence } from '../../src/persist/persistence';
 import {
   assertCompatibleSavedMeeting,
@@ -12,8 +14,17 @@ import {
   type MeetingStateStore,
   type StoredMeeting,
 } from '../../src/persist/state';
-import type { KakiApp } from '../../src/app';
-import { connectClient, createTestApp, portOf, waitFor, waitForEvent, type TestClient } from '../helpers';
+import {
+  connectMeetingClient,
+  createTestApp,
+  meetingUrl,
+  portOf,
+  realModulesWith,
+  waitFor,
+  waitForEvent,
+  type TestAppWithMeeting,
+  type TestClient,
+} from '../helpers';
 import { testScenario } from '../fixtures/scenario';
 
 class MemoryStore implements MeetingStateStore {
@@ -71,7 +82,6 @@ class GatedClearStore extends MemoryStore {
     this.releaseClear();
   }
 }
-
 
 function setupWithAgenda(agenda: string[]): MeetingSetup {
   const base = defaultMeetingSetup(testScenario);
@@ -145,31 +155,91 @@ afterEach(async () => {
   for (const app of apps.splice(0)) await app.close();
 });
 
+interface StartOptions {
+  meetings: MeetingStore;
+  meetingId?: string;
+  title?: string;
+  agenda?: MeetingRow['agenda'];
+  modules?: KakiModule[];
+  app?: Omit<CreateAppOptions, 'scenario' | 'meetingModules' | 'persistenceFor'>;
+}
+
+/** Start a server that owns real meetings, creating or reopening the one this test acts on. */
 async function startApp(
-  persistence: MeetingPersistence,
-  options: Omit<CreateAppOptions, 'persistence' | 'scenario' | 'modules'> = {},
-): Promise<KakiApp> {
-  const app = await createTestApp({
-    modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
-    persistence,
-    ...options,
+  persistence: MeetingPersistence | undefined,
+  options: StartOptions,
+): Promise<TestAppWithMeeting> {
+  const app = (await createTestApp({
+    meetings: options.meetings,
+    roomRoster: async () => [],
+    rejoinGraceMs: 60_000,
+    rejoinPollMs: 60_000,
+    ...(persistence === undefined ? {} : { persistenceFor: async () => persistence }),
+    meetingModules: realModulesWith(options.modules ?? [createMeetingModule({ notetakerIntervalMs: 60_000 })]),
+    ...options.app,
+  })) as TestAppWithMeeting;
+  apps.push(app);
+  let meetingId = options.meetingId;
+  if (meetingId === undefined) {
+    const row = await app.registry.create({
+      workspaceId: 'workspace-1',
+      ownerUserId: 'test-owner',
+      title: options.title ?? 'Test meeting',
+      ...(options.agenda === undefined ? {} : { agenda: options.agenda }),
+    });
+    meetingId = row.id;
+  }
+  const instance = await app.registry.get(meetingId);
+  if (instance === undefined) throw new Error(`the real meeting ${meetingId} did not load`);
+  return Object.assign(app, {
+    meetingId,
+    instance,
+    hub: instance.hub,
+    tasks: instance.tasks,
+    session: instance.session,
+    memory: instance.memory,
+    roomName: instance.roomName,
   });
+}
+
+/** Start a server without loading a meeting, for tests that seed a saved row before it opens. */
+async function bootApp(
+  persistence: MeetingPersistence,
+  options: Omit<StartOptions, 'meetingId'>,
+): Promise<TestAppWithMeeting> {
+  const app = (await createTestApp({
+    meetings: options.meetings,
+    roomRoster: async () => [],
+    rejoinGraceMs: 60_000,
+    rejoinPollMs: 60_000,
+    persistenceFor: async () => persistence,
+    meetingModules: realModulesWith(options.modules ?? [createMeetingModule({ notetakerIntervalMs: 60_000 })]),
+    ...options.app,
+  })) as TestAppWithMeeting;
   apps.push(app);
   return app;
 }
 
-function baseUrl(app: KakiApp): string {
-  return `http://127.0.0.1:${portOf(app)}`;
+/** The roles the real meeting's own scenario offers, used so talk time is attributed. */
+function talkRoles(app: TestAppWithMeeting): { first: string; second: string } {
+  const roles = app.session.active().roles.map((role) => role.id);
+  const first = roles.includes('everyone') ? 'everyone' : roles[0]!;
+  const second = roles.find((role) => role !== first) ?? first;
+  return { first, second };
 }
 
-async function readSetup(app: KakiApp): Promise<MeetingSetup> {
-  const response = await fetch(`${baseUrl(app)}/api/setup`);
+function meetingStateUrl(app: TestAppWithMeeting, path: string): string {
+  return meetingUrl(app, app.meetingId, path);
+}
+
+async function readSetup(app: TestAppWithMeeting): Promise<MeetingSetup> {
+  const response = await fetch(meetingStateUrl(app, '/api/setup'));
   expect(response.status).toBe(200);
   return ((await response.json()) as { setup: MeetingSetup }).setup;
 }
 
-async function putSetup(app: KakiApp, setup: MeetingSetup): Promise<Response> {
-  return fetch(`${baseUrl(app)}/api/setup`, {
+async function putSetup(app: TestAppWithMeeting, setup: MeetingSetup): Promise<Response> {
+  return fetch(meetingStateUrl(app, '/api/setup'), {
     method: 'PUT',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(setup),
@@ -180,7 +250,7 @@ function editedSetup(setup: MeetingSetup): MeetingSetup {
   return {
     ...setup,
     title: 'Friday lunch readiness',
-    agenda: setup.agenda.map((item) => ({ ...item, minutes: 17, ownerRoleId: 'cashier' })),
+    agenda: setup.agenda.map((item) => ({ ...item, minutes: 17 })),
     roles: setup.roles.map((role, index) => (index === 0 ? { ...role, label: 'Head Chef' } : role)),
     pace: { ownerQuietBelow: 20, quietCheckAfter: 90, comingUpBefore: 45 },
     source: {
@@ -193,37 +263,47 @@ function editedSetup(setup: MeetingSetup): MeetingSetup {
   };
 }
 
-async function meetingState(app: KakiApp): Promise<{ meetingId: string; started: boolean; startedAt?: string }> {
-  const response = await fetch(`${baseUrl(app)}/api/meeting/state`);
+async function meetingState(app: TestAppWithMeeting): Promise<{ meetingId: string; started: boolean; startedAt?: string }> {
+  const response = await fetch(meetingStateUrl(app, '/api/meeting/state'));
   expect(response.status).toBe(200);
   return (await response.json()) as { meetingId: string; started: boolean; startedAt?: string };
 }
 
-async function join(app: KakiApp, body: Record<string, unknown>): Promise<Response> {
-  await fetch(`${baseUrl(app)}/api/meeting/open`, { method: 'POST' });
-  return fetch(`${baseUrl(app)}/api/livekit/token`, {
+async function meetingCode(app: TestAppWithMeeting): Promise<string> {
+  const response = await fetch(meetingStateUrl(app, '/api/meeting-code'));
+  expect(response.status).toBe(200);
+  return ((await response.json()) as { code: string }).code;
+}
+
+async function joinReal(app: TestAppWithMeeting, name: string): Promise<Response> {
+  return fetch(meetingStateUrl(app, '/api/livekit/token'), {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ roomName: 'test-room', ...body }),
+    body: JSON.stringify({ participantName: name }),
   });
 }
 
-async function connectScreen(app: KakiApp): Promise<TestClient> {
-  const client = await connectClient(portOf(app), 'screen');
+async function connectScreen(app: TestAppWithMeeting): Promise<TestClient> {
+  const client = await connectMeetingClient(portOf(app), app.meetingId, 'screen');
   clients.push(client);
   return client;
 }
 
-function say(app: KakiApp, speaker: string, text: string): void {
+function say(app: TestAppWithMeeting, speaker: string, text: string, speakerRole?: string): void {
   app.hub.publish({
     type: 'MEETING_STARTED',
     audience: { kind: 'all' },
-    payload: { meetingId: 'meeting-1', startedAt: new Date().toISOString() },
+    payload: { meetingId: app.meetingId, startedAt: new Date().toISOString() },
   });
   app.hub.publish({
     type: 'TRANSCRIPT_CHUNK',
     audience: { kind: 'screen' },
-    payload: { speaker, text, timestamp: new Date().toISOString() },
+    payload: {
+      speaker,
+      text,
+      timestamp: new Date().toISOString(),
+      ...(speakerRole === undefined ? {} : { speakerRole }),
+    },
   });
 }
 
@@ -234,23 +314,25 @@ function isRecord(event: KakiEvent): boolean {
 describe('meeting persistence across a restart', () => {
   it('restores the record, notetaker progress and tasks, and keeps tracking new talk', async () => {
     const store = new MemoryStore();
+    const meetings = createMemoryMeetingStore();
     const first = createMeetingPersistence({ store, log: () => undefined });
-    const app1 = await startApp(first);
+    const app1 = await startApp(first, { meetings, agenda: [{ title: 'Prep', minutes: 5 }] });
+    const roles = talkRoles(app1);
 
-    say(app1, 'Ada (Chef)', 'The oven trips the fuse again, it has been happening all morning.');
-    say(app1, 'Bao (Cashier)', 'I will check the temperature log before service.');
+    say(app1, 'Ada', 'The oven trips the fuse again, it has been happening all morning.', roles.first);
+    say(app1, 'Bao', 'I will check the temperature log before service.', roles.second);
     const open = app1.tasks.suggest({
       title: 'Call the oven repair man',
       context: 'The oven trips the fuse.',
-      suggestedAssignee: 'chef',
+      suggestedAssignee: roles.first,
     });
     const interrupted = app1.tasks.suggest({
       title: 'Email the supplier',
       context: 'The oven part is late.',
-      suggestedAssignee: 'chef',
+      suggestedAssignee: roles.first,
       actionKind: 'email',
     });
-    app1.tasks.transition(interrupted.id, 'DISPATCHED', { assignee: 'chef' });
+    app1.tasks.transition(interrupted.id, 'DISPATCHED', { assignee: roles.first });
     app1.tasks.transition(interrupted.id, 'CLAIMED', { mode: 'ACTION_AGENT' });
     app1.tasks.transition(interrupted.id, 'DRAFT_READY', {
       draft: { target: 'supplier@example.test', subject: 'Part', body: 'When is it coming?' },
@@ -268,7 +350,7 @@ describe('meeting persistence across a restart', () => {
     apps.splice(apps.indexOf(app1), 1);
 
     const second = createMeetingPersistence({ store, saved: await store.load(), log: () => undefined });
-    const app2 = await startApp(second);
+    const app2 = await startApp(second, { meetings, meetingId: app1.meetingId });
     const screen = await connectScreen(app2);
 
     const restored = await waitForEvent(screen, (event) => event.type === 'MEETING_RESTORED', 'restored notice');
@@ -278,8 +360,8 @@ describe('meeting persistence across a restart', () => {
       () => screen.messages.filter(isRecord).at(-1) as Extract<KakiEvent, { type: 'MEETING_RECORD_UPDATED' }> | undefined,
       'restored meeting record',
     );
-    expect(record.payload.speakerTalkSeconds.chef).toBeGreaterThan(0);
-    expect(record.payload.speakerTalkSeconds.cashier).toBeGreaterThan(0);
+    expect(record.payload.speakerTalkSeconds[roles.first]).toBeGreaterThan(0);
+    expect(record.payload.speakerTalkSeconds[roles.second]).toBeGreaterThan(0);
 
     expect(app2.tasks.get(open.id)?.status).toBe('SUGGESTED');
     const failed = app2.tasks.get(interrupted.id);
@@ -292,18 +374,20 @@ describe('meeting persistence across a restart', () => {
     // The notetaker carries on from the restored talk time instead of starting from nothing.
     say(
       app2,
-      'Ada (Chef)',
+      'Ada',
       'I have also asked the supplier to call us back this afternoon, and I told them that if the part ' +
         'does not arrive before the lunch rush we will borrow the spare tray warmer from the branch next ' +
         'door, so the front counter keeps moving and nobody has to wait outside in the queue while we ' +
         'sort the oven out properly with the electrician on Monday morning.',
+      roles.first,
     );
     const later = await waitFor(
       () => {
         const latest = screen.messages.filter(isRecord).at(-1) as
           | Extract<KakiEvent, { type: 'MEETING_RECORD_UPDATED' }>
           | undefined;
-        return latest !== undefined && (latest.payload.speakerTalkSeconds.chef ?? 0) > (record.payload.speakerTalkSeconds.chef ?? 0)
+        return latest !== undefined &&
+          (latest.payload.speakerTalkSeconds[roles.first] ?? 0) > (record.payload.speakerTalkSeconds[roles.first] ?? 0)
           ? latest
           : undefined;
       },
@@ -314,19 +398,21 @@ describe('meeting persistence across a restart', () => {
 
   it('clears the saved meeting when the host starts a new one', async () => {
     const store = new MemoryStore();
+    const meetings = createMemoryMeetingStore();
     const first = createMeetingPersistence({ store, log: () => undefined });
-    const app1 = await startApp(first);
-    say(app1, 'Ada (Chef)', 'The oven trips the fuse again.');
+    const app1 = await startApp(first, { meetings, agenda: [{ title: 'Prep', minutes: 5 }] });
+    const roles = talkRoles(app1);
+    say(app1, 'Ada', 'The oven trips the fuse again.', roles.first);
     app1.tasks.suggest({
       title: 'Call the oven repair man',
       context: 'The oven trips the fuse.',
-      suggestedAssignee: 'chef',
+      suggestedAssignee: roles.first,
     });
     await first.flush();
     const frozen = store.saved!;
 
     const second = createMeetingPersistence({ store, saved: await store.load(), log: () => undefined });
-    const app2 = await startApp(second);
+    const app2 = await startApp(second, { meetings, meetingId: app1.meetingId });
     const screen = await connectScreen(app2);
     await waitForEvent(screen, (event) => event.type === 'MEETING_RESTORED', 'restored notice');
 
@@ -336,15 +422,19 @@ describe('meeting persistence across a restart', () => {
     await waitFor(() => (store.saved === undefined ? true : undefined), 'saved meeting to be cleared');
     expect(app2.tasks.list()).toEqual([]);
 
-    say(app2, 'Ada (Chef)', 'A fresh meeting starts here.');
+    say(app2, 'Ada', 'A fresh meeting starts here.', roles.first);
     await waitFor(() => (store.saved !== undefined ? true : undefined), 'the new meeting to be saved');
     expect(store.saved!.startedAt).not.toBe(frozen.startedAt);
   });
 
   it('keeps an unconsumed edited draft across New meeting and a restart', async () => {
     const store = new MemoryStore();
+    const meetings = createMemoryMeetingStore();
     const firstPersistence = createMeetingPersistence({ store, log: () => undefined });
-    const first = await startApp(firstPersistence);
+    const first = await startApp(firstPersistence, {
+      meetings,
+      agenda: [{ title: 'Prep', minutes: 5 }],
+    });
     const edited = editedSetup(await readSetup(first));
     expect((await putSetup(first, edited)).status).toBe(200);
     await firstPersistence.flush();
@@ -362,6 +452,7 @@ describe('meeting persistence across a restart', () => {
 
     const restored = await startApp(
       createMeetingPersistence({ store, saved: await store.load(), log: () => undefined }),
+      { meetings, meetingId: first.meetingId },
     );
     expect((await readSetup(restored)).title).toBe('Friday lunch readiness');
   });
@@ -374,30 +465,25 @@ describe('meeting persistence across a restart', () => {
 
     expect(() => assertCompatibleSavedMeeting(saved)).toThrow(
       `Saved meeting is from an older format (v${MEETING_STATE_SCHEMA_VERSION - 1}, need v${MEETING_STATE_SCHEMA_VERSION}). ` +
-        'Run `npm run meeting:reset` to discard it.',
+        'Run `npm run meeting:reset -- <meetingId>` to discard it.',
     );
   });
 
   it('restores the saved agenda order so its index still means the same topic', async () => {
-    const scenario = {
-      ...testScenario,
-      agenda: [
-        testScenario.agenda[0]!,
-        { ...testScenario.agenda[0]!, title: 'Service', ownerRole: 'cashier' as const },
-      ],
-    };
     const store = new MemoryStore();
     store.saved = savedState({ agenda: ['Service', 'Prep'], agendaIndex: 1 });
-    const persistence = createMeetingPersistence({ store, saved: store.saved, log: () => undefined });
-    const app = await createApp({
-      speechRecognition: 'browser',
-      scenario,
-      modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
-      persistence,
-    });
-    apps.push(app);
-    const screen = await connectClient(portOf(app), 'screen');
-    clients.push(screen);
+    const meetings = createMemoryMeetingStore();
+    const app = await startApp(
+      createMeetingPersistence({ store, saved: store.saved, log: () => undefined }),
+      {
+        meetings,
+        agenda: [
+          { title: 'Service', minutes: 5 },
+          { title: 'Prep', minutes: 5 },
+        ],
+      },
+    );
+    const screen = await connectScreen(app);
 
     const start = await waitForEvent(screen, (event) => event.type === 'MEETING_STARTED', 'restored start');
     expect(start.type === 'MEETING_STARTED' ? start.payload : {}).toMatchObject({
@@ -411,7 +497,7 @@ describe('meeting persistence across a restart', () => {
     >;
     expect(record.payload.agendaIndex).toBe(1);
 
-    const response = await fetch(`http://127.0.0.1:${portOf(app)}/api/scenario`);
+    const response = await fetch(meetingStateUrl(app, '/api/scenario'));
     const restored = (await response.json()) as { agenda: Array<{ title: string }> };
     expect(restored.agenda.map((item) => item.title)).toEqual(['Service', 'Prep']);
   });
@@ -431,37 +517,29 @@ describe('meeting persistence across a restart', () => {
     store.saved = savedState({ agenda, tasks: [task] });
     // The saved meeting belongs to the loaded scenario: Wei Ling is the person's seat, the rest are AI.
     const setup = defaultMeetingSetup(structuredClone(scenario));
-    const weiLing = setup.seats.find((seat) => seat.displayName === 'Wei Ling');
-    const arjun = setup.seats.find((seat) => seat.displayName === 'Arjun');
-    if (weiLing === undefined || arjun === undefined) throw new Error('Expected Wei Ling and Arjun seats');
-    weiLing.kind = 'person';
-    delete weiLing.npcProfileId;
-    arjun.kind = 'ai';
-    arjun.npcProfileId = 'Arjun';
+    // A real meeting has no AI stand-ins: every one of its seats is a person.
+    setup.seats = setup.seats.map((seat) => ({
+      displayName: seat.displayName,
+      roleId: seat.roleId,
+      kind: 'person' as const,
+    }));
     store.saved.sealed = { ...setup, agenda: setup.agenda.slice(0, 2) };
-    const persistence = createMeetingPersistence({ store, saved: store.saved, log: () => undefined });
-    const app = await createApp({
-      speechRecognition: 'browser',
-      scenario,
-      modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
-      persistence,
-      roomRoster: async () => [],
-      rejoinGraceMs: 60_000,
-      rejoinPollMs: 60_000,
-    });
-    apps.push(app);
+    const meetings = createMemoryMeetingStore();
+    const app = await startApp(
+      createMeetingPersistence({ store, saved: store.saved, log: () => undefined }),
+      {
+        meetings,
+        agenda: agenda.map((title) => ({ title, minutes: 5 })),
+      },
+    );
 
-    const response = await fetch(`http://127.0.0.1:${portOf(app)}/api/livekit/token`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ roomName: 'test-room', participantName: 'Visitor', participantRole: 'operations_director' }),
-    });
+    const response = await joinReal(app, 'Visitor');
     expect(response.status).toBe(200);
     const joined = (await response.json()) as { resumed?: boolean };
     expect(joined.resumed).toBe(true);
     expect(app.tasks.get(task.id)?.title).toBe('Keep the plan');
 
-    const meeting = (await (await fetch(`http://127.0.0.1:${portOf(app)}/api/scenario`)).json()) as {
+    const meeting = (await (await fetch(meetingStateUrl(app, '/api/scenario'))).json()) as {
       agenda: Array<{ title: string }>;
     };
     expect(meeting.agenda.map((item) => item.title)).toEqual(agenda);
@@ -473,27 +551,26 @@ describe('meeting persistence across a restart', () => {
     (broken.state.clock as unknown as { agendaIndex: unknown }).agendaIndex = 'first';
     store.saved = broken;
     const persistence = createMeetingPersistence({ store, saved: broken, log: () => undefined });
-
-    await expect(
-      createApp({
-        speechRecognition: 'browser',
-        scenario: testScenario,
-        modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
-        persistence,
-      }),
-    ).rejects.toThrow(/Saved meeting is unreadable \(.*\)\. Run `npm run meeting:reset` to discard it\./);
+    const meetings = createMemoryMeetingStore();
+    const row = await meetings.create({ workspaceId: 'workspace-1', ownerUserId: 'test-owner', title: 'Test meeting' });
+    const app = await bootApp(persistence, { meetings });
+    await expect(app.registry.get(row.id)).rejects.toThrow(
+      /Saved meeting is unreadable \(.*\)\. Run `npm run meeting:reset -- <meetingId>` to discard it\./,
+    );
     await persistence.close();
   });
 
   it('tells the host when the old meeting could not be cleared, and keeps the meeting', async () => {
     const store = new FailingClearStore();
+    const meetings = createMemoryMeetingStore();
     const persistence = createMeetingPersistence({ store, log: () => undefined });
-    const app = await startApp(persistence);
-    say(app, 'Ada (Chef)', 'The oven trips the fuse again.');
+    const app = await startApp(persistence, { meetings });
+    const roles = talkRoles(app);
+    say(app, 'Ada', 'The oven trips the fuse again.', roles.first);
     const task = app.tasks.suggest({
       title: 'Call the oven repair man',
       context: 'The oven trips the fuse.',
-      suggestedAssignee: 'chef',
+      suggestedAssignee: roles.first,
     });
     await persistence.flush();
     const screen = await connectScreen(app);
@@ -518,14 +595,16 @@ describe('meeting persistence across a restart', () => {
 
   it('does not let a pre-reset save bring the old meeting back while a clear is slow', async () => {
     const store = new GatedClearStore();
+    const meetings = createMemoryMeetingStore();
     const persistence = createMeetingPersistence({ store, log: () => undefined });
-    const app = await startApp(persistence);
+    const app = await startApp(persistence, { meetings });
+    const roles = talkRoles(app);
     const screen = await connectScreen(app);
-    say(app, 'Ada (Chef)', 'The oven trips the fuse again.');
+    say(app, 'Ada', 'The oven trips the fuse again.', roles.first);
     const task = app.tasks.suggest({
       title: 'Call the oven repair man',
       context: 'The oven trips the fuse.',
-      suggestedAssignee: 'chef',
+      suggestedAssignee: roles.first,
     });
     await persistence.flush();
     const frozen = store.saved!;
@@ -534,7 +613,7 @@ describe('meeting persistence across a restart', () => {
     screen.ws.send(JSON.stringify({ type: 'NEW_MEETING' }));
     await store.clearStarted;
     // The old meeting is still talking while the clear is in progress.
-    say(app, 'Ada (Chef)', 'One more line before the reset lands.');
+    say(app, 'Ada', 'One more line before the reset lands.', roles.first);
     store.finishClear();
     await waitForEvent(screen, (event) => event.type === 'MEETING_RESET', 'reset');
     await persistence.flush();
@@ -542,23 +621,24 @@ describe('meeting persistence across a restart', () => {
     expect(store.saved).toBeUndefined();
     expect(app.tasks.get(task.id)).toBeUndefined();
 
-    say(app, 'Ada (Chef)', 'A fresh meeting starts here.');
+    say(app, 'Ada', 'A fresh meeting starts here.', roles.first);
     await waitFor(() => (store.saved !== undefined ? true : undefined), 'the new meeting to be saved');
     expect(store.saved!.startedAt).not.toBe(frozen.startedAt);
   });
 
   it('saves the last transcript line before closing, not the state before it', async () => {
     const store = new MemoryStore();
+    const meetings = createMemoryMeetingStore();
     const persistence = createMeetingPersistence({ store, log: () => undefined });
-    const app = await createTestApp({
+    const app = await startApp(persistence, {
+      meetings,
       modules: [createMeetingModule({ llm: createFakeLlm(() => '{}'), notetakerIntervalMs: 60_000 })],
-      persistence,
     });
-    apps.push(app);
+    const roles = talkRoles(app);
 
-    say(app, 'Ada (Chef)', 'The first line of the meeting.');
+    say(app, 'Ada', 'The first line of the meeting.', roles.first);
     await persistence.flush();
-    say(app, 'Bao (Cashier)', 'The last line before we close.');
+    say(app, 'Bao', 'The last line before we close.', roles.second);
     await persistence.flush();
     await app.close();
 
@@ -571,9 +651,12 @@ describe('meeting persistence across a restart', () => {
 
   it('saves an edited pre-Start setup draft on PUT and restores it, with its code and identity', async () => {
     const store = new MemoryStore();
-    const firstCode = createMeetingCodeSource('');
+    const meetings = createMemoryMeetingStore();
     const first = createMeetingPersistence({ store, log: () => undefined });
-    const app1 = await startApp(first, { meetingCode: firstCode });
+    const app1 = await startApp(first, {
+      meetings,
+      agenda: [{ title: 'Prep', minutes: 5 }],
+    });
 
     const edited = editedSetup(await readSetup(app1));
     expect((await putSetup(app1, edited)).status).toBe(200);
@@ -583,105 +666,73 @@ describe('meeting persistence across a restart', () => {
     expect(store.saved?.draft).toEqual(edited);
     const firstMeeting = await meetingState(app1);
     expect(firstMeeting.started).toBe(false);
+    const firstCode = await meetingCode(app1);
 
     await app1.close();
     apps.splice(apps.indexOf(app1), 1);
 
-    const secondCode = createMeetingCodeSource('');
     const second = createMeetingPersistence({ store, saved: await store.load(), log: () => undefined });
-    const app2 = await startApp(second, { meetingCode: secondCode });
+    const app2 = await startApp(second, { meetings, meetingId: app1.meetingId });
 
     expect(await readSetup(app2)).toEqual(edited);
     expect((await meetingState(app2)).meetingId).toBe(firstMeeting.meetingId);
-    expect(secondCode.value).toBe(firstCode.value);
-    expect(secondCode.value).toBe(store.saved?.meetingCode);
+    expect(await meetingCode(app2)).toBe(firstCode);
+    expect(store.saved?.meetingCode).toBe(firstCode);
   });
 
-  it('restores the edited setup, code and both person seats after a running-meeting restart', async () => {
+  it('restores the meeting plan, code and both person seats after a running-meeting restart', async () => {
     const store = new MemoryStore();
-    const firstCode = createMeetingCodeSource('');
+    const meetings = createMemoryMeetingStore();
     const first = createMeetingPersistence({ store, log: () => undefined });
     const app1 = await startApp(first, {
-      meetingCode: firstCode,
-      roomRoster: async () => [],
-      rejoinGraceMs: 60_000,
-      rejoinPollMs: 60_000,
+      meetings,
+      title: 'Friday lunch readiness',
+      agenda: [
+        { title: 'Prep', minutes: 5 },
+        { title: 'Service', minutes: 5 },
+      ],
     });
+    const firstCode = await meetingCode(app1);
 
-    const edited = editedSetup(await readSetup(app1));
-    expect((await putSetup(app1, edited)).status).toBe(200);
-
-    const ada = await join(app1, { participantName: 'Ada', participantRole: 'chef' });
+    const ada = await joinReal(app1, 'Ada');
     expect(ada.status).toBe(200);
-    const bao = await join(app1, {
-      participantName: 'Bao',
-      participantRole: 'cashier',
-      meetingCode: firstCode.value,
-    });
+    const adaSeat = ((await ada.json()) as { participantRole: string }).participantRole;
+    const bao = await joinReal(app1, 'Bao');
     expect(bao.status).toBe(200);
-    expect((await fetch(`${baseUrl(app1)}/api/meeting/start`, { method: 'POST' })).status).toBe(200);
+    const baoSeat = ((await bao.json()) as { participantRole: string }).participantRole;
+    expect((await fetch(meetingStateUrl(app1, '/api/meeting/start'), { method: 'POST' })).status).toBe(200);
 
     await first.flush();
     const frozen = store.saved!;
     const firstMeeting = await meetingState(app1);
-    expect(frozen.holders).toEqual([
-      { name: 'ada', seat: 'chef', displayName: 'Ada' },
-      { name: 'bao', seat: 'cashier', displayName: 'Bao' },
-    ]);
-    expect(frozen.sealed).toEqual(edited);
+    expect(frozen.holders.map((holder) => holder.name)).toEqual(['ada', 'bao']);
+    expect(frozen.holders.map((holder) => holder.seat)).toEqual([adaSeat, baoSeat]);
+    expect(frozen.sealed?.title).toBe('Friday lunch readiness');
+    expect(frozen.sealed?.agenda.map((item) => item.title)).toEqual(['Prep', 'Service']);
 
     await app1.close();
     apps.splice(apps.indexOf(app1), 1);
 
-    const secondCode = createMeetingCodeSource('');
     const second = createMeetingPersistence({ store, saved: await store.load(), log: () => undefined });
-    const app2 = await startApp(second, {
-      meetingCode: secondCode,
-      roomRoster: async () => [],
-      rejoinGraceMs: 60_000,
-      rejoinPollMs: 60_000,
-    });
+    const app2 = await startApp(second, { meetings, meetingId: app1.meetingId });
 
-    expect(await readSetup(app2)).toEqual(edited);
+    const restoredSetup = await readSetup(app2);
+    expect(restoredSetup.title).toBe('Friday lunch readiness');
     expect((await meetingState(app2)).meetingId).toBe(firstMeeting.meetingId);
-    expect(secondCode.value).toBe(firstCode.value);
+    expect((await meetingState(app2)).started).toBe(true);
+    expect(await meetingCode(app2)).toBe(firstCode);
 
-    const back = await join(app2, { participantName: 'Ada', participantRole: 'chef' });
+    const back = await joinReal(app2, 'Ada');
     expect(back.status).toBe(200);
-    const backBody = (await back.json()) as { meetingCode: string; resumed?: boolean };
-    expect(backBody.meetingCode).toBe(firstCode.value);
+    const backBody = (await back.json()) as { participantRole: string; resumed?: boolean };
+    expect(backBody.participantRole).toBe(adaSeat);
     expect(backBody.resumed).toBe(true);
 
     // The saved seat holders are known: a second known person joins the same meeting, not a new one.
-    const baoBack = await join(app2, {
-      participantName: 'Bao',
-      participantRole: 'cashier',
-      meetingCode: secondCode.value,
-    });
+    const baoBack = await joinReal(app2, 'Bao');
     expect(baoBack.status).toBe(200);
+    expect(((await baoBack.json()) as { participantRole: string }).participantRole).toBe(baoSeat);
     expect((await meetingState(app2)).meetingId).toBe(firstMeeting.meetingId);
-  });
-
-  it('lets KAKI_MEETING_CODE win over the saved code and says so', async () => {
-    const store = new MemoryStore();
-    store.saved = savedState({ agenda: ['Prep'] });
-    const persistence = createMeetingPersistence({ store, saved: store.saved, log: () => undefined });
-    const pinned = createMeetingCodeSource('K7QX');
-    const logs: string[] = [];
-    const log = vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
-      logs.push(args.map(String).join(' '));
-    });
-
-    try {
-      const app = await startApp(persistence, { meetingCode: pinned });
-      expect(pinned.value).toBe('K7QX');
-      expect(logs.some((line) => line.includes('KAKI_MEETING_CODE') && line.includes('saved meeting code'))).toBe(
-        true,
-      );
-      expect((await meetingState(app)).meetingId).toBe('meeting-1');
-    } finally {
-      log.mockRestore();
-    }
   });
 
   it('refuses a saved meeting with a corrupt setup, naming the field', async () => {
@@ -690,23 +741,22 @@ describe('meeting persistence across a restart', () => {
     broken.draft.agenda[0]!.minutes = 0;
     store.saved = broken;
     const persistence = createMeetingPersistence({ store, saved: broken, log: () => undefined });
-
-    await expect(
-      createApp({
-        speechRecognition: 'browser',
-        scenario: testScenario,
-        modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
-        persistence,
-      }),
-    ).rejects.toThrow(/its draft setup is invalid at agenda\[0\]\.minutes: .*Run `npm run meeting:reset` to discard it\./);
+    const meetings = createMemoryMeetingStore();
+    const row = await meetings.create({ workspaceId: 'workspace-1', ownerUserId: 'test-owner', title: 'Test meeting' });
+    const app = await bootApp(persistence, { meetings });
+    await expect(app.registry.get(row.id)).rejects.toThrow(
+      /its draft setup is invalid at agenda\[0\]\.minutes: .*Run `npm run meeting:reset -- <meetingId>` to discard it\./,
+    );
     await persistence.close();
   });
 
   it('rejects every New meeting while the clear keeps failing, then saves again once it clears', async () => {
     const store = new FailingClearStore();
+    const meetings = createMemoryMeetingStore();
     const persistence = createMeetingPersistence({ store, log: () => undefined });
-    const app = await startApp(persistence);
-    say(app, 'Ada (Chef)', 'The oven trips the fuse again.');
+    const app = await startApp(persistence, { meetings });
+    const roles = talkRoles(app);
+    say(app, 'Ada', 'The oven trips the fuse again.', roles.first);
     await persistence.flush();
     const screen = await connectScreen(app);
 
@@ -728,7 +778,7 @@ describe('meeting persistence across a restart', () => {
     expect(store.events.filter((event) => event === 'clear')).toEqual([]);
 
     // The next save retries the queued clear first, then saves; saves are not stuck behind it.
-    say(app, 'Ada (Chef)', 'A line after the failed resets.');
+    say(app, 'Ada', 'A line after the failed resets.', roles.first);
     await waitFor(
       () => (store.events.includes('clear') && store.saved !== undefined ? true : undefined),
       'the clear to succeed and saving to resume',

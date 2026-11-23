@@ -8,7 +8,6 @@ import {
   type Task,
 } from '@kaki/shared';
 import { useKaki, useScenario } from '../../kaki';
-import { RealEndedPanel } from './RealRoomOverlays';
 import { useRealRoom } from './realRoom';
 import { clearAllStoredJoins } from './rejoinSession';
 import { Avatar, artifactLinkText, resolveArtifactUrl, taskStatusText } from '../../ui';
@@ -47,6 +46,7 @@ export function MeetingPanel({
   sharedAudience = 'screen',
   practice = false,
   real = false,
+  signedIn = false,
   onNewPractice,
   onWingmanBadgeChange,
 }: {
@@ -59,6 +59,8 @@ export function MeetingPanel({
   practice?: boolean;
   /** A real meeting's End lives in the room bar only, and an empty agenda has nothing to advance. */
   real?: boolean;
+  /** True when this browser belongs to a signed-in account, so a practice can keep its minutes. */
+  signedIn?: boolean;
   /** Asks the practice page for a fresh practice meeting once this one is over. */
   onNewPractice?: () => void;
   /** Reports the quiet Wingman note count so the room can show it on the Wingman button. */
@@ -339,7 +341,6 @@ export function MeetingPanel({
           )}
         </div>
       )}
-      {real && <RealEndedPanel meetingId={realRoom?.meetingId ?? ''} />}
       {meetingEnded && !real && (
         <section id="minutes" className="kd-role kd-topic-card" aria-label="End-of-meeting minutes">
           <p className="kd-role-eyebrow">
@@ -349,6 +350,14 @@ export function MeetingPanel({
                 ? '🎉 Kaki Host · Meeting Concluded'
                 : '📝 Kaki Host · Meeting Minutes Draft'}
           </p>
+          {practice && !signedIn ? (
+            <div className="kd-practice-minutes">
+              <p>Minutes are on the sample wiki</p>
+              <p>
+                <a href="/signin?next=/practice">Sign in to keep your meetings</a>
+              </p>
+            </div>
+          ) : null}
           <p style={{ marginBottom: 10 }}>
             {minutesPublished
               ? 'Full meeting notes (agenda items, action items, open questions, and transcript) and your team deliverables are live:'
@@ -380,7 +389,7 @@ export function MeetingPanel({
           )}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
             {minutesPublished && minutesTask?.artifactUrl !== undefined && (
-              <a className="artifact-link" href={resolveArtifactUrl(minutesTask.artifactUrl, minutesTask.actionKind)} target="_blank" rel="noreferrer">
+              <a className="artifact-link" href={resolveArtifactUrl(minutesTask.artifactUrl, minutesTask.actionKind, scenario.toolUrls)} target="_blank" rel="noreferrer">
                 Open meeting minutes in Wiki ↗
               </a>
             )}
@@ -394,7 +403,7 @@ export function MeetingPanel({
               <a
                 key={task.id}
                 className="artifact-link"
-                href={resolveArtifactUrl(task.artifactUrl!, task.actionKind)}
+                href={resolveArtifactUrl(task.artifactUrl!, task.actionKind, scenario.toolUrls)}
                 target="_blank"
                 rel="noreferrer"
               >
@@ -535,7 +544,7 @@ export function MeetingPanel({
                   <small className="kd-task-decision">Accepted decision: {task.decisionSource}</small>
                 )}
                 {task.artifactUrl !== undefined && (task.status === 'COMPLETED' || task.status === 'SYNCED') && (
-                  <a className="artifact-link" href={resolveArtifactUrl(task.artifactUrl, task.actionKind)} target="_blank" rel="noreferrer">
+                  <a className="artifact-link" href={resolveArtifactUrl(task.artifactUrl, task.actionKind, scenario.toolUrls)} target="_blank" rel="noreferrer">
                     {artifactLinkText(task)}
                   </a>
                 )}

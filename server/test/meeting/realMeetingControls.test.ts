@@ -9,7 +9,6 @@ import { createMemoryAuthStore, type AuthStore, type UserRecord } from '../../sr
 import { createAgendaClock, type AgendaClock } from '../../src/host/clock';
 import { createMeetingModule } from '../../src/host/meeting';
 import { createMemoryMeetingStore, type MeetingStore } from '../../src/meeting/registry';
-import { createMeetingCodeSource } from '../../src/meeting/meetingCode';
 import { createMeetingPersistence, type MeetingPersistence } from '../../src/persist/persistence';
 import type { StoredMeeting } from '../../src/persist/state';
 import type { KakiModule } from '../../src/core/modules';
@@ -202,8 +201,7 @@ async function buildApp(
   } = {},
 ): Promise<Built> {
   const store = createMemoryAuthStore();
-  const meetingCode = createMeetingCodeSource('K7M2Q9');
-  const auth = createAuth({ store, meetingCode });
+  const auth = createAuth({ store});
   const meetings = createMemoryMeetingStore();
   const clock = createAgendaClock({
     agenda: realScenario.agenda,
@@ -213,7 +211,6 @@ async function buildApp(
     scenario: options.scenario ?? realScenario,
     speechRecognition: 'browser',
     auth,
-    meetingCode,
     meetings,
     serviceToken: SERVICE_TOKEN,
     roomRoster: async () => [],
@@ -519,8 +516,8 @@ describe('real meeting controls', () => {
   });
 
   it('frees an ended meeting’s share of the server-wide cap yet keeps serving its ended room', async () => {
-    // The legacy practice instance plus one loaded real meeting fill a cap of two.
-    const built = await buildApp({ maxOpenMeetings: 2, maxOpenMeetingsPerUser: 5 });
+    // One loaded real meeting fills a cap of one; the next is refused.
+    const built = await buildApp({ maxOpenMeetings: 1, maxOpenMeetingsPerUser: 5 });
     const owner = await signIn(built.store, 'Ada');
     const first = await createAndOpen(built, owner);
     const second = await built.app.registry.create({
@@ -571,8 +568,7 @@ describe('real meeting controls', () => {
 
   it('persists off-the-record spans with the meeting and restores them after a restart', async () => {
     const store = createMemoryAuthStore();
-    const meetingCode = createMeetingCodeSource('K7M2Q9');
-    const auth = createAuth({ store, meetingCode });
+    const auth = createAuth({ store});
     const meetings = createMemoryMeetingStore();
     const clock = createAgendaClock({ agenda: realScenario.agenda });
     const state = new FakeStateStore();
@@ -584,7 +580,6 @@ describe('real meeting controls', () => {
       scenario: realScenario,
       speechRecognition: 'browser',
       auth,
-      meetingCode,
       meetings,
       serviceToken: SERVICE_TOKEN,
       roomRoster: async () => [],
@@ -635,7 +630,6 @@ describe('real meeting controls', () => {
       scenario: realScenario,
       speechRecognition: 'browser',
       auth,
-      meetingCode,
       meetings,
       serviceToken: SERVICE_TOKEN,
       roomRoster: async () => [],
@@ -868,7 +862,7 @@ describe('real meeting line replay', () => {
         const state = lastState(screen);
         return state?.type === 'MEETING_STATE' && state.payload.offTheRecord !== null ? state : undefined;
       }, 'the room to go off the record');
-      seat.ws.send(JSON.stringify({ type: 'HUMAN_LINE', text: 'secret', source: 'typed', clientLineId: 'id-secret' }));
+      seat.ws.send(JSON.stringify({ type: 'HUMAN_LINE', text: 'secret', clientLineId: 'id-secret' }));
       screen.ws.send(JSON.stringify({ type: 'SET_OFF_THE_RECORD', on: false }));
       await waitFor(() => {
         const state = lastState(screen);
@@ -877,7 +871,7 @@ describe('real meeting line replay', () => {
       for (let batch = 0; batch < 60; batch += 5) {
         clock += 1_100;
         for (let index = batch; index < batch + 5; index += 1) {
-          seat.ws.send(JSON.stringify({ type: 'HUMAN_LINE', text: `line ${index}`, source: 'typed', clientLineId: `id-${index}` }));
+          seat.ws.send(JSON.stringify({ type: 'HUMAN_LINE', text: `line ${index}`, clientLineId: `id-${index}` }));
         }
         await waitFor(() => (chunkTexts(screen).includes(`line ${batch + 4}`) ? true : undefined), `batch ${batch}`);
       }

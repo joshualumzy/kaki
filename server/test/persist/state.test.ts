@@ -137,7 +137,7 @@ describe('saved meeting validation', () => {
   ])('refuses %s before any part is applied', (_label, make, problem) => {
     const message = refusal(make);
     expect(message).toBe(
-      `Saved meeting is unreadable (${problem}). Run \`npm run meeting:reset\` to discard it.`,
+      `Saved meeting is unreadable (${problem}). Run \`npm run meeting:reset -- <meetingId>\` to discard it.`,
     );
   });
 
@@ -165,7 +165,7 @@ describe('saved meeting validation', () => {
 
     expect(() => resolveSavedAgenda(meeting, testScenario)).toThrow(
       "Saved meeting's agenda has topics this scenario no longer has (Retired topic). " +
-        'Run `npm run meeting:reset` to discard it.',
+        'Run `npm run meeting:reset -- <meetingId>` to discard it.',
     );
   });
 
@@ -174,7 +174,7 @@ describe('saved meeting validation', () => {
     meeting.draft.agenda[0]!.minutes = 0;
 
     expect(() => assertReadableSavedMeeting(meeting, testScenario)).toThrow(
-      /its draft setup is invalid at agenda\[0\]\.minutes: .*Run `npm run meeting:reset` to discard it\./,
+      /its draft setup is invalid at agenda\[0\]\.minutes: .*Run `npm run meeting:reset -- <meetingId>` to discard it\./,
     );
   });
 
@@ -218,7 +218,7 @@ describe('saved meeting validation', () => {
     delete meeting.startedAt;
 
     expect(() => assertReadableSavedMeeting(meeting, testScenario)).toThrow(
-      'Saved meeting is unreadable (its start time is missing). Run `npm run meeting:reset` to discard it.',
+      'Saved meeting is unreadable (its start time is missing). Run `npm run meeting:reset -- <meetingId>` to discard it.',
     );
   });
 
@@ -228,7 +228,7 @@ describe('saved meeting validation', () => {
 
     expect(() => assertCompatibleSavedMeeting(meeting)).toThrow(
       'Saved meeting is from an older format (v3, need v' +
-        `${MEETING_STATE_SCHEMA_VERSION}). Run \`npm run meeting:reset\` to discard it.`,
+        `${MEETING_STATE_SCHEMA_VERSION}). Run \`npm run meeting:reset -- <meetingId>\` to discard it.`,
     );
   });
 
@@ -244,7 +244,7 @@ describe('saved meeting validation', () => {
     meeting.schemaVersion = MEETING_STATE_SCHEMA_VERSION + 1;
 
     expect(() => assertCompatibleSavedMeeting(meeting)).toThrow(
-      `Saved meeting is from a newer format (v${MEETING_STATE_SCHEMA_VERSION + 1}, need v${MEETING_STATE_SCHEMA_VERSION}). Run \`npm run meeting:reset\` to discard it.`,
+      `Saved meeting is from a newer format (v${MEETING_STATE_SCHEMA_VERSION + 1}, need v${MEETING_STATE_SCHEMA_VERSION}). Run \`npm run meeting:reset -- <meetingId>\` to discard it.`,
     );
   });
 });

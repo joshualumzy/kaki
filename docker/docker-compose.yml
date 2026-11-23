@@ -128,7 +128,7 @@ services:
       start_period: 10s
     restart: unless-stopped
 
-  # Local WebRTC server for the live demo meeting (`/demo`). `--dev` uses the key pair
+  # Local WebRTC server for the live demo meeting (`/practice`). `--dev` uses the key pair
   # devkey/secret, which the Kaki server and the NPC runner default to. The image has no shell,
   # so there is no healthcheck.
   livekit:

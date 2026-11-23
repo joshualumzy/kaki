@@ -87,6 +87,12 @@ export interface Hub {
   subscribe(handler: (event: KakiEvent) => void): () => void;
   /** Add a handler for validated client commands; every handler sees every command and ignores the ones it does not own. */
   onCommand(handler: CommandHandler): void;
+  /**
+   * Run every command handler as the server itself: no socket and no authorization re-check, and
+   * each handler's effect committed before the next one runs. This is server-internal only, for
+   * lifecycle actions such as deleting an account; a WebSocket can never reach it.
+   */
+  handleServerCommand?(command: KakiCommand, sender: ClientAudience): Promise<void>;
   /** Ask every connected AI runner to open the meeting; false when no runner is connected. */
   requestStart?(request: RunnerStartRequest): boolean;
   /** The AI runner service channels connected right now. */
@@ -421,7 +427,7 @@ export function createHub(
       return;
     }
 
-    // A typed line held during a reconnect still counts: the person typed it.
+    // A line held during a reconnect still counts: the person spoke it.
     if (personSockets.has(socket)) options.onPersonAction?.();
 
     if (runnerSockets.has(socket)) {
@@ -588,6 +594,12 @@ export function createHub(
     },
     onCommand(handler) {
       commandHandlers.push(handler);
+    },
+    async handleServerCommand(command, sender) {
+      for (const handler of commandHandlers) {
+        const effect = await handler(command, sender);
+        await effect?.commit();
+      }
     },
     requestStart(request) {
       if (serviceSockets.size === 0) return false;

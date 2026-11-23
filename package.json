@@ -1,5 +1,6 @@
 {
   "name": "kaki",
+  "license": "AGPL-3.0-only",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -26,6 +27,8 @@
     "eval:ami:convert": "tsx server/src/host/eval/convertAmi.ts",
     "eval:key": "tsx scripts/eval-key-judge.ts",
     "playtest:dialogue": "tsx scripts/playtest-dialogue.ts",
+    "playtest:live": "tsx scripts/live-playtest.ts",
+    "playtest:ai": "tsx scripts/ai-visitor.ts",
     "stack:up": "docker compose -f docker/docker-compose.yml up -d",
     "stack:down": "docker compose -f docker/docker-compose.yml down",
     "seed": "tsx docker/seed/index.ts",

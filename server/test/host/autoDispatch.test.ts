@@ -2,13 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { KakiEvent } from '@kaki/shared';
 import { installAutoDispatch, shouldStillAskColleague } from '../../src/host/autoDispatch';
 import { roleAudience } from '../../src/core/audience';
-import { connectClient, createTestApp, portOf, settle, waitFor } from '../helpers';
+import { connectMeetingClient, createPracticeTestApp, portOf, settle, waitFor } from '../helpers';
 import { testScenario } from '../fixtures/scenario';
 
 describe('auto-dispatch', () => {
-  let app: Awaited<ReturnType<typeof createTestApp>>;
+  let app: Awaited<ReturnType<typeof createPracticeTestApp>>;
   beforeEach(async () => {
-    app = await createTestApp();
+    app = await createPracticeTestApp();
   });
   afterEach(async () => {
     await app.close();
@@ -162,7 +162,7 @@ describe('auto-dispatch', () => {
     const early = app.tasks.suggest({ title: 'Post decision', context: 'x', suggestedAssignee: 'chef',
       actionKind: 'mattermost_post', agendaItemTitle: 'Prep' });
     expect(app.tasks.get(early.id)?.status).toBe('SUGGESTED');
-    const screen = await connectClient(portOf(app), 'screen');
+    const screen = await connectMeetingClient(portOf(app), app.meetingId, 'screen');
     screen.ws.send(JSON.stringify({ type: 'NEXT_AGENDA_ITEM' }));
     await settle();
     expect(app.tasks.get(early.id)?.status).toBe('DISMISSED');
@@ -183,7 +183,7 @@ describe('auto-dispatch', () => {
       actionKind: 'email', agendaItemTitle: 'Stock' });
     expect(app.tasks.get(later.id)?.status).toBe('SUGGESTED');
 
-    const screen = await connectClient(portOf(app), 'screen');
+    const screen = await connectMeetingClient(portOf(app), app.meetingId, 'screen');
     screen.ws.send(JSON.stringify({ type: 'NEXT_AGENDA_ITEM' }));
     await settle();
     expect(app.tasks.get(later.id)?.status).toBe('SUGGESTED');
@@ -210,7 +210,7 @@ describe('auto-dispatch', () => {
     });
     expect(app.tasks.get(stock.id)?.status).toBe('SUGGESTED');
 
-    const screen = await connectClient(portOf(app), 'screen');
+    const screen = await connectMeetingClient(portOf(app), app.meetingId, 'screen');
     screen.ws.send(JSON.stringify({ type: 'NEXT_AGENDA_ITEM' }));
     await settle();
     expect(app.tasks.get(stock.id)?.status).toBe('DISMISSED');
@@ -256,7 +256,7 @@ describe('auto-dispatch', () => {
     const three = app.tasks.suggest({ title: 'Card three', context: 'x', suggestedAssignee: 'chef',
       actionKind: 'mattermost_post', agendaItemTitle: 'Three' });
 
-    const screen = await connectClient(portOf(app), 'screen');
+    const screen = await connectMeetingClient(portOf(app), app.meetingId, 'screen');
     screen.ws.send(JSON.stringify({ type: 'NEXT_AGENDA_ITEM' }));
     await settle();
     index = 1;

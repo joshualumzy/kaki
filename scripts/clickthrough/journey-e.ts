@@ -12,6 +12,8 @@ import {
   stamp,
   waitForRoomBar,
   workspaces,
+  withJourneyLock,
+  closeBrowser,
 } from './lib';
 
 const JOURNEY = 'e';
@@ -38,12 +40,8 @@ async function main(): Promise<void> {
   try {
     const owner = await signedInPerson(browser, run, { name: ownerName, email: `owner4-${suffix}@clickthrough.test` });
     const page = owner.page;
-    const guest = await guestPerson(browser, run, {
-      expected: (status, url) => status === 401 && url.includes('/api/auth/me'),
-    });
-    const anon = await guestPerson(browser, run, {
-      expected: (status, url) => status === 401 && url.includes('/api/auth/me'),
-    });
+    const guest = await guestPerson(browser, run);
+    const anon = await guestPerson(browser, run);
 
     await step(run, page, 'setup meeting', async () => {
       await page.goto(`${BASE}/new`);
@@ -241,11 +239,11 @@ async function main(): Promise<void> {
     });
   } finally {
     run.save();
-    await browser.close();
+    await closeBrowser(browser);
   }
 }
 
-void main().catch((error: unknown) => {
+void withJourneyLock(JOURNEY, main).catch((error: unknown) => {
   console.error(error instanceof Error ? error.message : error);
   process.exitCode = 1;
 });

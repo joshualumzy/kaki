@@ -2,6 +2,7 @@ import { ErrorText } from './ErrorText';
 import { useEffect, useState } from 'react';
 import { Link, Navigate, useParams } from 'react-router-dom';
 import { useMe } from '../auth/useMe';
+import { SIGN_IN_ENDED } from '../net/plainFailure';
 import { Button, Card } from '../ui';
 import {
   getMeetingMinutes,
@@ -118,6 +119,10 @@ export function MeetingHistoryPage() {
   }
 
   if (!auth.me.authEnabled || auth.me.kind !== 'user') {
+    return <Navigate to={`/signin?next=${encodeURIComponent(`/workspaces/${id}/meetings/${meetingId}`)}`} replace />;
+  }
+
+  if (error === SIGN_IN_ENDED) {
     return <Navigate to={`/signin?next=${encodeURIComponent(`/workspaces/${id}/meetings/${meetingId}`)}`} replace />;
   }
 

@@ -4,8 +4,22 @@ import '@livekit/components-styles';
 import { ConnectionState, RoomEvent, type RoomOptions } from 'livekit-client';
 import { joinSeatRoles } from '@kaki/shared';
 import { useMe } from '../../auth/useMe';
-import { meetingApiPath, useKaki, useRefreshScenario, useScenario } from '../../kaki';
-import { COULD_NOT_JOIN, MEDIA_BLOCKED_PROBLEM, MEDIA_BLOCKED_PROBLEM_SPEECH_ONLY, ROOM_CONNECT_PROBLEM, plainServerText } from '../../net/plainFailure';
+import {
+  KakiConnectionProvider,
+  meetingApiPath,
+  useKaki,
+  useRefreshScenario,
+  useScenario,
+} from '../../kaki';
+import {
+  CAMERA_BLOCKED_PROBLEM,
+  COULD_NOT_JOIN,
+  MEDIA_BLOCKED_PROBLEM,
+  MEDIA_BLOCKED_PROBLEM_SPEECH_ONLY,
+  MIC_BLOCKED_PROBLEM,
+  ROOM_CONNECT_PROBLEM,
+  plainServerText,
+} from '../../net/plainFailure';
 import { fetchWithTimeout, TimeoutError } from '../../net/withTimeout';
 import { ErrorBoundary } from './ErrorBoundary';
 import { JoinForm } from './JoinForm';
@@ -13,8 +27,6 @@ import type { MediaChoice } from './MediaPreview';
 import { MeetingGrid } from './MeetingGrid';
 import { Dock } from './Dock';
 import { ConnectedStartPrompt } from './StartPrompt';
-import { OwnerLobby, WaitingOverlay } from '../MeetingOverlays';
-import { TeamJoinForm } from '../TeamJoinForm';
 import { AudioUnlockPrompt } from './AudioUnlock';
 import {
   clearStoredJoin,
@@ -29,15 +41,16 @@ import {
   type StoredJoin,
 } from './rejoinSession';
 import { RealRoomStateProvider } from './realRoom';
-import './demo.css';
+import { RealEndedOverlay } from './RealRoomOverlays';
+import './practice.css';
 
 /** Echo cancellation is what lets the server tell a person talking over the AI from the AI's own playback. */
 const ROOM_OPTIONS: RoomOptions = {
   audioCaptureDefaults: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
 };
 
-/** Which journey this page is: the practice demo, a team participant, or the meeting owner. */
-type MeetingVariant = 'practice' | 'participant' | 'owner' | 'real';
+/** Which journey this page is: the practice meeting or a real product meeting. */
+type MeetingVariant = 'practice' | 'real';
 
 interface Session {
   token: string;
@@ -108,11 +121,12 @@ function storedFromSession(session: Session): StoredJoin {
 }
 
 /**
- * The meeting page. Practice keeps the Kopitiam story and its own Start prompt; a team participant
- * waits for the owner; the owner gets the invite lobby. All three share the stage and the Dock.
+ * The meeting page. Practice keeps the Kopitiam story and its own Start prompt; a real meeting
+ * follows the owner's plan. Both share the stage and the Dock.
  */
 export default function Meeting({
   variant = 'practice',
+  signedIn = false,
   initialCode,
   meetingId,
   practiceMeetingId,
@@ -124,17 +138,22 @@ export default function Meeting({
   meetingId?: string;
   /** This visitor's own practice meeting, resolved from their cookie before the room mounts. */
   practiceMeetingId?: string;
+  /** True when the visitor is signed in, so their practice minutes can be kept in their history. */
+  signedIn?: boolean;
   /** Asks the practice page for a fresh practice meeting, without reloading the page. */
   onNewPractice?: () => void;
 }) {
   const scenario = useScenario();
   const practice = variant === 'practice';
   const real = variant === 'real';
-  // The meeting id every prefixed path, room and socket follows: a real meeting's row, or this
-  // visitor's own practice. A legacy page has none and keeps the unprefixed paths.
-  const apiMeetingId = real ? meetingId : practice ? practiceMeetingId : undefined;
+  // The meeting id every path, room and socket follows: a real meeting's row, or this visitor's
+  // own practice. A page always names exactly one of them.
+  const apiMeetingId = (real ? meetingId : practiceMeetingId) ?? '';
+  if (apiMeetingId === '') {
+    throw new Error('Meeting needs its meeting id');
+  }
   // A stored join belongs to one practice meeting, so an old practice is never restored into a new one.
-  const joinVariant = practice && practiceMeetingId !== undefined ? `${variant}.${practiceMeetingId}` : variant;
+  const joinVariant = practice ? `${variant}.${apiMeetingId}` : variant;
   const auth = useMe(0, real);
   const refreshScenario = useRefreshScenario();
   // The same seats the server offers: the setup's person seats when it names them, else every
@@ -428,7 +447,7 @@ export default function Meeting({
     return (
       <LeftScreen
         meetingTitle={scenario.meetingTitle}
-        minutesHref={realMeetingId === undefined ? '#minutes' : `/m/${encodeURIComponent(realMeetingId)}/room#minutes`}
+        minutesHref={realMeetingId === undefined ? '#minutes' : `/m/${encodeURIComponent(realMeetingId)}`}
         onRejoin={() => {
           const target = leftSession;
           setLeft(false);
@@ -530,28 +549,19 @@ export default function Meeting({
     if (practice) {
       return (
         <JoinForm
-          meetingTitle={scenario.meetingTitle}
+          meetingTitle="Nanyang Kopi (sample workspace)"
           roles={offersSeats ? roles : []}
           agenda={scenario.agenda}
           busy={busy}
           error={offersSeats ? error : seatsError}
           askCode={needsCode}
           initialCode={linkCode}
+          toolUrls={scenario.toolUrls}
           onJoin={(name, roleId, media, code) => void join(name, roleId, media, code)}
         />
       );
     }
-    return (
-      <TeamJoinForm
-        meetingTitle={scenario.meetingTitle}
-        roles={offersSeats ? roles : []}
-        busy={busy}
-        error={offersSeats ? error : seatsError}
-        initialCode={linkCode}
-        owner={variant === 'owner'}
-        onJoin={(name, roleId, media, code) => void join(name, roleId, media, code)}
-      />
-    );
+    return null;
   }
 
   const seatRole = scenario.roles.find((candidate) => candidate.id === session.role);
@@ -562,9 +572,7 @@ export default function Meeting({
     ? isHost
       ? 'screen'
       : 'participant'
-    : variant === 'participant'
-      ? 'participant'
-      : 'screen';
+    : 'screen';
 
   const roomView = (
     <div className="kd-meeting" data-pane={pane} data-needs-start={needsStart} data-variant={variant}>
@@ -608,15 +616,23 @@ export default function Meeting({
             setRejoinDeadline(Date.now() + REJOIN_GRACE_MS);
             setSession(undefined);
           }}
-          onMediaDeviceFailure={(failure) => {
+          onMediaDeviceFailure={(failure, kind) => {
             console.error('kaki web: the microphone or camera could not start', failure);
-            setMediaProblem(practice ? MEDIA_BLOCKED_PROBLEM_SPEECH_ONLY : MEDIA_BLOCKED_PROBLEM);
+            setMediaProblem(
+              practice
+                ? MEDIA_BLOCKED_PROBLEM_SPEECH_ONLY
+                : kind === 'videoinput'
+                  ? CAMERA_BLOCKED_PROBLEM
+                  : kind === 'audioinput'
+                    ? MIC_BLOCKED_PROBLEM
+                    : MEDIA_BLOCKED_PROBLEM,
+            );
           }}
           data-lk-theme="default"
           style={{ height: '100%' }}
         >
-          {mediaProblem === undefined ? null : (
-            <div className="kd-reconnect-banner" role="alert">
+          {mediaProblem === undefined || real ? null : (
+            <div className="kd-reconnect-banner kd-media-problem" role="alert">
               {mediaProblem}
             </div>
           )}
@@ -629,6 +645,8 @@ export default function Meeting({
               {...(session.meetingCode === undefined ? {} : { meetingCode: session.meetingCode })}
               onOpenKaki={() => setPane('kaki')}
               onKakiBadgeChange={setKakiBadgeCount}
+              {...(mediaProblem === undefined ? {} : { mediaProblem })}
+              onMediaProblemCleared={() => setMediaProblem(undefined)}
             />
           </ErrorBoundary>
           <CleanDisconnectOnUnload />
@@ -644,12 +662,6 @@ export default function Meeting({
               onStarted={() => setStarted(true)}
             />
           )}
-          {needsStart && variant === 'participant' && (
-            <WaitingOverlay meetingTitle={scenario.meetingTitle} />
-          )}
-          {needsStart && variant === 'owner' && (
-            <OwnerLobby initialCode={session.meetingCode} onStarted={markMeetingStarted} />
-          )}
         </LiveKitRoom>
       </div>
       <Dock
@@ -659,6 +671,7 @@ export default function Meeting({
         started={!needsStart}
         practice={practice}
         real={real}
+        signedIn={signedIn}
         {...(onNewPractice === undefined ? {} : { onNewPractice })}
         onWingmanBadgeChange={setWingmanBadgeCount}
         viewer={{
@@ -667,6 +680,7 @@ export default function Meeting({
           seat: session.role,
         }}
       />
+      {real && realMeetingId !== undefined ? <RealEndedOverlay meetingId={realMeetingId} /> : null}
       <nav className="kd-panes" aria-label="Meeting or Kaki">
         <button type="button" aria-pressed={pane === 'meeting'} onClick={() => setPane('meeting')}>
           Meeting
@@ -691,12 +705,16 @@ export default function Meeting({
     </div>
   );
 
-  return real && realMeetingId !== undefined ? (
-    <RealRoomStateProvider role={session.role} isHost={isHost} meetingId={realMeetingId}>
-      {roomView}
-    </RealRoomStateProvider>
-  ) : (
-    roomView
+  return (
+    <KakiConnectionProvider role={session.role} sharedAudience={sharedAudience}>
+      {real && realMeetingId !== undefined ? (
+        <RealRoomStateProvider role={session.role} isHost={isHost} meetingId={realMeetingId}>
+          {roomView}
+        </RealRoomStateProvider>
+      ) : (
+        roomView
+      )}
+    </KakiConnectionProvider>
   );
 }
 
@@ -831,9 +849,9 @@ function LeftScreen({
         <button type="button" className="kd-go" onClick={onRejoin}>
           Rejoin
         </button>
-        <p className="kd-hint">
-          <a href={minutesHref}>See the meeting minutes</a>
-        </p>
+        <a className="kd-go kd-go-secondary" href={minutesHref}>
+          See the meeting minutes
+        </a>
       </div>
     </div>
   );

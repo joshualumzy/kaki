@@ -38,6 +38,8 @@ export function MeetingGrid({
   real = false,
   meetingId,
   meetingCode,
+  mediaProblem,
+  onMediaProblemCleared,
 }: {
   role: string;
   onOpenKaki?: () => void;
@@ -48,6 +50,9 @@ export function MeetingGrid({
   real?: boolean;
   meetingId?: string;
   meetingCode?: string;
+  /** A device failure reported by the room, shown once in the real meeting's bar. */
+  mediaProblem?: string;
+  onMediaProblemCleared?(): void;
 }) {
   const scenario = useScenario();
   const realRoom = useRealRoom();
@@ -208,9 +213,9 @@ export function MeetingGrid({
   const stage = useMemo(
     () => ({
       scenario, chunks, events, now, npcState, speechStatus, waitingForHuman,
-      activeItemOwnerRole: activeOwnerRole, activeAgendaIndex, avatars, offTheRecord, real,
+      activeItemOwnerRole: activeOwnerRole, activeAgendaIndex, avatars, offTheRecord,
     }),
-    [scenario, chunks, events, now, npcState, speechStatus, waitingForHuman, activeOwnerRole, activeAgendaIndex, avatars, offTheRecord, real],
+    [scenario, chunks, events, now, npcState, speechStatus, waitingForHuman, activeOwnerRole, activeAgendaIndex, avatars, offTheRecord],
   );
 
   const starterChips = useMemo(() => {
@@ -309,8 +314,6 @@ export function MeetingGrid({
         {!offTheRecord && speechNotice !== undefined && (
           <div role="alert" className="kd-banner" data-tone="error">
             {speechNotice.text}
-            {/* A real meeting keeps its Type button in the bottom bar; practice is speech only. */}
-            {real ? ' You can also use Type below.' : null}
           </div>
         )}
         {!real && (scenario.npcs ?? []).length > 0 && !aiPresent && (
@@ -414,6 +417,8 @@ export function MeetingGrid({
           <RealMeetingBar
             meetingId={meetingId ?? ''}
             {...(meetingCode === undefined ? {} : { meetingCode })}
+            {...(mediaProblem === undefined ? {} : { mediaProblem })}
+            {...(onMediaProblemCleared === undefined ? {} : { onMediaProblemCleared })}
           />
         ) : (
           <ControlBar controls={{ screenShare: false, chat: false }} />

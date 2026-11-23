@@ -329,7 +329,7 @@ describe('meeting persistence saver', () => {
     expect(store.events).toEqual(['save:0', 'clear:failed', 'clear']);
     expect(store.saved).toBeUndefined();
     expect(logs).not.toContain(
-      'kaki persist: could not clear the saved meeting; it will be restored on next start. Run npm run meeting:reset to discard it.',
+      'kaki persist: could not clear the saved meeting; it will be restored on next start. Run npm run meeting:reset -- <meetingId> to discard it.',
     );
   });
 
@@ -351,7 +351,7 @@ describe('meeting persistence saver', () => {
     expect(store.events).toEqual(['save:0', 'clear:failed', 'clear:failed']);
     expect(store.saved).toBeDefined();
     expect(logs).toContain(
-      'kaki persist: could not clear the saved meeting; it will be restored on next start. Run npm run meeting:reset to discard it.',
+      'kaki persist: could not clear the saved meeting; it will be restored on next start. Run npm run meeting:reset -- <meetingId> to discard it.',
     );
   });
 
