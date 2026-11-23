@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
+import WebSocket from 'ws';
+import type { KakiEvent } from '@kaki/shared';
 import { createApp, type KakiApp } from '../../src/app';
 import { createAuth } from '../../src/auth/module';
 import { hashToken } from '../../src/auth/password';
@@ -7,9 +9,14 @@ import { createMemoryAuthStore, type AuthStore } from '../../src/auth/store';
 import { createMeetingCodeSource } from '../../src/meeting/meetingCode';
 import { createMemoryMeetingStore } from '../../src/meeting/registry';
 import { testScenario } from '../fixtures/scenario';
-import { portOf } from '../helpers';
+import { portOf, waitFor } from '../helpers';
 
 const SERVICE_TOKEN = 'real-seat-test-token';
+
+interface Socket {
+  ws: WebSocket;
+  messages: KakiEvent[];
+}
 
 interface SignedIn {
   cookie: string;
@@ -50,16 +57,26 @@ async function signIn(store: AuthStore, name: string): Promise<SignedIn> {
 function request(
   base: string,
   path: string,
-  options: { method?: string; cookie?: string; body?: unknown } = {},
+  options: { method?: string; cookie?: string; body?: unknown; token?: string } = {},
 ): Promise<Response> {
   return fetch(`${base}${path}`, {
     method: options.method ?? 'GET',
     headers: {
       ...(options.body === undefined ? {} : { 'content-type': 'application/json' }),
       ...(options.cookie === undefined ? {} : { cookie: options.cookie }),
+      ...(options.token === undefined ? {} : { authorization: `Bearer ${options.token}` }),
     },
     ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
   });
+}
+
+/** The LiveKit identity the signed token actually carries, as LiveKit will see it in the room. */
+function tokenIdentity(token: string): string {
+  const payload = token.split('.')[1];
+  if (payload === undefined) return '';
+  // LiveKit carries the room identity in the JWT subject.
+  const claims = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as { sub?: string };
+  return claims.sub ?? '';
 }
 
 async function seat(
@@ -67,23 +84,53 @@ async function seat(
   meetingId: string,
   cookie: string,
   name?: string,
-): Promise<{ status: number; seat: string; cookie: string }> {
+): Promise<{ status: number; seat: string; identity: string; cookie: string }> {
   const response = await request(base, `/api/meetings/${meetingId}/livekit/token`, {
     method: 'POST',
     cookie,
     body: name === undefined ? {} : { participantName: name },
   });
-  const body = (await response.json()) as { participantRole?: string };
+  const body = (await response.json()) as { participantRole?: string; token?: string };
   return {
     status: response.status,
     seat: body.participantRole ?? '',
+    identity: body.token === undefined ? '' : tokenIdentity(body.token),
     cookie: cookiePair(setCookies(response), 'kaki_session') ?? cookie,
   };
 }
 
+function connect(base: string, meetingId: string, audience: string, cookie?: string): Promise<Socket> {
+  const port = new URL(base).port;
+  const ws = new WebSocket(
+    `ws://127.0.0.1:${port}/ws?meeting=${meetingId}&audience=${audience}`,
+    cookie === undefined ? {} : { headers: { cookie } },
+  );
+  const messages: KakiEvent[] = [];
+  ws.on('message', (data) => messages.push(JSON.parse(data.toString()) as KakiEvent));
+  return new Promise((resolve, reject) => {
+    ws.once('open', () => resolve({ ws, messages }));
+    ws.once('error', reject);
+  });
+}
+
+/** The runner's own route for speech it recognised: it forwards the room identity, never a typed name. */
+function postSpeechLine(
+  base: string,
+  meetingId: string,
+  line: { participantIdentity: string; seat: string; text: string; clientLineId: string },
+): Promise<Response> {
+  return request(base, `/api/meetings/${meetingId}/runner/human-line`, {
+    method: 'POST',
+    token: SERVICE_TOKEN,
+    body: { meetingId, source: 'speech', ...line },
+  });
+}
+
 const apps: KakiApp[] = [];
+const sockets: Socket[] = [];
 
 afterEach(async () => {
+  for (const socket of sockets.splice(0)) socket.ws.close();
   for (const app of apps.splice(0)) await app.close();
 });
 
@@ -346,5 +393,144 @@ describe('real meeting seats', () => {
     expect(signedMe.status).toBe(200);
     expect(await signedMe.json()).toMatchObject({ kind: 'user', user: { id: member.userId } });
     expect((await request(base, '/api/workspaces', { cookie: signed.cookie })).status).toBe(200);
+  });
+});
+
+describe('real meeting speech lines', () => {
+  async function runningMeeting(): Promise<{
+    app: KakiApp;
+    base: string;
+    store: AuthStore;
+    meetingId: string;
+    ownerSeat: Awaited<ReturnType<typeof seat>>;
+  }> {
+    const { app, base, store } = await build();
+    const owner = await signIn(store, 'Ada');
+    const meeting = await app.registry.create({
+      workspaceId: 'workspace-1',
+      ownerUserId: owner.userId,
+      title: 'Weekly planning',
+    });
+    const ownerSeat = await seat(base, meeting.id, owner.cookie, 'Ada');
+    expect(ownerSeat.status).toBe(200);
+    expect(ownerSeat.identity).toBe(ownerSeat.seat);
+    expect(
+      (await request(base, `/api/meetings/${meeting.id}/meeting/start`, {
+        method: 'POST',
+        cookie: ownerSeat.cookie,
+      })).status,
+    ).toBe(200);
+    return { app, base, store, meetingId: meeting.id, ownerSeat };
+  }
+
+  function transcriptChunk(socket: Socket, text: string): Extract<KakiEvent, { type: 'TRANSCRIPT_CHUNK' }> | undefined {
+    return socket.messages.find(
+      (event): event is Extract<KakiEvent, { type: 'TRANSCRIPT_CHUNK' }> =>
+        event.type === 'TRANSCRIPT_CHUNK' && event.payload.text === text,
+    );
+  }
+
+  it("accepts a signed-in person's speech line under the seat identity the real token issued", async () => {
+    const { base, meetingId, ownerSeat } = await runningMeeting();
+    const screen = await connect(base, meetingId, 'screen', ownerSeat.cookie);
+    sockets.push(screen);
+
+    const text = 'I checked the front counter this morning.';
+    const response = await postSpeechLine(base, meetingId, {
+      participantIdentity: ownerSeat.identity,
+      seat: ownerSeat.seat,
+      text,
+      clientLineId: 'signed-in-speech',
+    });
+    expect(response.status).toBe(200);
+
+    const chunk = await waitFor(() => transcriptChunk(screen, text), 'the signed-in speech line');
+    expect(chunk).toMatchObject({ payload: { speaker: 'Ada', speakerRole: ownerSeat.seat } });
+  });
+
+  it("accepts a guest's speech line under the seat identity the real token issued", async () => {
+    const { base, meetingId, ownerSeat } = await runningMeeting();
+    const joined = await request(base, `/api/meetings/${meetingId}/join`, {
+      method: 'POST',
+      body: { name: 'Sam' },
+    });
+    expect(joined.status).toBe(200);
+    const guestCookie = cookiePair(setCookies(joined), 'kaki_session');
+    if (guestCookie === undefined) throw new Error('the guest got no cookie');
+    const guestSeat = await seat(base, meetingId, guestCookie, 'Sam');
+    expect(guestSeat.status).toBe(200);
+    expect(guestSeat.identity).toBe(guestSeat.seat);
+    expect(guestSeat.seat).not.toBe(ownerSeat.seat);
+
+    const screen = await connect(base, meetingId, 'screen', ownerSeat.cookie);
+    sockets.push(screen);
+
+    const text = 'The queue was out the door.';
+    const response = await postSpeechLine(base, meetingId, {
+      participantIdentity: guestSeat.identity,
+      seat: guestSeat.seat,
+      text,
+      clientLineId: 'guest-speech',
+    });
+    expect(response.status).toBe(200);
+
+    const chunk = await waitFor(() => transcriptChunk(screen, text), 'the guest speech line');
+    expect(chunk).toMatchObject({ payload: { speaker: 'Sam', speakerRole: guestSeat.seat } });
+  });
+
+  it('tells two people with the same display name apart by the identity each real token issued', async () => {
+    const { app, base, meetingId, ownerSeat } = await runningMeeting();
+    const guestSeats: Array<Awaited<ReturnType<typeof seat>>> = [];
+    for (let index = 0; index < 2; index += 1) {
+      const joined = await request(base, `/api/meetings/${meetingId}/join`, {
+        method: 'POST',
+        body: { name: 'Sam' },
+      });
+      expect(joined.status).toBe(200);
+      const cookie = cookiePair(setCookies(joined), 'kaki_session');
+      if (cookie === undefined) throw new Error('the guest got no cookie');
+      const seated = await seat(base, meetingId, cookie, 'Sam');
+      expect(seated.status).toBe(200);
+      guestSeats.push(seated);
+    }
+    const [first, second] = guestSeats;
+    if (first === undefined || second === undefined) throw new Error('both guests seated');
+    expect(first.seat).not.toBe(second.seat);
+    expect(first.identity).toBe(first.seat);
+    expect(second.identity).toBe(second.seat);
+
+    const instance = await app.registry.get(meetingId);
+    expect(instance?.session.holders().filter((holder) => holder.name === 'sam')).toHaveLength(2);
+
+    const screen = await connect(base, meetingId, 'screen', ownerSeat.cookie);
+    sockets.push(screen);
+
+    const firstText = 'The first Sam checks the till.';
+    const secondText = 'The second Sam checks the counter.';
+    expect(
+      (
+        await postSpeechLine(base, meetingId, {
+          participantIdentity: first.identity,
+          seat: first.seat,
+          text: firstText,
+          clientLineId: 'same-name-first',
+        })
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await postSpeechLine(base, meetingId, {
+          participantIdentity: second.identity,
+          seat: second.seat,
+          text: secondText,
+          clientLineId: 'same-name-second',
+        })
+      ).status,
+    ).toBe(200);
+
+    const firstChunk = await waitFor(() => transcriptChunk(screen, firstText), 'the first Sam line');
+    const secondChunk = await waitFor(() => transcriptChunk(screen, secondText), 'the second Sam line');
+    expect(firstChunk).toMatchObject({ payload: { speaker: 'Sam', speakerRole: first.seat } });
+    expect(secondChunk).toMatchObject({ payload: { speaker: 'Sam', speakerRole: second.seat } });
   });
 });
