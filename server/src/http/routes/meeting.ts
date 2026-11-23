@@ -104,7 +104,10 @@ async function handleRealLivekitToken(call: RouteCall): Promise<void> {
   // With sign-in on, a seat follows a signed-in person, a guest cookie or a held seat. A request with
   // none of them (such as a second join racing a rotated cookie) must not be given a seat by name.
   if (context.auth !== undefined && principal.kind === 'anonymous') {
-    sendJson(response, 401, { error: 'Your session expired. Open the invite link again to join.' });
+    sendJson(response, 401, {
+      error: 'Your session expired. Open the invite link again to join.',
+      signInEnded: true,
+    });
     return;
   }
   const name = realPersonName(principal, typedName);

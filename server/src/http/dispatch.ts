@@ -67,12 +67,13 @@ function refuse(
   route: Route,
   status: number,
   error: string,
+  signInEnded?: boolean,
 ): void {
   if (route.method === 'GET' && route.path === '/api/mattermost/open') {
     sendMattermostRefusal(request, response, status, error);
     return;
   }
-  sendJson(response, status, { error });
+  sendJson(response, status, signInEnded === undefined ? { error } : { error, signInEnded });
 }
 
 /** Run one request through this context's route table, access check and handler. */
@@ -112,7 +113,7 @@ export async function handleRoutedRequest(
       rawPath: request.url ?? '',
     });
     if (denied !== undefined) {
-      refuse(request, response, match.route, denied.status, denied.error);
+      refuse(request, response, match.route, denied.status, denied.error, denied.signInEnded);
       return;
     }
 

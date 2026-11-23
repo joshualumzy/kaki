@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { getMeetingInfo } from '../../product/api';
 import { plainServerText } from '../../net/plainFailure';
@@ -113,19 +113,46 @@ export function RealWaitingOverlay({ meetingId }: { meetingId: string }) {
 
 /**
  * The same end-of-meeting news over the stage, so the room never looks live after it ends. The
- * owner's screen and every participant see it; the meeting bar keeps Leave within reach.
+ * owner's screen and every participant see it; it takes the whole room, so nothing behind it stays
+ * clickable or tabbable.
  */
 export function RealEndedOverlay({ meetingId }: { meetingId: string }) {
   const room = useRealRoom();
+  const overlay = useRef<HTMLDivElement | null>(null);
+  const card = useRef<HTMLDivElement | null>(null);
+  const titleId = useId();
   const endedWhileAway = room?.endedWhileAway !== undefined && room.meetingState?.phase !== 'ended';
-  if (room === null || (room.meetingState?.phase !== 'ended' && !endedWhileAway)) return null;
+  const open = room !== null && (room.meetingState?.phase === 'ended' || endedWhileAway);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const container = overlay.current?.parentElement;
+    const behind =
+      container === undefined || container === null
+        ? []
+        : Array.from(container.children).filter((child) => child !== overlay.current);
+    for (const sibling of behind) sibling.setAttribute('inert', '');
+    card.current?.focus();
+    return () => {
+      for (const sibling of behind) sibling.removeAttribute('inert');
+    };
+  }, [open]);
+
+  if (!open) return null;
   return (
-    <div className="kd-start kd-ended-overlay" role="region" aria-label="Meeting ended">
-      <div className="kd-start-card kd-ended-panel">
+    <div
+      className="kd-start kd-ended-overlay"
+      role="alertdialog"
+      aria-modal="true"
+      aria-labelledby={titleId}
+      ref={overlay}
+    >
+      <div className="kd-start-card kd-ended-panel" tabIndex={-1} ref={card}>
         <EndedPanelBody
           meetingId={meetingId}
           ownerName={room.meetingState?.ownerName?.trim() ?? ''}
           title={endedWhileAway ? 'This meeting ended while you were away' : 'The meeting has ended'}
+          titleId={titleId}
         />
         <Link className="kd-go kd-go-secondary kd-ended-back" to="/">
           Back to Kaki
@@ -139,10 +166,12 @@ function EndedPanelBody({
   meetingId,
   ownerName,
   title,
+  titleId,
 }: {
   meetingId: string;
   ownerName: string;
   title: string;
+  titleId: string;
 }) {
   const [workspaceId, setWorkspaceId] = useState<string | null | undefined>(undefined);
   const [failed, setFailed] = useState(false);
@@ -169,7 +198,9 @@ function EndedPanelBody({
   }, [meetingId, attempt]);
   return (
     <>
-      <h2 className="kd-ended-title">{title}</h2>
+      <h2 className="kd-ended-title" id={titleId}>
+        {title}
+      </h2>
       {typeof workspaceId === 'string' ? (
         <Link
           className="kd-go kd-ended-primary"

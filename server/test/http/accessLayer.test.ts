@@ -239,6 +239,26 @@ describe('one access layer', () => {
     expect((await post(app, meetingPath(meeting, '/api/meeting/start'), {}, seatHost)).status).toBe(200);
   });
 
+  it('marks a missing session as sign-in ended, but not a permission refusal', async () => {
+    const app = await authApp();
+    const { meeting } = await createMeeting(app);
+
+    const anonymous = await post(app, meetingPath(meeting, '/api/meeting/start'), {});
+    expect(anonymous.status).toBe(401);
+    expect(await anonymous.json()).toEqual({
+      error: 'Only the meeting owner can start this meeting.',
+      signInEnded: true,
+    });
+
+    const signedIn = await signInGoogle('Bob');
+    const refused = await post(app, meetingPath(meeting, '/api/meeting/start'), {}, signedIn.cookie);
+    expect(refused.status).toBe(403);
+    expect(await refused.json()).toEqual({
+      error: 'Only the meeting owner can start this meeting.',
+      signInEnded: false,
+    });
+  });
+
   it('denies Mattermost open to strangers, rejects off-site targets, and never falls back to a password', async () => {
     vi.stubEnv('MATTERMOST_URL', 'http://mattermost.test');
     vi.stubEnv('MATTERMOST_PASSWORD', 'a-real-password');

@@ -52,6 +52,7 @@ beforeEach(() => {
   mocks.meetingState.ownerName = 'Ada';
   mocks.meetingState.phase = 'lobby';
   mocks.meetingState.participants = [];
+  mocks.endedWhileAway = undefined;
 });
 
 afterEach(() => {
@@ -207,6 +208,29 @@ describe('ended real meeting', () => {
     expect(screen.getByText('The meeting has ended')).toBeTruthy();
     await waitFor(() => expect(screen.getByText(/Thanks for joining. The notes are kept by Ada/)).toBeTruthy());
     expect(screen.queryByText(/Syncing/)).toBeNull();
+    mocks.meetingState.phase = 'lobby';
+  });
+
+  it('is an alert dialog that takes focus and makes the room behind it inert', () => {
+    mocks.meetingState.phase = 'ended';
+    const { unmount } = render(
+      <MemoryRouter>
+        <div>
+          <button type="button">Leave</button>
+          <RealEndedOverlay meetingId="mtg-1" />
+        </div>
+      </MemoryRouter>,
+    );
+
+    const dialog = screen.getByRole('alertdialog', { name: 'The meeting has ended' });
+    expect(dialog.getAttribute('aria-modal')).toBe('true');
+    expect(document.activeElement).toBe(dialog.firstElementChild);
+
+    const leave = screen.getByRole('button', { name: 'Leave' });
+    expect(leave.hasAttribute('inert')).toBe(true);
+
+    unmount();
+    expect(leave.hasAttribute('inert')).toBe(false);
     mocks.meetingState.phase = 'lobby';
   });
 });

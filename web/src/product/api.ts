@@ -127,7 +127,12 @@ async function readJsonArray(response: Response): Promise<unknown[] | null> {
 async function failure(response: Response): Promise<ProductApiError> {
   const body = await readJson(response);
   const serverText = plainServerText(body?.message) ?? plainServerText(body?.error);
-  return new ProductApiError(plainFailureMessage(response.status, serverText), response.status);
+  const signInEnded =
+    typeof body?.signInEnded === 'boolean' ? body.signInEnded : undefined;
+  return new ProductApiError(
+    plainFailureMessage(response.status, serverText, signInEnded),
+    response.status,
+  );
 }
 
 function networkFailure(error: unknown): ProductApiError {

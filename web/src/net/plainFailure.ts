@@ -13,9 +13,6 @@ const CODE_SENTENCES: Readonly<Record<string, string>> = {
   'practice-ended': 'This practice meeting has ended. Start a new practice.',
 };
 
-/** Practice refusals that are about the practice meeting, not a sign-in that ended. */
-const PRACTICE_CODES: ReadonlySet<string> = new Set(['practice-moved', 'practice-access']);
-
 /** A machine code such as "meeting-not-found": lowercase words joined by hyphens, no spaces. */
 function isRawCode(text: string): boolean {
   return /^[a-z0-9]+(?:[-_][a-z0-9]+)+$/.test(text);
@@ -30,14 +27,18 @@ export function plainServerText(value: unknown): string | undefined {
   return CODE_SENTENCES[text];
 }
 
-/** The plain sentence for a failed response: signed out, else the server's own plain words, else a generic one. */
-export function plainFailureMessage(status: number, serverText?: unknown): string {
+/**
+ * The plain sentence for a failed response. Only a missing or expired session sends someone to
+ * sign in: the server marks that with `signInEnded`, and a bare 401 means the same. Every other
+ * refusal, including a 403 from a signed-in person, keeps the server's own plain words.
+ */
+export function plainFailureMessage(
+  status: number,
+  serverText?: unknown,
+  signInEnded?: boolean,
+): string {
+  if (signInEnded === true || (status === 401 && signInEnded !== false)) return SIGN_IN_ENDED;
   const plain = plainServerText(serverText);
-  if (status === 401 || status === 403) {
-    // A practice refusal is not a sign-in problem; show it rather than sending the visitor to sign in.
-    const code = typeof serverText === 'string' ? serverText.trim() : '';
-    return PRACTICE_CODES.has(code) && plain !== undefined ? plain : SIGN_IN_ENDED;
-  }
   if (plain !== undefined) return plain;
   return status === 0 || status >= 500 ? SERVER_TROUBLE : DID_NOT_WORK;
 }

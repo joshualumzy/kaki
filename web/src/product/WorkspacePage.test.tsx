@@ -179,4 +179,30 @@ describe('WorkspacePage', () => {
 
     expect(await screen.findByRole('heading', { name: 'Workspace not found' })).toBeTruthy();
   });
+
+  it('shows a permission refusal without bouncing a signed-in person to sign-in', async () => {
+    installFetch({
+      'GET /api/workspaces': () => reply(workspaces),
+      'GET /api/workspaces/ws-2': () =>
+        reply({ error: 'You are not a member of that workspace.', signInEnded: false }, 403),
+    });
+    renderPage('ws-2');
+
+    expect(await screen.findByText('You are not a member of that workspace.')).toBeTruthy();
+    expect(screen.queryByText('sign in')).toBeNull();
+    expect(
+      screen.getByRole('link', { name: 'Back to New meeting' }).getAttribute('href'),
+    ).toBe('/new');
+  });
+
+  it('sends a signed-in person to sign in when their session has ended', async () => {
+    installFetch({
+      'GET /api/workspaces': () => reply({ error: 'Sign in required.', signInEnded: true }, 401),
+      'GET /api/workspaces/ws-1': () =>
+        reply({ error: 'Sign in required.', signInEnded: true }, 401),
+    });
+    renderPage('ws-1');
+
+    expect(await screen.findByText('sign in')).toBeTruthy();
+  });
 });

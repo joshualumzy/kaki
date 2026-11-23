@@ -189,6 +189,9 @@ export function WorkspacePage() {
             <Button variant="ghost" onClick={() => setReloadKey((key) => key + 1)}>
               Try again
             </Button>
+            <Link className="product-open" to="/new">
+              Back to New meeting
+            </Link>
           </Card>
         )}
 
