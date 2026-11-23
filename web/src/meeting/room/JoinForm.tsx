@@ -78,6 +78,7 @@ export function JoinForm({ meetingTitle, roles, agenda, busy = false, error, ask
           onChange={setMedia}
           onProblem={setProblem}
           typingHint="Microphone off: turn it on in the meeting to speak"
+          speechOnly
         />
 
         <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', minWidth: 0 }}>

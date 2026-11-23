@@ -14,19 +14,23 @@ interface MediaPreviewProps {
   onProblem(message: string | undefined): void;
   /** What typing does with the microphone off; the default stays neutral for a team meeting. */
   typingHint?: string;
+  /** Practice is speech only, so a microphone problem must not suggest joining to type. */
+  speechOnly?: boolean;
 }
 
-function describeFailure(kind: 'microphone' | 'camera', error: unknown): string {
+function describeFailure(kind: 'microphone' | 'camera', error: unknown, speechOnly = false): string {
   const name = error instanceof DOMException ? error.name : '';
   if (name === 'NotFoundError') {
-    return kind === 'microphone'
-      ? 'No microphone was found. You can join to type instead.'
-      : 'No camera was found.';
+    if (kind === 'camera') return 'No camera was found.';
+    return speechOnly
+      ? 'No microphone was found. Connect one to speak in the meeting.'
+      : 'No microphone was found. You can join to type instead.';
   }
   if (name === 'NotAllowedError' || name === 'SecurityError') {
-    return kind === 'microphone'
-      ? "Your microphone is blocked. Allow it in your browser's site settings, or join to type instead."
-      : "Your camera is blocked. Allow it in your browser's site settings to use it.";
+    if (kind === 'camera') return "Your camera is blocked. Allow it in your browser's site settings to use it.";
+    return speechOnly
+      ? "Your microphone is blocked. Allow it in your browser's site settings to speak in the meeting."
+      : "Your microphone is blocked. Allow it in your browser's site settings, or join to type instead.";
   }
   return `The ${kind} could not be started.`;
 }
@@ -63,7 +67,7 @@ function useCameraStream(on: boolean, fail: (message: string) => void): MediaStr
 }
 
 /** Opens the microphone while `on`, and returns its current loudness from 0 to 1. */
-function useMicrophoneLevel(on: boolean, fail: (message: string) => void): number {
+function useMicrophoneLevel(on: boolean, fail: (message: string) => void, speechOnly: boolean): number {
   const [level, setLevel] = useState(0);
   const failRef = useRef(fail);
   failRef.current = fail;
@@ -106,7 +110,7 @@ function useMicrophoneLevel(on: boolean, fail: (message: string) => void): numbe
         }, 80);
       })
       .catch((error: unknown) => {
-        if (!cancelled) failRef.current(describeFailure('microphone', error));
+        if (!cancelled) failRef.current(describeFailure('microphone', error, speechOnly));
       });
     return () => {
       cancelled = true;
@@ -115,7 +119,7 @@ function useMicrophoneLevel(on: boolean, fail: (message: string) => void): numbe
       void context?.close().catch(() => undefined);
       setLevel(0);
     };
-  }, [on]);
+  }, [on, speechOnly]);
   return level;
 }
 
@@ -146,6 +150,7 @@ export function MediaPreview({
   onProblem,
   name = '',
   typingHint = 'Microphone off: you will type your lines',
+  speechOnly = false,
 }: MediaPreviewProps & { name?: string }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const turnOff = (kind: keyof MediaChoice) => (message: string) => {
@@ -153,7 +158,7 @@ export function MediaPreview({
     onProblem(message);
   };
   const camera = useCameraStream(value.camera, turnOff('camera'));
-  const level = useMicrophoneLevel(value.microphone, turnOff('microphone'));
+  const level = useMicrophoneLevel(value.microphone, turnOff('microphone'), speechOnly);
 
   useEffect(() => {
     if (videoRef.current !== null) videoRef.current.srcObject = camera ?? null;
