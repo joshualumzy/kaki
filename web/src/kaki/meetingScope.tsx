@@ -1,4 +1,7 @@
 import { createContext, useContext, type ReactNode } from 'react';
+import { meetingApiPath } from '@kaki/shared';
+
+export { meetingApiPath };
 
 /** Which meeting the page follows. */
 export interface MeetingScopeValue {
@@ -25,8 +28,3 @@ export function useMeetingScope(): MeetingScopeValue {
   return value;
 }
 
-/** The address of one meeting's route: every meeting serves its handlers under `/api/meetings/:id`. */
-export function meetingApiPath(meetingId: string, path: string): string {
-  const rest = path.startsWith('/api') ? path.slice(4) : path;
-  return `/api/meetings/${encodeURIComponent(meetingId)}${rest.startsWith('/') ? rest : `/${rest}`}`;
-}

@@ -557,6 +557,7 @@ export default function Meeting({
           askCode={needsCode}
           initialCode={linkCode}
           toolUrls={scenario.toolUrls}
+          meetingId={apiMeetingId}
           onJoin={(name, roleId, media, code) => void join(name, roleId, media, code)}
         />
       );
@@ -665,6 +666,7 @@ export default function Meeting({
         </LiveKitRoom>
       </div>
       <Dock
+        meetingId={apiMeetingId}
         meetingCode={session.meetingCode}
         role={seatRole}
         sharedAudience={sharedAudience}

@@ -41,6 +41,7 @@ function downloadMinutes(title: string, body: string): void {
 export function MeetingPanel({
   viewer,
   role,
+  meetingId,
   isHost = false,
   started = false,
   sharedAudience = 'screen',
@@ -52,6 +53,8 @@ export function MeetingPanel({
 }: {
   viewer: TranscriptViewer;
   role?: ScenarioRole;
+  /** The meeting this panel belongs to, so a Mattermost result link opens through its opener. */
+  meetingId?: string;
   isHost?: boolean;
   started?: boolean;
   sharedAudience?: 'screen' | 'participant';
@@ -389,7 +392,7 @@ export function MeetingPanel({
           )}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
             {minutesPublished && minutesTask?.artifactUrl !== undefined && (
-              <a className="artifact-link" href={resolveArtifactUrl(minutesTask.artifactUrl, minutesTask.actionKind, scenario.toolUrls)} target="_blank" rel="noreferrer">
+              <a className="artifact-link" href={resolveArtifactUrl(minutesTask.artifactUrl, minutesTask.actionKind, scenario.toolUrls, meetingId)} target="_blank" rel="noreferrer">
                 Open meeting minutes in Wiki ↗
               </a>
             )}
@@ -403,7 +406,7 @@ export function MeetingPanel({
               <a
                 key={task.id}
                 className="artifact-link"
-                href={resolveArtifactUrl(task.artifactUrl!, task.actionKind, scenario.toolUrls)}
+                href={resolveArtifactUrl(task.artifactUrl!, task.actionKind, scenario.toolUrls, meetingId)}
                 target="_blank"
                 rel="noreferrer"
               >
@@ -544,7 +547,7 @@ export function MeetingPanel({
                   <small className="kd-task-decision">Accepted decision: {task.decisionSource}</small>
                 )}
                 {task.artifactUrl !== undefined && (task.status === 'COMPLETED' || task.status === 'SYNCED') && (
-                  <a className="artifact-link" href={resolveArtifactUrl(task.artifactUrl, task.actionKind, scenario.toolUrls)} target="_blank" rel="noreferrer">
+                  <a className="artifact-link" href={resolveArtifactUrl(task.artifactUrl, task.actionKind, scenario.toolUrls, meetingId)} target="_blank" rel="noreferrer">
                     {artifactLinkText(task)}
                   </a>
                 )}

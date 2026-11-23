@@ -9,6 +9,7 @@ type Access =
   | 'public'
   | 'user'
   | 'session'
+  | 'session-or-practice'
   | 'host'
   | 'host-or-practice'
   | 'seat'
@@ -21,6 +22,7 @@ export const ACCESS_LEVELS: readonly Access[] = [
   'public',
   'user',
   'session',
+  'session-or-practice',
   'host',
   'host-or-practice',
   'seat',
@@ -185,6 +187,19 @@ export function accessProblem(
     case 'session':
       if (!context.authEnabled) return undefined;
       if (principal.kind === 'host' || principal.kind === 'seat') return undefined;
+      return {
+        status: 401,
+        error: 'Sign in required.',
+        signInEnded: principal.kind === 'anonymous',
+      };
+
+    case 'session-or-practice':
+      // The sample workspace's Mattermost opener is a meeting read a practice visitor may make
+      // for their own meeting; its handler still refuses every workspace but the sample one.
+      if (!context.authEnabled) return undefined;
+      if (principal.kind === 'host' || principal.kind === 'seat' || principal.kind === 'practice') {
+        return undefined;
+      }
       return {
         status: 401,
         error: 'Sign in required.',

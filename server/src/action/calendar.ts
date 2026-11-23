@@ -1,4 +1,11 @@
-import { errorMessage, eventBodies, eventProperties, unescapeIcalText, unfoldIcalLines } from '@kaki/shared';
+import {
+  calendarEventApiPath,
+  errorMessage,
+  eventBodies,
+  eventProperties,
+  unescapeIcalText,
+  unfoldIcalLines,
+} from '@kaki/shared';
 import type { ChatMessage, LlmClient } from '../services/llm';
 import type { KakiModule } from '../core/modules';
 import type { WorkspaceTools } from '../workspace/tools';
@@ -298,7 +305,7 @@ interface EventView {
 export async function viewEvent(
   settings: CalendarSettings,
   id: string,
-  options: { download?: boolean; month?: string } = {},
+  options: { download?: boolean; month?: string; baseHref?: string } = {},
   fetchImpl: typeof fetch = fetch,
 ): Promise<EventView> {
   const plain = (status: number, body: string): EventView => ({ status, contentType: 'text/plain; charset=utf-8', body });
@@ -335,7 +342,7 @@ export async function viewEvent(
   return {
     status: 200,
     contentType: 'text/html; charset=utf-8',
-    body: renderCalendarPage(events, focus, month, `/api/calendar/${id}`),
+    body: renderCalendarPage(events, focus, month, options.baseHref ?? `/api/calendar/${id}`),
   };
 }
 
@@ -427,7 +434,7 @@ export function createCalendarModule({
       if (draft === undefined) throw new ActionError('The LLM did not return usable JSON with a title and a start time');
       return { target: 'Team calendar', subject: draft.title, body: formatBody(draft.times, draft.notes) };
     },
-    async run(task, signal, _scenario, _visitorName, tools) {
+    async run(task, signal, _scenario, _visitorName, tools, meetingId) {
       const settings = requireSettings(tools);
       const draft = task.draft;
       if (draft === undefined) throw new ActionError('The task has no draft to save');
@@ -451,7 +458,8 @@ export function createCalendarModule({
         const detail = (await response.text().catch(() => '')).slice(0, 200).trim();
         throw new ActionError(`The calendar returned HTTP ${response.status}${detail === '' ? '' : `: ${detail}`}`);
       }
-      return `${settings.viewBaseUrl.replace(/\/+$/, '')}/api/calendar/${task.id}`;
+      // The viewer belongs to this meeting's routes, so the browser needs that meeting in the path.
+      return `${settings.viewBaseUrl.replace(/\/+$/, '')}${calendarEventApiPath(meetingId, task.id)}`;
     },
   });
 }

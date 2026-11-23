@@ -1,4 +1,9 @@
-import { buildMeetingInviteIcs, KOPITIAM_INVITE_UID, type MeetingInvite } from '@kaki/shared';
+import {
+  buildMeetingInviteIcs,
+  KOPITIAM_INVITE_UID,
+  PRACTICE_CALENDAR_EVENT_ID,
+  type MeetingInvite,
+} from '@kaki/shared';
 import type { ScenarioSeed } from './scenario';
 
 const DEFAULT_CALENDAR_URL = 'http://127.0.0.1:5232/user/calendar/';
@@ -70,7 +75,7 @@ function eventLines(seed: ScenarioSeed): Array<{ id: string; dtstart: string; dt
       description: 'Check the 32% commission, single-set loss and the Office Platter and direct pickup margins before the app goes live.',
     },
     {
-      id: 'seed-food-agency-inspection',
+      id: PRACTICE_CALENDAR_EVENT_ID,
       dtstart: `${openingDay}T090000`,
       dtend: `${openingDay}T094500`,
       summary: 'Food Agency On-Site Inspection',
