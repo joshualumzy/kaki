@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { MIC_BLOCKED_PROBLEM } from '../../net/plainFailure';
+import { CAMERA_BLOCKED_PROBLEM, MIC_BLOCKED_PROBLEM } from '../../net/plainFailure';
 import { MediaPreview } from './MediaPreview';
 
 afterEach(() => {
@@ -68,9 +68,7 @@ describe('MediaPreview', () => {
     );
 
     await waitFor(() =>
-      expect(onProblem).toHaveBeenCalledWith(
-        "Your camera is blocked. Allow it in your browser's site settings to use it.",
-      ),
+      expect(onProblem).toHaveBeenCalledWith(CAMERA_BLOCKED_PROBLEM),
     );
   });
 });

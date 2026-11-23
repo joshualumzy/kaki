@@ -19,9 +19,7 @@ async function main(): Promise<void> {
   const run = new Run(JOURNEY);
   const browser = await launch();
   const suffix = String(Date.now()).slice(-7);
-  const guest = await guestPerson(browser, run, {
-    expected: (status, url) => status === 401 && url.includes('/api/auth/me'),
-  });
+  const guest = await guestPerson(browser, run);
   const page = guest.page;
 
   try {
@@ -157,9 +155,7 @@ async function main(): Promise<void> {
     });
 
     await step(run, page, 'demo route', async () => {
-      const demo = await guestPerson(browser, run, {
-        expected: (status, url) => status === 401 && url.includes('/api/auth/me'),
-      });
+      const demo = await guestPerson(browser, run);
       await demo.page.goto(`${BASE}/demo`);
       await demo.page.waitForTimeout(4_000);
       const shot = await run.shot(demo.page, 'demo-open');

@@ -44,9 +44,13 @@ export function plainFailureMessage(status: number, serverText?: unknown): strin
 
 export const ROOM_CONNECT_PROBLEM =
   "We couldn't connect your audio and video. Check your internet, then press Rejoin.";
-/** What a person sees when the browser refuses the microphone, in either mode. */
-export const MIC_BLOCKED_PROBLEM = "Allow it in your browser's site settings to take part.";
-export const MEDIA_BLOCKED_PROBLEM = MIC_BLOCKED_PROBLEM;
+/** What a person sees when the browser refuses a microphone or camera, naming the device. */
+export const MIC_BLOCKED_PROBLEM =
+  "Your microphone is blocked. Allow it in your browser's site settings to take part.";
+export const CAMERA_BLOCKED_PROBLEM =
+  "Your camera is blocked. Allow it in your browser's site settings to take part.";
+export const MEDIA_BLOCKED_PROBLEM =
+  "Your microphone or camera is blocked. Allow it in your browser's site settings to take part.";
 
 /** A server refusal of a command, in words a person can act on. */
 export function plainRejection(reason: string): string {

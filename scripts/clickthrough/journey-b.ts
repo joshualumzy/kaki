@@ -32,9 +32,7 @@ async function main(): Promise<void> {
 
   try {
     const owner = await signedInPerson(browser, run, { name: ownerName, email: `owner2-${suffix}@clickthrough.test` });
-    const guest = await guestPerson(browser, run, {
-      expected: (status, url) => status === 401 && url.includes('/api/auth/me'),
-    });
+    const guest = await guestPerson(browser, run);
 
     let link = '';
     await step(run, owner.page, 'schedule meeting', async () => {
@@ -45,9 +43,7 @@ async function main(): Promise<void> {
     if (link === '') return;
 
     await step(run, guest.page, 'plain created link as a guest', async () => {
-      const other = await guestPerson(browser, run, {
-        expected: (status, url) => status === 401 && url.includes('/api/auth/me'),
-      });
+      const other = await guestPerson(browser, run);
       await other.page.goto(link);
       await other.page.getByText('You are invited').waitFor({ timeout: 15_000 });
       await other.page.getByLabel('Your name').fill('Link Test');

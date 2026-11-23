@@ -5,7 +5,14 @@ import { ConnectionState, RoomEvent, type RoomOptions } from 'livekit-client';
 import { joinSeatRoles } from '@kaki/shared';
 import { useMe } from '../../auth/useMe';
 import { meetingApiPath, useKaki, useRefreshScenario, useScenario } from '../../kaki';
-import { COULD_NOT_JOIN, MEDIA_BLOCKED_PROBLEM, ROOM_CONNECT_PROBLEM, plainServerText } from '../../net/plainFailure';
+import {
+  CAMERA_BLOCKED_PROBLEM,
+  COULD_NOT_JOIN,
+  MEDIA_BLOCKED_PROBLEM,
+  MIC_BLOCKED_PROBLEM,
+  ROOM_CONNECT_PROBLEM,
+  plainServerText,
+} from '../../net/plainFailure';
 import { fetchWithTimeout, TimeoutError } from '../../net/withTimeout';
 import { ErrorBoundary } from './ErrorBoundary';
 import { JoinForm } from './JoinForm';
@@ -611,9 +618,15 @@ export default function Meeting({
             setRejoinDeadline(Date.now() + REJOIN_GRACE_MS);
             setSession(undefined);
           }}
-          onMediaDeviceFailure={(failure) => {
+          onMediaDeviceFailure={(failure, kind) => {
             console.error('kaki web: the microphone or camera could not start', failure);
-            setMediaProblem(MEDIA_BLOCKED_PROBLEM);
+            setMediaProblem(
+              kind === 'videoinput'
+                ? CAMERA_BLOCKED_PROBLEM
+                : kind === 'audioinput'
+                  ? MIC_BLOCKED_PROBLEM
+                  : MEDIA_BLOCKED_PROBLEM,
+            );
           }}
           data-lk-theme="default"
           style={{ height: '100%' }}

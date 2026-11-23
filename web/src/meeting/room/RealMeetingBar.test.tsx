@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   send: vi.fn(),
   disconnect: vi.fn(async () => undefined),
   micRejects: false,
+  cameraRejects: false,
   isHost: false,
   meetingState: {
     meetingId: 'mtg-1',
@@ -42,7 +43,9 @@ vi.mock('@livekit/components-react', () => ({
       setMicrophoneEnabled: vi.fn(async () => {
         if (mocks.micRejects) throw new DOMException('denied', 'NotAllowedError');
       }),
-      setCameraEnabled: vi.fn(async () => undefined),
+      setCameraEnabled: vi.fn(async () => {
+        if (mocks.cameraRejects) throw new DOMException('denied', 'NotAllowedError');
+      }),
     },
     isMicrophoneEnabled: true,
     isCameraEnabled: false,
@@ -50,7 +53,7 @@ vi.mock('@livekit/components-react', () => ({
   useRoomContext: () => ({ disconnect: mocks.disconnect }),
 }));
 
-import { MIC_BLOCKED_PROBLEM } from '../../net/plainFailure';
+import { CAMERA_BLOCKED_PROBLEM, MIC_BLOCKED_PROBLEM } from '../../net/plainFailure';
 import { RealMeetingBar } from './RealMeetingBar';
 
 beforeEach(() => {
@@ -58,6 +61,7 @@ beforeEach(() => {
   mocks.disconnect.mockReset();
   mocks.isHost = false;
   mocks.micRejects = false;
+  mocks.cameraRejects = false;
   mocks.meetingState.offTheRecord = null;
 });
 
@@ -88,6 +92,16 @@ describe('real meeting bar', () => {
     const alert = await screen.findByRole('alert');
     expect(alert.textContent).toBe(MIC_BLOCKED_PROBLEM);
     expect(alert.textContent).not.toMatch(/\btype\b/i);
+  });
+
+  it('says how to allow a blocked camera', async () => {
+    mocks.cameraRejects = true;
+    renderBar();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Camera off' }));
+
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toBe(CAMERA_BLOCKED_PROBLEM);
   });
 
   it('turns the record off and back on for anyone in the room', () => {

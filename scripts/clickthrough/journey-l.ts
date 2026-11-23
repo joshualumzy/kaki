@@ -133,9 +133,7 @@ async function main(): Promise<void> {
     });
 
     const guest = await guestPerson(browser, run, {
-      expected: (status, url) =>
-        (status === 401 && url.includes('/api/auth/me')) ||
-        (status === 403 && url.includes('/meeting-code')),
+      expected: (status, url) => status === 403 && url.includes('/meeting-code'),
     });
     const guestName = `Drop Guest ${suffix}`;
     await step(run, guest.page, 'guest joins real meeting', async () => {
@@ -167,9 +165,7 @@ async function main(): Promise<void> {
 
     // ---- Microphone denied in a real room: the person joins with the mic off, then tries it. ----
     const noMicReal = await guestPerson(browser, run, {
-      expected: (status, url) =>
-        (status === 401 && url.includes('/api/auth/me')) ||
-        (status === 403 && url.includes('/meeting-code')),
+      expected: (status, url) => status === 403 && url.includes('/meeting-code'),
     });
     if (invite !== '') {
       await step(run, noMicReal.page, 'real meeting mic denied', async () => {
@@ -208,9 +204,7 @@ async function main(): Promise<void> {
     await owner.context.close();
 
     // ---- The practice meeting: mic denied on the join form, then join, start, network drop. ----
-    const practice = await guestPerson(browser, run, {
-      expected: (status, url) => status === 401 && url.includes('/api/auth/me'),
-    });
+    const practice = await guestPerson(browser, run);
     await step(run, practice.page, 'practice mic denied', async () => {
       await practice.page.goto(`${BASE}/practice`);
       await practice.page.getByRole('button', { name: 'Microphone', exact: true }).click();

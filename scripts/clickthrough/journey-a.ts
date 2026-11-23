@@ -33,9 +33,7 @@ async function main(): Promise<void> {
   let workspaceId = '';
 
   try {
-    const anon = await guestPerson(browser, run, {
-      expected: (status, url) => status === 401 && url.includes('/api/auth/me'),
-    });
+    const anon = await guestPerson(browser, run);
     const anonPage = anon.page;
 
     await step(run, anonPage, 'landing', async () => {
@@ -151,8 +149,7 @@ async function main(): Promise<void> {
     if (invite === '') run.finding('DEAD-END', '/m/:id/room', 'no invite link could be produced, so the guest could not join');
 
     const guest = await guestPerson(browser, run, {
-      expected: (status, url) =>
-        status === 401 && url.includes('/api/auth/me') || (status === 404 && url.includes('/api/meeting-code')),
+      expected: (status, url) => status === 404 && url.includes('/api/meeting-code'),
     });
     const guestPage = guest.page;
 

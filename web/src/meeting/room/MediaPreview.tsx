@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { MIC_BLOCKED_PROBLEM } from '../../net/plainFailure';
+import { CAMERA_BLOCKED_PROBLEM, MIC_BLOCKED_PROBLEM } from '../../net/plainFailure';
 import { Orb } from './Orb';
 
 /** Which devices the person chose to turn on before joining. */
@@ -21,9 +21,7 @@ function describeFailure(kind: 'microphone' | 'camera', error: unknown): string 
     return kind === 'microphone' ? 'No microphone was found.' : 'No camera was found.';
   }
   if (name === 'NotAllowedError' || name === 'SecurityError') {
-    return kind === 'microphone'
-      ? MIC_BLOCKED_PROBLEM
-      : "Your camera is blocked. Allow it in your browser's site settings to use it.";
+    return kind === 'microphone' ? MIC_BLOCKED_PROBLEM : CAMERA_BLOCKED_PROBLEM;
   }
   return `The ${kind} could not be started.`;
 }

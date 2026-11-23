@@ -374,16 +374,6 @@ export function useKaki(audience: KakiAudience): UseKakiResult {
 
   const send = useCallback((command: KakiCommand): boolean => {
     const socket = socketRef.current;
-    // A line is always bound to the meeting and seat it was written for, so it can never surface
-    // in the next meeting or under another speaker.
-    const line: KakiCommand =
-      command.type === 'HUMAN_LINE'
-        ? {
-            ...command,
-            ...(meetingId.current === undefined ? {} : { meetingId: meetingId.current }),
-            ...(audienceRole === undefined ? {} : { seat: audienceRole }),
-          }
-        : command;
     if (socket === undefined || socket.readyState !== WebSocket.OPEN) {
       setRejections((previous) =>
         [...previous, { commandType: command.type, reason: 'not connected' }].slice(-5),
@@ -391,7 +381,7 @@ export function useKaki(audience: KakiAudience): UseKakiResult {
       return false;
     }
     try {
-      socket.send(JSON.stringify(line));
+      socket.send(JSON.stringify(command));
     } catch {
       setRejections((previous) =>
         [...previous, { commandType: command.type, reason: 'not connected' }].slice(-5),
@@ -399,7 +389,7 @@ export function useKaki(audience: KakiAudience): UseKakiResult {
       return false;
     }
     return true;
-  }, [audienceRole]);
+  }, []);
 
   const askWingman = useCallback(
     (question: string): boolean => send({ type: 'ASK_WINGMAN', question }),

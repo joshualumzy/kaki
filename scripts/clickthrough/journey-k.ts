@@ -67,9 +67,7 @@ async function main(): Promise<void> {
   const browser = await launch();
   const suffix = stamp();
   try {
-    const anon = await guestPerson(browser, run, {
-      expected: (status, url) => status === 401 && url.includes('/api/auth/me'),
-    });
+    const anon = await guestPerson(browser, run);
     const page = anon.page;
 
     async function landsOnLivePage(what: string, expectedPath: RegExp): Promise<void> {

@@ -958,7 +958,7 @@ export class NpcConversation<Clip> {
     return this.turn !== undefined;
   }
 
-  /** The person pressed Stop/Pause: everyone goes quiet and timers are held until they press Resume (or type). */
+  /** The person pressed Stop/Pause: everyone goes quiet and timers are held until they press Resume. */
   stop(): void {
     if (this.closed || this.concluded || this.paused) return;
     const plannedKind = this.replyRun?.kind ?? this.openingRun?.kind ?? this.turn?.planned?.kind;

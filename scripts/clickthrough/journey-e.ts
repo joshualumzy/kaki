@@ -38,12 +38,8 @@ async function main(): Promise<void> {
   try {
     const owner = await signedInPerson(browser, run, { name: ownerName, email: `owner4-${suffix}@clickthrough.test` });
     const page = owner.page;
-    const guest = await guestPerson(browser, run, {
-      expected: (status, url) => status === 401 && url.includes('/api/auth/me'),
-    });
-    const anon = await guestPerson(browser, run, {
-      expected: (status, url) => status === 401 && url.includes('/api/auth/me'),
-    });
+    const guest = await guestPerson(browser, run);
+    const anon = await guestPerson(browser, run);
 
     await step(run, page, 'setup meeting', async () => {
       await page.goto(`${BASE}/new`);

@@ -234,11 +234,25 @@ export function createMeetingRegistry(deps: MeetingRegistryDeps): MeetingRegistr
     }
   }
 
+  /**
+   * A signed-in practice's row is kept for its minutes, so once the practice ends or is unloaded
+   * mark it ended; otherwise abandoned practices pile up as open rows in the sample workspace.
+   */
+  async function endPracticeRow(instance: MeetingInstance): Promise<void> {
+    if (instance.runnerKind !== 'practice') return;
+    try {
+      await deps.store.markEnded?.(instance.id, new Date(now()).toISOString());
+    } catch (error) {
+      log(`kaki meetings: marking the practice ${instance.id} ended failed: ${String(error)}`);
+    }
+  }
+
   async function closeInstance(instance: MeetingInstance): Promise<void> {
     loaded.delete(instance.id);
     owners.delete(instance.id);
     const persistence = persistences.get(instance.id);
     persistences.delete(instance.id);
+    await endPracticeRow(instance);
     try {
       await instance.dispose();
     } catch (error) {
@@ -370,16 +384,28 @@ export function createMeetingRegistry(deps: MeetingRegistryDeps): MeetingRegistr
       practiceCreating += 1;
       try {
         const id = newMeetingId();
-        if (options.ownerUserId !== undefined) {
-          // The row shares the instance id, so the minutes writer can save straight to it.
-          await deps.store.create({
-            id,
-            workspaceId: SAMPLE_WORKSPACE_ID,
-            ownerUserId: options.ownerUserId,
-            title: options.title?.trim() || 'Practice meeting',
-          });
-        }
         const instance = await deps.buildPracticeInstance(id, options.ownerUserId);
+        if (options.ownerUserId !== undefined) {
+          try {
+            // The row shares the instance id, so the minutes writer can save straight to it.
+            await deps.store.create({
+              id,
+              workspaceId: SAMPLE_WORKSPACE_ID,
+              ownerUserId: options.ownerUserId,
+              title: options.title?.trim() || 'Practice meeting',
+            });
+          } catch (error) {
+            // The instance never reached the registry, so nothing else will dispose it.
+            await instance
+              .dispose()
+              .catch((disposeError: unknown) =>
+                log(
+                  `kaki meetings: disposing the practice ${instance.id} after its row failed: ${String(disposeError)}`,
+                ),
+              );
+            throw error;
+          }
+        }
         loaded.set(instance.id, instance);
         deps.onOpened?.(openMeeting(instance));
         deps.onWorkspaceOpened?.(instance.workspaceId);
@@ -422,6 +448,7 @@ export function createMeetingRegistry(deps: MeetingRegistryDeps): MeetingRegistr
       owners.clear();
       await Promise.all(
         instances.map(async (instance) => {
+          await endPracticeRow(instance);
           try {
             await instance.dispose();
           } catch (error) {

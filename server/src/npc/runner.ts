@@ -508,7 +508,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
   };
   /**
    * The person has read their briefing and pressed Start. Until then the AI attendees are in the room but silent, and
-   * nothing the person says or types reaches them. A person in the host's seat opens the meeting themselves, so they skip this.
+   * nothing the person says reaches them. A person in the host's seat opens the meeting themselves, so they skip this.
    * This is the runner having opened the conversation locally, not a mirror of the server snapshot's `started`.
    */
   let openedLocally = false;

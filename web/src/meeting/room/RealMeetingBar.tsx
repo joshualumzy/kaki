@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { MEDIA_BLOCKED_PROBLEM } from '../../net/plainFailure';
+import { CAMERA_BLOCKED_PROBLEM, MIC_BLOCKED_PROBLEM } from '../../net/plainFailure';
 import { useLocalParticipant, useRoomContext } from '@livekit/components-react';
 import { Avatar } from '../../ui';
 import { QrCode } from '../MeetingOverlays';
@@ -46,8 +46,8 @@ export function RealMeetingBar({
     try {
       await localParticipant.setMicrophoneEnabled(!isMicrophoneEnabled);
     } catch (error) {
-      console.error('kaki web: the microphone or camera change failed', error);
-      setProblem(MEDIA_BLOCKED_PROBLEM);
+      console.error('kaki web: the microphone change failed', error);
+      setProblem(MIC_BLOCKED_PROBLEM);
     }
   }
 
@@ -56,8 +56,8 @@ export function RealMeetingBar({
     try {
       await localParticipant.setCameraEnabled(!isCameraEnabled);
     } catch (error) {
-      console.error('kaki web: the microphone or camera change failed', error);
-      setProblem(MEDIA_BLOCKED_PROBLEM);
+      console.error('kaki web: the camera change failed', error);
+      setProblem(CAMERA_BLOCKED_PROBLEM);
     }
   }
 

@@ -64,6 +64,7 @@ function build(options: {
   unloadMs?: number;
   practiceUnloadMs?: number;
   sweepMs?: number;
+  failPracticeBuild?: boolean;
 } = {}): Built {
   const store = createMemoryMeetingStore();
   store.rows.set('real-1', row('real-1'));
@@ -71,7 +72,6 @@ function build(options: {
   const builtIds: string[] = [];
   const closed: string[] = [];
   const opened: string[] = [];
-  let sequence = 0;
   const registry = createMeetingRegistry({
     legacy: fakeInstance('meeting', 'practice'),
     store,
@@ -81,9 +81,9 @@ function build(options: {
       return instance;
     },
     buildPracticeInstance: async (id) => {
-      sequence += 1;
+      if (options.failPracticeBuild) throw new Error('build failed');
       builtIds.push(id);
-      const instance = fakeInstance(`practice-${sequence}`, 'practice', {
+      const instance = fakeInstance(id, 'practice', {
         ...(options.now === undefined ? {} : { lastActivityAt: options.now() }),
       });
       instances.set(instance.id, instance);
@@ -138,6 +138,34 @@ describe('registry practice instances', () => {
       title: 'Practice · Opening day',
       status: 'open',
     });
+  });
+
+  it('creates no open row when a signed-in practice cannot be built', async () => {
+    const built = build({ failPracticeBuild: true });
+    registries.push(built);
+
+    await expect(built.registry.createPractice({ ownerUserId: 'user-1' })).rejects.toThrow(
+      'build failed',
+    );
+
+    const practiceRows = [...built.store.rows.values()].filter(
+      (meeting) => meeting.workspaceId === 'sample-nanyang-kopi',
+    );
+    expect(practiceRows).toEqual([]);
+  });
+
+  it('marks a signed-in practice row ended when it unloads', async () => {
+    vi.useFakeTimers();
+    let now = 1_000;
+    const built = build({ now: () => now, practiceUnloadMs: 5_000, sweepMs: 1_000 });
+    registries.push(built);
+    const practice = await built.registry.createPractice({ ownerUserId: 'user-1' });
+    expect(built.store.rows.get(practice.id)?.status).toBe('open');
+
+    now += 6_000;
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(built.store.rows.get(practice.id)?.status).toBe('ended');
   });
 
   it('never reports a real meeting as a practice one', async () => {
