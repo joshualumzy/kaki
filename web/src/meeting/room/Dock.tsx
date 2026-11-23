@@ -17,6 +17,7 @@ import './practice.css';
 export function Dock({
   role,
   viewer,
+  meetingId,
   meetingCode,
   started = false,
   sharedAudience = 'screen',
@@ -28,6 +29,8 @@ export function Dock({
 }: {
   role: ScenarioRole | undefined;
   viewer: TranscriptViewer;
+  /** The meeting this dock belongs to, for the Kaki-owned tool links on its cards. */
+  meetingId: string;
   meetingCode?: string;
   started?: boolean;
   sharedAudience?: 'screen' | 'participant';
@@ -87,13 +90,19 @@ export function Dock({
         )}
         <ErrorBoundary>
           {role !== undefined && (
-            <ActiveRoleCards role={role.id} viewer={viewer} sharedAudience={sharedAudience} />
+            <ActiveRoleCards
+              role={role.id}
+              viewer={viewer}
+              sharedAudience={sharedAudience}
+              meetingId={meetingId}
+            />
           )}
         </ErrorBoundary>
         <ErrorBoundary>
           <MeetingPanel
             viewer={viewer}
             role={role}
+            meetingId={meetingId}
             isHost={role?.facilitator === true}
             started={started}
             sharedAudience={sharedAudience}

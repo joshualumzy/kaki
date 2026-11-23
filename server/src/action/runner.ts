@@ -33,8 +33,9 @@ interface ActionModuleOptions {
     task: Task,
     signal: AbortSignal,
     scenario: Scenario,
-    visitorName?: string,
-    tools?: WorkspaceTools,
+    visitorName: string | undefined,
+    tools: WorkspaceTools | undefined,
+    meetingId: string,
   ): Promise<string>;
 }
 
@@ -250,7 +251,14 @@ export function createActionModule({ name, kind, unconfiguredReason, draft, run 
                   },
                 };
           try {
-            artifactUrl = await run(runnable, shutdown.signal, activeScenario(), visitorFor(task), tools);
+            artifactUrl = await run(
+              runnable,
+              shutdown.signal,
+              activeScenario(),
+              visitorFor(task),
+              tools,
+              ctx.meetingId(),
+            );
           } catch (error) {
             fail(task, sendFailureMessage(error, kind), error);
             return;

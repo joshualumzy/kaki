@@ -90,10 +90,13 @@ export function ActiveRoleCards({
   role,
   viewer,
   sharedAudience = 'participant',
+  meetingId,
 }: {
   role: string;
   viewer?: { name: string; seatName?: string };
   sharedAudience?: 'screen' | 'participant';
+  /** The meeting this card belongs to, so a Mattermost result link opens through its opener. */
+  meetingId?: string;
 }) {
   const scenario = useScenario();
   const { tasks, rejection, send } = useKaki({ kind: 'role', role });
@@ -213,6 +216,7 @@ export function ActiveRoleCards({
                   viewer={viewer}
                   viewerRoleId={role}
                   avatar={avatarFor(item)}
+                  meetingId={meetingId}
                 />
               );
             }
@@ -253,6 +257,7 @@ export function ActiveRoleCards({
                   viewer={viewer}
                   viewerRoleId={role}
                   avatar={avatarFor(item)}
+                  meetingId={meetingId}
                 />
               </div>
             );
@@ -276,6 +281,7 @@ function TaskCard(props: {
   viewerRoleId?: string;
   avatar?: { name: string; photoUrl?: string | null };
   id?: string;
+  meetingId?: string;
 }) {
   const { task, send, rejection } = props;
   const [approvedAt, setApprovedAt] = useState<number | null>(null);
@@ -311,6 +317,7 @@ function TaskCardBody({
   viewerRoleId,
   avatar,
   id,
+  meetingId,
 }: {
   task: Task;
   scenario: Scenario;
@@ -320,6 +327,7 @@ function TaskCardBody({
   viewerRoleId?: string;
   avatar?: { name: string; photoUrl?: string | null };
   id?: string;
+  meetingId?: string;
 }) {
   const [body, setBody] = useState(task.draft?.body ?? '');
   const [target, setTarget] = useState(task.draft?.target ?? '');
@@ -551,7 +559,7 @@ function TaskCardBody({
             {completedPlatformSummary(task)}
           </p>
           {task.artifactUrl === undefined ? null : (
-            <a className="artifact-link" href={resolveArtifactUrl(task.artifactUrl, task.actionKind, scenario.toolUrls)} target="_blank" rel="noreferrer">
+            <a className="artifact-link" href={resolveArtifactUrl(task.artifactUrl, task.actionKind, scenario.toolUrls, meetingId)} target="_blank" rel="noreferrer">
               {artifactLinkText(task)}
             </a>
           )}

@@ -1,4 +1,12 @@
-import type { ActionKind, ToolPublicUrls } from '@kaki/shared';
+import {
+  mattermostOpenApiPath,
+  meetingApiPath,
+  toolLink,
+  type ActionKind,
+  type ToolPublicUrls,
+} from '@kaki/shared';
+
+export { toolLink };
 
 const TOOL_FOR_KIND = {
   gitea_issue: 'gitea',
@@ -36,12 +44,6 @@ function withPublicBase(rawUrl: string, base: string, currentHost: string): stri
   }
 }
 
-/** Join a path onto a tool's public base, whether the base has a path of its own or not. */
-export function toolLink(base: string, path: string): string {
-  const clean = base.replace(/\/+$/, '');
-  return `${clean}${path === '' ? '' : path.startsWith('/') ? path : `/${path}`}`;
-}
-
 /**
  * Rewrites an artifact URL the server returned so a browser can open it. With the sample
  * workspace's public tool URLs it rebuilds the link on the right tool base; without them (a real
@@ -53,6 +55,7 @@ export function resolveArtifactUrl(
   rawUrl: string,
   kind?: ActionKind,
   toolUrls?: ToolPublicUrls,
+  meetingId?: string,
 ): string {
   if (typeof window === 'undefined') return rawUrl;
   const tool = kind === undefined ? undefined : TOOL_FOR_KIND[kind];
@@ -83,12 +86,28 @@ export function resolveArtifactUrl(
     }
   }
 
-  if (kind === 'mattermost_post' && toolUrls !== undefined) {
+  // A calendar link saved before the meeting prefix existed still names the right event; put it
+  // back under the meeting that owns the task so the saved card keeps working.
+  if (kind === 'calendar_event' && meetingId !== undefined) {
+    try {
+      const parsed = new URL(resolved, window.location.origin);
+      if (/^\/api\/calendar\/[^/]+$/.test(parsed.pathname)) {
+        parsed.pathname = meetingApiPath(meetingId, parsed.pathname);
+        resolved = parsed.toString();
+      }
+    } catch {
+      // A malformed saved link stays as it is; the card shows what the server sent.
+    }
+  }
+
+  // The opener is a meeting route, so it needs the meeting it signs in for. Without one, leave the
+  // direct Mattermost link alone rather than build an opener that can only 404.
+  if (kind === 'mattermost_post' && toolUrls !== undefined && meetingId !== undefined) {
     const local = isLoopbackHost(window.location.hostname);
     // The sample workspace's calendar base is Kaki's own public address, so it carries the server's
     // real PORT; a fixed one would 404 the opener whenever the server runs somewhere else.
     const apiBase = local ? toolUrls.calendar : window.location.origin;
-    return `${toolLink(apiBase, '/api/mattermost/open')}?url=${encodeURIComponent(resolved)}`;
+    return toolLink(apiBase, mattermostOpenApiPath(meetingId, resolved));
   }
   return resolved;
 }

@@ -19,7 +19,7 @@ export function buildMeetingRouteTable({ devRoutes }: { devRoutes: boolean }): R
     { method: 'POST', path: '/api/meeting/start', access: 'host-or-practice', handle: handleMeetingStart },
     { method: 'POST', path: '/api/meeting/open', access: 'host', handle: handleMeetingOpen },
     { method: 'POST', path: '/api/meeting/close', access: 'host', handle: handleMeetingClose },
-    { method: 'GET', path: '/api/mattermost/open', access: 'session', handle: handleMattermostOpen },
+    { method: 'GET', path: '/api/mattermost/open', access: 'session-or-practice', handle: handleMattermostOpen },
     { method: 'GET', path: '/api/calendar/:id', access: 'public', handle: handleCalendarEvent },
     { method: 'GET', path: '/api/scenario', access: 'public', handle: handleScenario },
     { method: 'GET', path: '/api/scenario/full', access: 'service', handle: handleScenarioFull },

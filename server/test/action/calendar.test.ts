@@ -90,7 +90,7 @@ describe('calendar action module', () => {
     const ready = await waitForStatus(tasks, task.id, 'DRAFT_READY');
     tasks.transition(ready.id, 'RUNNING');
     const done = await waitForStatus(tasks, ready.id, 'COMPLETED');
-    expect(done.artifactUrl).toBe(`http://kaki.test/api/calendar/${task.id}`);
+    expect(done.artifactUrl).toBe(`http://kaki.test/api/meetings/meeting/calendar/${task.id}`);
     const put = fetchImpl.mock.calls.find(([, init]) => init?.method === 'PUT');
     expect(String(put?.[0])).toBe(`http://cal.test/user/calendar/${task.id}.ics`);
     expect(String(put?.[1]?.body)).toContain('SUMMARY:Follow-up with Zack');
@@ -110,7 +110,7 @@ describe('calendar action module', () => {
     const ready = await waitForStatus(tasks, task.id, 'DRAFT_READY');
     tasks.transition(ready.id, 'RUNNING');
     const done = await waitForStatus(tasks, ready.id, 'COMPLETED');
-    expect(done.artifactUrl).toBe(`https://kaki.example.com/api/calendar/${task.id}`);
+    expect(done.artifactUrl).toBe(`https://kaki.example.com/api/meetings/meeting/calendar/${task.id}`);
   });
 
   it('fails with the calendar status when the save is refused', async () => {
@@ -166,6 +166,13 @@ describe('calendar action module', () => {
     expect(page.body).not.toContain('.ics');
     const next = await viewEvent(settings, 'abc', { month: '2026-12' }, fetchImpl);
     expect(next.body).toContain('December 2026');
+    const inMeeting = await viewEvent(
+      settings,
+      'abc',
+      { baseHref: '/api/meetings/m1/calendar/abc' },
+      fetchImpl,
+    );
+    expect(inMeeting.body).toContain('/api/meetings/m1/calendar/abc?month=2026-10');
     expect((await viewEvent(settings, 'abc', { download: true }, fetchImpl)).filename).toBe('abc.ics');
     expect((await viewEvent(settings, '../etc', {}, fetchImpl)).status).toBe(404);
     const missing = vi.fn<typeof fetch>(async () => new Response('', { status: 404 }));

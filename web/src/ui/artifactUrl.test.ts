@@ -22,9 +22,14 @@ const cloudTools: ToolPublicUrls = {
 };
 
 describe('resolveArtifactUrl', () => {
-  it('sends a sample Mattermost post through the Mattermost opener', () => {
-    const resolved = resolveArtifactUrl('http://localhost:8083/kopitiam/pl/post-1', 'mattermost_post', localTools);
-    expect(resolved).toContain('/api/mattermost/open?url=');
+  it('sends a sample Mattermost post through its meeting’s Mattermost opener', () => {
+    const resolved = resolveArtifactUrl(
+      'http://localhost:8083/kopitiam/pl/post-1',
+      'mattermost_post',
+      localTools,
+      'practice-1',
+    );
+    expect(resolved).toContain('/api/meetings/practice-1/mattermost/open?url=');
     expect(resolved).toContain(encodeURIComponent('http://localhost:8083/kopitiam/pl/post-1'));
   });
 
@@ -33,8 +38,16 @@ describe('resolveArtifactUrl', () => {
       'http://localhost:8083/kopitiam/pl/post-1',
       'mattermost_post',
       { ...localTools, calendar: 'http://localhost:4321' },
+      'practice-1',
     );
-    expect(resolved.startsWith('http://localhost:4321/api/mattermost/open?url=')).toBe(true);
+    expect(
+      resolved.startsWith('http://localhost:4321/api/meetings/practice-1/mattermost/open?url='),
+    ).toBe(true);
+  });
+
+  it('never builds a prefixless opener when no meeting is known', () => {
+    const post = 'http://localhost:8083/kopitiam/pl/post-1';
+    expect(resolveArtifactUrl(post, 'mattermost_post', localTools)).toBe(post);
   });
 
   it('leaves a real workspace Mattermost post on its own server, with no demo opener', () => {
@@ -63,11 +76,23 @@ describe('resolveArtifactUrl', () => {
     expect(resolveArtifactUrl(raw, kind, cloudTools)).toBe(expected);
   });
 
+  it('puts a calendar link saved without its meeting prefix back under the meeting', () => {
+    expect(
+      resolveArtifactUrl('https://kaki.example.com/api/calendar/abc', 'calendar_event', undefined, 'm1'),
+    ).toBe('https://kaki.example.com/api/meetings/m1/calendar/abc');
+  });
+
+  it('leaves an already meeting-scoped calendar link alone', () => {
+    const scoped = 'https://kaki.example.com/api/meetings/m1/calendar/abc';
+    expect(resolveArtifactUrl(scoped, 'calendar_event', undefined, 'm1')).toBe(scoped);
+  });
+
   it('puts a Mattermost result link on the cloud https port before opening it', () => {
     const resolved = resolveArtifactUrl(
       'http://localhost:8083/kopitiam/pl/post-1',
       'mattermost_post',
       cloudTools,
+      'practice-1',
     );
     expect(resolved).toContain(
       encodeURIComponent('https://kaki.example.com:8443/kopitiam/pl/post-1'),

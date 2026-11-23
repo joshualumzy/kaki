@@ -148,10 +148,13 @@ export async function handleCalendarEvent(call: RouteCall): Promise<void> {
     sendJson(response, 404, { error: 'Not found' });
     return;
   }
-  const query = new URL(request.url ?? '/', 'http://localhost').searchParams;
+  const requestUrl = new URL(request.url ?? '/', 'http://localhost');
+  const query = requestUrl.searchParams;
   const month = query.get('month') ?? undefined;
   const view = await viewEvent(context.calendar, decodeURIComponent(eventMatch[1] ?? ''), {
     download: query.has('download'),
+    // Month links must stay on this meeting's own viewer route, not the server-wide prefixless one.
+    baseHref: requestUrl.pathname,
     ...(month === undefined ? {} : { month }),
   });
   response.writeHead(view.status, {

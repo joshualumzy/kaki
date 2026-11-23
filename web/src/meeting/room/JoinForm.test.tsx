@@ -33,7 +33,15 @@ afterEach(() => {
 
 function setup(props: Partial<Parameters<typeof JoinForm>[0]> = {}) {
   const onJoin = vi.fn();
-  render(<JoinForm meetingTitle="Launch readiness" roles={roles} onJoin={onJoin} {...props} />);
+  render(
+    <JoinForm
+      meetingTitle="Launch readiness"
+      roles={roles}
+      meetingId="practice-1"
+      onJoin={onJoin}
+      {...props}
+    />,
+  );
   return {
     onJoin,
     name: screen.getByLabelText('Your name') as HTMLInputElement,
@@ -71,12 +79,16 @@ describe('JoinForm', () => {
     const link = (name: string) => screen.getByRole('link', { name }).getAttribute('href');
     expect(link('Wiki')).toBe('https://kaki.example.com:8081/en/home');
     expect(link('Gitea')).toBe('https://kaki.example.com:8082/kopitiam/kopitiam-pos/issues');
-    expect(link('Mattermost')).toContain('/api/mattermost/open?url=');
+    expect(link('Mattermost')).toContain(
+      'https://kaki.example.com/api/meetings/practice-1/mattermost/open?url=',
+    );
     expect(link('Mattermost')).toContain(
       encodeURIComponent('https://kaki.example.com:8443/kopitiam/channels/kopitiam-launch'),
     );
     expect(link('Mailpit')).toBe('https://kaki.example.com:8084');
-    expect(link('Calendar')).toBe('https://kaki.example.com/api/calendar/seed-sfa-inspection');
+    expect(link('Calendar')).toBe(
+      'https://kaki.example.com/api/meetings/practice-1/calendar/seed-food-agency-inspection',
+    );
   });
 
   it('cannot join without a name', () => {
@@ -148,7 +160,9 @@ describe('JoinForm', () => {
 
   it('never mentions typing: the microphone off hint only asks for the mic', () => {
     const { container } = (() => {
-      const view = render(<JoinForm meetingTitle="Launch readiness" roles={roles} onJoin={vi.fn()} />);
+      const view = render(
+        <JoinForm meetingTitle="Launch readiness" roles={roles} meetingId="practice-1" onJoin={vi.fn()} />,
+      );
       return { container: view.container };
     })();
     expect(screen.getByText('Microphone off: turn it on to speak')).toBeTruthy();

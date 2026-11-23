@@ -1,5 +1,11 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import type { AgendaItem, ScenarioRole, ToolPublicUrls } from '@kaki/shared';
+import {
+  calendarEventApiPath,
+  PRACTICE_CALENDAR_EVENT_ID,
+  type AgendaItem,
+  type ScenarioRole,
+  type ToolPublicUrls,
+} from '@kaki/shared';
 import { resolveArtifactUrl, toolLink } from '../../ui';
 import { MediaPreview, type MediaChoice } from './MediaPreview';
 import './practice.css';
@@ -25,6 +31,8 @@ interface JoinFormProps {
   initialCode?: string;
   /** Where the browser opens the sample workspace's tools, built by the server. */
   toolUrls?: ToolPublicUrls;
+  /** The practice meeting the Kaki-owned tool links belong to (opener and calendar viewer). */
+  meetingId: string;
   /** `media`: which devices to join with. Without the microphone a person types to the AI attendees. */
   onJoin(name: string, roleId: string, media: MediaChoice, meetingCode?: string): void;
 }
@@ -46,7 +54,7 @@ function roleVisualMeta(role: ScenarioRole): { icon: string; tag: string } {
 }
 
 /** The screen before the meeting: a name and a role, then a microphone. */
-export function JoinForm({ meetingTitle, roles, agenda, busy = false, error, askCode = false, errorAction, initialCode = '', toolUrls, onJoin }: JoinFormProps) {
+export function JoinForm({ meetingTitle, roles, agenda, busy = false, error, askCode = false, errorAction, initialCode = '', toolUrls, meetingId, onJoin }: JoinFormProps) {
   const [name, setName] = useState(DEFAULT_NAME);
   const [roleId, setRoleId] = useState(roles[0]?.id ?? '');
   const [media, setMedia] = useState<MediaChoice>({ microphone: false, camera: false });
@@ -218,9 +226,9 @@ export function JoinForm({ meetingTitle, roles, agenda, busy = false, error, ask
           </span>
           <a href={toolLink(toolUrls.wiki, '/en/home')} target="_blank" rel="noreferrer">Wiki</a>
           <a href={toolLink(toolUrls.gitea, '/kopitiam/kopitiam-pos/issues')} target="_blank" rel="noreferrer">Gitea</a>
-          <a href={resolveArtifactUrl(toolLink(toolUrls.mattermost, '/kopitiam/channels/kopitiam-launch'), 'mattermost_post', toolUrls)} target="_blank" rel="noreferrer">Mattermost</a>
+          <a href={resolveArtifactUrl(toolLink(toolUrls.mattermost, '/kopitiam/channels/kopitiam-launch'), 'mattermost_post', toolUrls, meetingId)} target="_blank" rel="noreferrer">Mattermost</a>
           <a href={toolUrls.email} target="_blank" rel="noreferrer">Mailpit</a>
-          <a href={toolLink(toolUrls.calendar, '/api/calendar/seed-sfa-inspection')} target="_blank" rel="noreferrer">Calendar</a>
+          <a href={toolLink(toolUrls.calendar, calendarEventApiPath(meetingId, PRACTICE_CALENDAR_EVENT_ID))} target="_blank" rel="noreferrer">Calendar</a>
         </nav>
       )}
     </div>
