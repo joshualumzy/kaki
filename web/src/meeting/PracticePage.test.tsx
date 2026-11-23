@@ -108,6 +108,23 @@ describe('PracticePage', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it('shows the plain rate-limit sentence with a Retry that asks again', async () => {
+    const message = 'Too many practice rooms were opened from here. Try again in a minute.';
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(reply(429, { error: message }))
+      .mockResolvedValueOnce(reply(200, { meetingId: 'practice-3' }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<PracticePage />);
+
+    expect(await screen.findByRole('alert')).toHaveProperty('textContent', message);
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+
+    expect(await screen.findByTestId('practice-room')).toHaveProperty('textContent', 'practice-3');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it('never shows a raw error code', async () => {
     vi.stubGlobal(
       'fetch',

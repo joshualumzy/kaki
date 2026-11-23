@@ -62,7 +62,7 @@ import {
   type WorkspaceToolStore,
   type WorkspaceTools,
 } from './workspace/tools';
-import { createMeetingModules, type MeetingModules } from './modules';
+import { createMeetingModules, createPracticeModules, type MeetingModules } from './modules';
 import { llmFromEnv, type LlmClient } from './services/llm';
 import { createWorkspaceIndexScheduler } from './meeting/indexScheduler';
 import { indexSampleKnowledge, indexWorkspaceSource } from './wingman/knowledge/indexer';
@@ -138,7 +138,7 @@ export interface CreateAppOptions {
   maxOpenMeetingsPerUser?: number;
   /** How many meetings one owner may create per day; defaults to KAKI_MAX_MEETINGS_PER_DAY or 20. */
   maxMeetingsPerDay?: number;
-  /** How many paid model or calendar requests one user or address may make a minute; defaults to 10. */
+  /** How many paid model or calendar requests, or practice opens, one user or address may make a minute; defaults to 10. */
   llmRequestsPerMinute?: number;
   /** How long a meeting with nobody connected stays loaded; defaults to KAKI_MEETING_UNLOAD_MS or 30 min. */
   meetingUnloadMs?: number;
@@ -475,6 +475,9 @@ export async function createApp({
   const llmRequestLimit = Number.isFinite(llmRequestsPerMinute) && llmRequestsPerMinute > 0 ? llmRequestsPerMinute : 10;
   const tellKakiAttempts = createAttemptLimiter({ limit: llmRequestLimit, windowMs: 60_000 });
   const agendaFromCalendarAttempts = createAttemptLimiter({ limit: llmRequestLimit, windowMs: 60_000 });
+  // One bucket per address: a loop that clears its cookie and asks again cannot keep every
+  // practice room occupied and lock real visitors out.
+  const practiceAttempts = createAttemptLimiter({ limit: llmRequestLimit, windowMs: 60_000 });
 
   if (auth !== undefined) {
     auth.bindMeetingHost(async (meetingId, userId) => {
@@ -589,14 +592,9 @@ export async function createApp({
 
   async function buildPracticeInstance(id: string, ownerUserId?: string): Promise<MeetingInstance> {
     // A practice is memory-only: it has no meetings row and is gone after a restart, so the next
-    // POST /api/practice simply creates a fresh one.
-    const built = practiceModules?.() ?? {
-      modules,
-      ...(meetingElapsedSeconds === undefined ? {} : { meetingElapsedSeconds }),
-      ...(meetingAgendaIndex === undefined ? {} : { meetingAgendaIndex }),
-      ...(meetingPaused === undefined ? {} : { meetingPaused }),
-      ...(meetingPause === undefined ? {} : { meetingPause }),
-    };
+    // POST /api/practice simply creates a fresh one. Every practice gets its own modules and clock;
+    // falling back to the app's shared set would let two visitors' meetings change each other.
+    const built = practiceModules?.() ?? createPracticeModules(scenario);
     return createMeetingInstance({
       id,
       workspaceId: SAMPLE_WORKSPACE_ID,
@@ -679,6 +677,7 @@ export async function createApp({
     guestJoinAttempts,
     tellKakiAttempts,
     agendaFromCalendarAttempts,
+    practiceAttempts,
     registry,
     serviceToken,
     routes: serverRoutes,
@@ -820,6 +819,7 @@ export async function createApp({
       guestJoinAttempts.clearAll();
       tellKakiAttempts.clearAll();
       agendaFromCalendarAttempts.clearAll();
+      practiceAttempts.clearAll();
       runnerControl.close();
       await closeServer(server);
       await auth?.close().catch((error: unknown) =>

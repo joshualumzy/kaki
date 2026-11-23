@@ -1,11 +1,88 @@
+import type { IncomingMessage, ServerResponse } from 'node:http';
 import { afterEach, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
 import type { MeetingSetup, Scenario } from '@kaki/shared';
 import { createApp, type CreateAppOptions, type KakiApp } from '../../src/app';
 import { createAgendaClock } from '../../src/host/clock';
 import { createMeetingModule } from '../../src/host/meeting';
+import { LEGACY_MEETING_ID } from '../../src/meeting/registry';
+import { createMeetingPersistence } from '../../src/persist/persistence';
+import type { MeetingStateStore, StoredMeeting } from '../../src/persist/state';
 import { connectClient, portOf, settle, waitFor, waitForEvent } from '../helpers';
 import { testScenario } from '../fixtures/scenario';
+
+/** A saved meeting whose next clear waits, so a test can tell when a reset is about to queue. */
+class GatedStore implements MeetingStateStore {
+  saved: StoredMeeting | undefined;
+  readonly clearStarted: Promise<void>;
+  private readonly gate: Promise<void>;
+  private reached!: () => void;
+  private release!: () => void;
+  private armed = false;
+
+  constructor() {
+    this.clearStarted = new Promise((resolve) => {
+      this.reached = resolve;
+    });
+    this.gate = new Promise((resolve) => {
+      this.release = resolve;
+    });
+  }
+
+  /** Hold the next clear; earlier clears (a meeting opened before the reset) pass straight through. */
+  arm(): void {
+    this.armed = true;
+  }
+  releaseClear(): void {
+    this.release();
+  }
+  async load(): Promise<StoredMeeting | undefined> {
+    return this.saved;
+  }
+  async save(meeting: StoredMeeting): Promise<void> {
+    this.saved = meeting;
+  }
+  async clear(): Promise<void> {
+    this.saved = undefined;
+    if (!this.armed) return;
+    this.armed = false;
+    this.reached();
+    await this.gate;
+  }
+}
+
+/**
+ * Start the legacy meeting inside this process, so its admission is queued before the caller's next
+ * line instead of racing an HTTP request through the event loop.
+ */
+function startInProcess(app: KakiApp): Promise<{ status: number; body: Record<string, unknown> }> {
+  return (async () => {
+    const instance = await app.registry.get(LEGACY_MEETING_ID);
+    if (instance === undefined) throw new Error('the legacy meeting is missing');
+    const request = {
+      method: 'POST',
+      url: '/api/meeting/start',
+      headers: {},
+      socket: { remoteAddress: '127.0.0.1' },
+    } as unknown as IncomingMessage;
+    let status = 0;
+    let text = '';
+    const response = {
+      get writableEnded() {
+        return false;
+      },
+      writeHead(value: number) {
+        status = value;
+        return response;
+      },
+      end(chunk: string) {
+        text = chunk;
+      },
+    } as unknown as ServerResponse;
+    await instance.handle(request, response, '/api/meeting/start');
+    return { status, body: JSON.parse(text) as Record<string, unknown> };
+  })();
+}
 
 const serviceToken = 'session-phase-runner-token';
 
@@ -309,6 +386,7 @@ describe('Start lifecycle', () => {
   });
 
   it('refuses a Start that waited through a reset instead of starting the replacement meeting', async () => {
+    const store = new GatedStore();
     let calls = 0;
     let releaseRoster: (() => void) | undefined;
     const rosterGate = new Promise<void>((resolve) => {
@@ -316,6 +394,7 @@ describe('Start lifecycle', () => {
     });
     const app = await startApp(structuredClone(testScenario), {
       modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
+      persistence: createMeetingPersistence({ store, log: () => undefined }),
       roomRoster: async () => {
         calls += 1;
         if (calls === 2) await rosterGate;
@@ -332,12 +411,17 @@ describe('Start lifecycle', () => {
       body: JSON.stringify({ roomName: 'test-room', participantName: 'Late', participantRole: 'cashier', meetingCode }),
     });
     await waitFor(() => (calls === 2 ? true : undefined), 'the late join to reach the roster');
-    // Queue the reset before Start, so it runs first once the in-flight admission finishes.
+    // Queue the reset before Start, so it runs first once the in-flight admission finishes. Waiting
+    // for the saved clear tells us the command arrived, instead of hoping a sleep outlasts delivery.
     const screen = await connectClient(portOf(app), 'screen');
+    store.arm();
     screen.ws.send(JSON.stringify({ type: 'NEW_MEETING' }));
-    await settle(20);
-    const starting = startMeeting(app);
-    await settle(20);
+    await store.clearStarted;
+    store.releaseClear();
+    // Let the reset's admission queue behind the in-flight join before Start queues after it.
+    await settle(0);
+    const starting = startInProcess(app);
+    await settle(0);
     expect(app.session.phase()).toBe('lobby');
 
     releaseRoster?.();
@@ -351,7 +435,7 @@ describe('Start lifecycle', () => {
 
     const response = await starting;
     expect(response.status).toBe(409);
-    expect(await response.json()).toEqual({
+    expect(response.body).toEqual({
       error: 'The meeting was reset before it could start; press Start again.',
     });
     expect(app.session.phase()).toBe('lobby');

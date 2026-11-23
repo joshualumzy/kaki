@@ -4,6 +4,7 @@ import { createActionModules, calendarFromEnv, logMissingActionConfig } from './
 import { createApp } from './app';
 import { createAuthFromEnv } from './auth/module';
 import { createHostModules } from './host';
+import { createPracticeModules } from './modules';
 import { loadScenario } from './core/loadScenario';
 import { createMeetingCodeSource } from './meeting/meetingCode';
 import { createMeetingPersistenceFromEnv } from './persist/persistence';
@@ -58,16 +59,7 @@ if (postgresUrl !== undefined && postgresUrl !== '') {
 }
 const host = createHostModules(scenario);
 /** Every practice meeting gets its own clock and modules; sharing one set would share their state. */
-const practiceModules = () => {
-  const practiceHost = createHostModules(scenario);
-  return {
-    modules: [...practiceHost.modules, ...createWingmanModules(), ...createActionModules()],
-    meetingElapsedSeconds: practiceHost.meetingElapsedSeconds,
-    meetingAgendaIndex: practiceHost.meetingAgendaIndex,
-    meetingPaused: practiceHost.meetingPaused,
-    meetingPause: practiceHost.meetingPause,
-  };
-};
+const practiceModules = () => createPracticeModules(scenario);
 const meetingCode = createMeetingCodeSource();
 const authEnabled = process.env.KAKI_AUTH === '1';
 const auth = authEnabled ? await createAuthFromEnv({ meetingCode }) : undefined;

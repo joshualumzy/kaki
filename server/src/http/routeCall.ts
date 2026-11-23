@@ -67,6 +67,8 @@ export interface RequestContext {
   tellKakiAttempts?: AttemptLimiter;
   /** Paid calendar reads for agenda import, per account and address, owned by the app. */
   agendaFromCalendarAttempts?: AttemptLimiter;
+  /** Practice-room opens per client address, so a cookie-clearing loop cannot hold every room. */
+  practiceAttempts?: AttemptLimiter;
   /** The meeting registry, for the server-wide lookup and creation of meetings and practices. */
   registry?: Pick<MeetingRegistry, 'findByCode' | 'create' | 'createPractice' | 'findPractice'>;
   /**
