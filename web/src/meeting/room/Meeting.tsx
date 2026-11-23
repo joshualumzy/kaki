@@ -41,6 +41,7 @@ import {
   type StoredJoin,
 } from './rejoinSession';
 import { RealRoomStateProvider } from './realRoom';
+import { RealEndedOverlay } from './RealRoomOverlays';
 import './practice.css';
 
 /** Echo cancellation is what lets the server tell a person talking over the AI from the AI's own playback. */
@@ -679,6 +680,7 @@ export default function Meeting({
           seat: session.role,
         }}
       />
+      {real && realMeetingId !== undefined ? <RealEndedOverlay meetingId={realMeetingId} /> : null}
       <nav className="kd-panes" aria-label="Meeting or Kaki">
         <button type="button" aria-pressed={pane === 'meeting'} onClick={() => setPane('meeting')}>
           Meeting

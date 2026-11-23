@@ -343,15 +343,17 @@ export function WorkspacePage() {
                                 ? 'Open now'
                                 : `Scheduled for ${whenText(meeting.scheduledFor)}`}
                             </p>
-                            <p className="product-invite-link">
-                              <a href={`/m/${encodeURIComponent(meeting.id)}`}>
-                                {fullLink(meeting.id)}
-                              </a>
-                            </p>
+                            <div className="product-invite-row">
+                              <p className="product-invite-link">
+                                <a href={`/m/${encodeURIComponent(meeting.id)}`} title={fullLink(meeting.id)}>
+                                  {fullLink(meeting.id).replace(/^https?:\/\//, '')}
+                                </a>
+                              </p>
+                              <Button variant="ghost" onClick={() => void copyMeeting(meeting.id)}>
+                                {copiedId === meeting.id ? 'Copied' : 'Copy'}
+                              </Button>
+                            </div>
                           </div>
-                          <Button variant="ghost" onClick={() => void copyMeeting(meeting.id)}>
-                            {copiedId === meeting.id ? 'Copy again' : 'Copy link'}
-                          </Button>
                         </li>
                       ))}
                   </ul>

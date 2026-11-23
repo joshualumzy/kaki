@@ -151,13 +151,13 @@ describe('real meeting bar', () => {
     expect(mocks.disconnect).toHaveBeenCalled();
   });
 
-  it('offers only People and Leave once the meeting has ended', () => {
+  it('leaves the ended screen to its own actions and shows no live controls', () => {
     mocks.isHost = true;
     mocks.meetingState.phase = 'ended';
     renderBar();
 
-    expect(screen.getByRole('button', { name: /Leave/ })).toBeTruthy();
-    for (const label of ['Mic', 'Camera', 'Off the record', 'Invite', 'End for everyone']) {
+    expect(screen.queryByRole('toolbar', { name: 'Meeting controls' })).toBeNull();
+    for (const label of ['Mic', 'Camera', 'Off the record', 'Invite', 'People', 'Leave', 'End for everyone']) {
       expect(screen.queryByRole('button', { name: new RegExp(`^${label}`) })).toBeNull();
     }
     mocks.meetingState.phase = 'running';

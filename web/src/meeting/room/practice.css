@@ -1,6 +1,7 @@
 /* Kaki Lumen: the live meeting (join screen, stage, side dock). Tokens live in ui/tokens.css. */
 
 @keyframes kd-rise { from { opacity: 0; transform: translateY(14px) scale(0.99); } to { opacity: 1; transform: none; } }
+@keyframes kd-rise-join { from { transform: translateY(14px) scale(0.99); } to { transform: none; } }
 @keyframes kd-ping { 0% { box-shadow: 0 0 0 0 currentColor; } 70%, 100% { box-shadow: 0 0 0 9px transparent; } }
 @keyframes kd-blink { 50% { opacity: 0.35; } }
 @keyframes kd-word { from { opacity: 0; filter: blur(4px); transform: translateY(3px); } to { opacity: 1; filter: none; transform: none; } }
@@ -17,6 +18,8 @@
 .kd-join-systems a:hover { border-color: var(--color-accent); background: var(--color-accent-soft); color: var(--color-accent); }
 .kd-card { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 34px; width: min(980px, 100%); box-sizing: border-box; padding: 28px; animation: kd-rise 520ms cubic-bezier(.2,.8,.2,1) both;
   background: var(--panel); border: 1px solid var(--color-border); border-radius: 22px; backdrop-filter: blur(20px) saturate(1.3); -webkit-backdrop-filter: blur(20px) saturate(1.3); box-shadow: var(--shadow-card); }
+/* The join card is the page's main content: solid, and never faded in, so it always reads as active. */
+.kd-join .kd-card { background: var(--color-surface); animation-name: kd-rise-join; }
 .kd-live { display: inline-flex; align-items: center; gap: 8px; align-self: flex-start; padding: 4px 11px 4px 9px; border-radius: 999px; background: var(--color-accent-soft); color: var(--color-accent); font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.14em; text-transform: uppercase; }
 .kd-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; animation: kd-ping 1.8s infinite; }
 .kd-title { font-size: clamp(34px, 5vw, 48px); line-height: 1; letter-spacing: -0.045em; font-weight: 700; margin: 16px 0 8px; text-wrap: balance; color: var(--color-text); }
@@ -34,6 +37,7 @@ select.kd-field { appearance: none; cursor: pointer; background-image: linear-gr
 .kd-go-secondary:not(:disabled):hover { background: var(--color-bg-raised); }
 .kd-go-secondary + .kd-go-secondary { margin-top: 8px; }
 .kd-hint { color: var(--color-faint); font-size: 12.5px; margin: 12px 0 0; }
+.kd-join .kd-hint { color: var(--color-muted); font-size: 13px; }
 
 /* Over the stage until the person has read their briefing and starts the meeting. */
 .kd-start { position: absolute; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; padding: 20px; box-sizing: border-box; background: color-mix(in srgb, var(--color-bg) 82%, transparent); backdrop-filter: blur(6px); animation: none !important; transition: none !important; }
@@ -41,9 +45,14 @@ select.kd-field { appearance: none; cursor: pointer; background-image: linear-gr
 .kd-start-card h2 { margin: 0 0 10px; font-size: 22px; letter-spacing: -0.03em; color: var(--color-text); }
 .kd-start-card p { margin: 0 0 12px; font-size: 14px; line-height: 1.5; color: var(--color-muted); }
 .kd-start-card .kd-go { margin-top: 8px; }
-.kd-ended-overlay { z-index: 64; }
-.kd-ended-card { margin: 0; }
-.kd-ended-title { margin: 0 0 10px; font-size: 22px; line-height: 1.2; letter-spacing: -0.03em; color: var(--color-text); }
+.kd-ended-overlay { z-index: 70; background: color-mix(in srgb, var(--color-bg) 96%, transparent); backdrop-filter: blur(12px); }
+.kd-ended-panel { width: min(460px, 100%); padding: 30px; max-height: calc(100dvh - 40px); overflow-y: auto; }
+.kd-ended-panel .kd-ended-title { margin: 0 0 18px; font-size: 26px; line-height: 1.15; letter-spacing: -0.035em; color: var(--color-text); }
+.kd-ended-panel .kd-go { margin-top: 0; }
+.kd-ended-panel .kd-ended-primary { margin-top: 4px; }
+.kd-ended-panel .kd-ended-back { margin-top: 12px; }
+.kd-ended-note { margin: 0; font-size: 14px; line-height: 1.5; color: var(--color-muted); }
+.kd-ended-recover { margin-top: 12px; }
 .kd-alert { color: var(--color-danger); font-size: 13px; font-weight: 600; margin: 0 0 14px; }
 
 .kd-preview { position: relative; aspect-ratio: 16 / 10; border-radius: 18px; overflow: hidden; background: radial-gradient(circle at 50% 40%, color-mix(in srgb, var(--orb-a) 16%, var(--stage)), var(--stage) 70%); border: 1px solid var(--color-border); }
@@ -269,7 +278,10 @@ select.kd-field { appearance: none; cursor: pointer; background-image: linear-gr
 .kd-start-howto b { color: var(--color-text); }
 .kd-start-howto kbd { font-family: var(--font-mono); font-size: 12.5px; padding: 1px 6px; border-radius: 6px; border: 1px solid var(--color-border-strong); background: var(--color-bg-raised); color: var(--color-text); }
 .kd-start-quiet-note { margin: 10px 0 8px !important; font-size: 12px !important; opacity: 0.8; }
-.kd-start-actions { display: flex; gap: 8px; align-items: center; }
+.kd-start-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.kd-start-actions .kd-go { margin-top: 0; }
+.kd-start-actions .kd-start-back { flex: 0 0 auto; width: auto; padding: 12px 18px; }
+.kd-start-actions .kd-start-go { flex: 1 1 0; width: auto; }
 
 /* Stage Floating Notification Toast (when visitor's eyes are on the video stage) */
 .kd-stage-toast { display: flex; align-items: center; gap: 10px; margin: 4px 10px 0; padding: 10px 14px; border-radius: 14px; background: color-mix(in srgb, var(--color-surface) 94%, transparent); border: 1px solid var(--color-accent); box-shadow: 0 10px 28px -10px rgba(0, 0, 0, 0.35); animation: kd-rise 260ms cubic-bezier(.2,.8,.2,1) both; z-index: 6; }

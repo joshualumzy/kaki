@@ -21,7 +21,7 @@ import {
 import { useKaki, useScenario } from '../../kaki';
 import { CaptionedTile, PendingTile, StageContext } from './CaptionedTile';
 import { RealMeetingBar } from './RealMeetingBar';
-import { RealEndedOverlay, RealRoomBanners, RealWaitingOverlay } from './RealRoomOverlays';
+import { RealRoomBanners, RealWaitingOverlay } from './RealRoomOverlays';
 import { MutedHint } from './MutedHint';
 import { useRealRoom } from './realRoom';
 import { distinctDisplayNames, peopleNotInRoom } from './people';
@@ -363,7 +363,6 @@ export function MeetingGrid({
             <CaptionedTile />
           </GridLayout>
           {real && meetingId !== undefined ? <RealWaitingOverlay meetingId={meetingId} /> : null}
-          {real && meetingId !== undefined ? <RealEndedOverlay meetingId={meetingId} /> : null}
         </div>
         {pendingPeople.length > 0 && (
           <div className="kd-pending-tiles" aria-label="Joining the meeting">

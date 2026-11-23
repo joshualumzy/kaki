@@ -176,16 +176,14 @@ export function StartPrompt({ onStart, role, viewerName, seatName, starting = fa
             <>
               <button
                 type="button"
-                className="kd-chip"
-                style={{ padding: '10px 14px', fontWeight: 600 }}
+                className="kd-go kd-go-secondary kd-start-back"
                 onClick={() => setStepIndex(0)}
               >
                 ← Back
               </button>
               <button
                 type="button"
-                className="kd-go"
-                style={{ marginTop: 0, flex: 1 }}
+                className="kd-go kd-start-go"
                 onClick={onStart}
                 disabled={starting}
                 autoFocus

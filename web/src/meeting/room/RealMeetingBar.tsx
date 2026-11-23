@@ -34,7 +34,8 @@ export function RealMeetingBar({
 
   if (meeting === null) return null;
   const { meetingState, send, isHost } = meeting;
-  const ended = meetingState?.phase === 'ended';
+  // An ended room is a calm final screen with its own actions; live controls and notices would compete.
+  if (meetingState?.phase === 'ended' || meeting.endedWhileAway !== undefined) return null;
   // Before the owner starts the meeting, only Leave (and the owner's Invite) do anything.
   const waiting = meetingState?.waitingForOwner === true;
   const offTheRecord = meetingState?.offTheRecord !== null && meetingState?.offTheRecord !== undefined;
@@ -94,52 +95,48 @@ export function RealMeetingBar({
         </p>
       )}
       <div className="kd-real-bar-row">
-        {ended ? null : (
-          <>
-            <button
-              type="button"
-              className="kd-bar-btn"
-              data-on={isMicrophoneEnabled}
-              aria-pressed={isMicrophoneEnabled}
-              disabled={waiting}
-              onClick={() => void toggleMicrophone()}
-            >
-              {isMicrophoneEnabled ? 'Mic on' : 'Mic off'}
-            </button>
-            <button
-              type="button"
-              className="kd-bar-btn"
-              data-on={isCameraEnabled}
-              aria-pressed={isCameraEnabled}
-              disabled={waiting}
-              onClick={() => void toggleCamera()}
-            >
-              {isCameraEnabled ? 'Camera on' : 'Camera off'}
-            </button>
-            <button
-              type="button"
-              className="kd-bar-btn"
-              data-on={offTheRecord}
-              aria-pressed={offTheRecord}
-              aria-describedby="kd-off-record-hint"
-              title="Stop Kaki writing anything down until you resume"
-              disabled={waiting}
-              onClick={() => send({ type: 'SET_OFF_THE_RECORD', on: !offTheRecord })}
-            >
-              {offTheRecord ? 'Back on the record' : 'Off the record'}
-            </button>
-            <button
-              type="button"
-              className="kd-bar-btn"
-              data-on={inviteOpen}
-              aria-expanded={inviteOpen}
-              disabled={waiting && !isHost}
-              onClick={() => setInviteOpen((open) => !open)}
-            >
-              Invite
-            </button>
-          </>
-        )}
+        <button
+          type="button"
+          className="kd-bar-btn"
+          data-on={isMicrophoneEnabled}
+          aria-pressed={isMicrophoneEnabled}
+          disabled={waiting}
+          onClick={() => void toggleMicrophone()}
+        >
+          {isMicrophoneEnabled ? 'Mic on' : 'Mic off'}
+        </button>
+        <button
+          type="button"
+          className="kd-bar-btn"
+          data-on={isCameraEnabled}
+          aria-pressed={isCameraEnabled}
+          disabled={waiting}
+          onClick={() => void toggleCamera()}
+        >
+          {isCameraEnabled ? 'Camera on' : 'Camera off'}
+        </button>
+        <button
+          type="button"
+          className="kd-bar-btn"
+          data-on={offTheRecord}
+          aria-pressed={offTheRecord}
+          aria-describedby="kd-off-record-hint"
+          title="Stop Kaki writing anything down until you resume"
+          disabled={waiting}
+          onClick={() => send({ type: 'SET_OFF_THE_RECORD', on: !offTheRecord })}
+        >
+          {offTheRecord ? 'Back on the record' : 'Off the record'}
+        </button>
+        <button
+          type="button"
+          className="kd-bar-btn"
+          data-on={inviteOpen}
+          aria-expanded={inviteOpen}
+          disabled={waiting && !isHost}
+          onClick={() => setInviteOpen((open) => !open)}
+        >
+          Invite
+        </button>
         <button
           type="button"
           className="kd-bar-btn"
@@ -153,7 +150,7 @@ export function RealMeetingBar({
         <button type="button" className="kd-bar-btn" data-tone="leave" onClick={leave}>
           Leave
         </button>
-        {isHost && !ended ? (
+        {isHost ? (
           <button
             type="button"
             className="kd-bar-btn"
@@ -164,13 +161,11 @@ export function RealMeetingBar({
           </button>
         ) : null}
       </div>
-      {ended ? null : (
-        <p className="kd-bar-hint" id="kd-off-record-hint">
-          Off the record pauses all notes until you resume.
-        </p>
-      )}
+      <p className="kd-bar-hint" id="kd-off-record-hint">
+        Off the record pauses all notes until you resume.
+      </p>
 
-      {inviteOpen && !ended ? (
+      {inviteOpen ? (
         <div className="kd-real-pop" role="dialog" aria-label="Invite people">
           <p className="kd-label">Invite link</p>
           <p className="kd-real-link">
@@ -214,7 +209,7 @@ export function RealMeetingBar({
         </div>
       ) : null}
 
-      {confirmEnd && isHost && !ended ? (
+      {confirmEnd && isHost ? (
         <div className="kd-real-pop" role="dialog" aria-label="End the meeting for everyone">
           <p className="kd-label">End for everyone?</p>
           <p className="kd-hint">

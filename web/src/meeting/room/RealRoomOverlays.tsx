@@ -16,6 +16,7 @@ export function RealRoomBanners() {
   const room = useRealRoom();
   if (room === null) return null;
   const { meetingState, send } = room;
+  if (meetingState?.phase === 'ended' || room.endedWhileAway !== undefined) return null;
   const offTheRecord = meetingState?.offTheRecord ?? null;
   // A newcomer who starts a meeting is usually alone at first: point at Invite until someone joins.
   const alone =
@@ -120,13 +121,13 @@ export function RealEndedOverlay({ meetingId }: { meetingId: string }) {
   if (room === null || (room.meetingState?.phase !== 'ended' && !endedWhileAway)) return null;
   return (
     <div className="kd-start kd-ended-overlay" role="region" aria-label="Meeting ended">
-      <div className="kd-start-card">
+      <div className="kd-start-card kd-ended-panel">
         <EndedPanelBody
           meetingId={meetingId}
           ownerName={room.meetingState?.ownerName?.trim() ?? ''}
           title={endedWhileAway ? 'This meeting ended while you were away' : 'The meeting has ended'}
         />
-        <Link className="kd-go kd-go-secondary" to="/">
+        <Link className="kd-go kd-go-secondary kd-ended-back" to="/">
           Back to Kaki
         </Link>
       </div>
@@ -167,17 +168,17 @@ function EndedPanelBody({
     };
   }, [meetingId, attempt]);
   return (
-    <section className="kd-role kd-topic-card kd-ended-card" aria-label="Meeting ended">
+    <>
       <h2 className="kd-ended-title">{title}</h2>
       {typeof workspaceId === 'string' ? (
         <Link
-          className="kd-go"
+          className="kd-go kd-ended-primary"
           to={`/workspaces/${encodeURIComponent(workspaceId)}/meetings/${encodeURIComponent(meetingId)}`}
         >
           See the meeting minutes
         </Link>
       ) : workspaceId === null ? (
-        <p>
+        <p className="kd-ended-note">
           Thanks for joining. The notes are kept by {ownerName === '' ? 'the owner' : ownerName}.
         </p>
       ) : failed || slow ? (
@@ -185,16 +186,18 @@ function EndedPanelBody({
           <p role="alert" className="kd-alert">
             Minutes are taking longer than usual. They'll appear in the meeting history when ready.
           </p>
-          <button type="button" className="kd-chip" onClick={() => setAttempt((count) => count + 1)}>
-            Try again
-          </button>{' '}
-          <Link className="artifact-link" to={`/m/${encodeURIComponent(meetingId)}`}>
-            Open the meeting page
-          </Link>
+          <div className="kd-ended-recover">
+            <button type="button" className="kd-chip" onClick={() => setAttempt((count) => count + 1)}>
+              Try again
+            </button>{' '}
+            <Link className="artifact-link" to={`/m/${encodeURIComponent(meetingId)}`}>
+              Open the meeting page
+            </Link>
+          </div>
         </>
       ) : (
         <p className="kd-hint">Checking where the notes are kept…</p>
       )}
-    </section>
+    </>
   );
 }
