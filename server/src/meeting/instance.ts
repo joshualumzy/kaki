@@ -929,24 +929,22 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
     // Two microphones in one room can both recognise the same voice. Only audio evidence proves it:
     // the two stretches must overlap in time and this microphone must have been clearly quieter.
     // The same words alone are not enough, because two people really do both say "Yes".
-    if (source === 'speech') {
-      const line = {
-        seat: key,
-        speaker,
-        text: cleaned,
-        ...(startedAtMs === undefined || !Number.isFinite(startedAtMs) ? {} : { speechStartedAt: startedAtMs }),
-        ...(endedAtMs === undefined || !Number.isFinite(endedAtMs) ? {} : { speechEndedAt: endedAtMs }),
-        ...(micLevel === undefined ? {} : { micLevel }),
-      };
-      const duplicate = findCrossSeatDuplicate(line, recentSpeechLines);
-      if (duplicate !== undefined) {
-        console.warn(
-          `kaki transcript: dropped "${cleaned}" from ${speaker}; ${duplicate.speaker}'s line overlaps it and this microphone was quieter (${micLevel?.toFixed(3)} vs ${duplicate.micLevel?.toFixed(3)}), so another seat's microphone heard it too`,
-        );
-        return;
-      }
-      rememberSpeechLine(recentSpeechLines, line);
+    const line = {
+      seat: key,
+      speaker,
+      text: cleaned,
+      ...(startedAtMs === undefined || !Number.isFinite(startedAtMs) ? {} : { speechStartedAt: startedAtMs }),
+      ...(endedAtMs === undefined || !Number.isFinite(endedAtMs) ? {} : { speechEndedAt: endedAtMs }),
+      ...(micLevel === undefined ? {} : { micLevel }),
+    };
+    const duplicate = findCrossSeatDuplicate(line, recentSpeechLines);
+    if (duplicate !== undefined) {
+      console.warn(
+        `kaki transcript: dropped "${cleaned}" from ${speaker}; ${duplicate.speaker}'s line overlaps it and this microphone was quieter (${micLevel?.toFixed(3)} vs ${duplicate.micLevel?.toFixed(3)}), so another seat's microphone heard it too`,
+      );
+      return;
     }
+    rememberSpeechLine(recentSpeechLines, line);
     const times = (humanLineTimes.get(key) ?? []).filter((at) => now - at < HUMAN_LINE_RATE_WINDOW_MS);
     if (times.length >= HUMAN_LINE_RATE_LIMIT) {
       throw new CommandError('Too many lines at once; wait a moment and try again');
