@@ -191,6 +191,22 @@ describe('app', () => {
     }
   });
 
+  it('reports scripted speech as on even in the production misconfiguration', async () => {
+    const previousFake = process.env.KAKI_FAKE_STT;
+    const previousNodeEnv = process.env.NODE_ENV;
+    process.env.KAKI_FAKE_STT = '1';
+    process.env.NODE_ENV = 'production';
+    try {
+      const health = await fetch(`http://127.0.0.1:${port}/health`);
+      expect(await health.json()).toEqual({ ok: true, fakeSpeech: true });
+    } finally {
+      if (previousFake === undefined) delete process.env.KAKI_FAKE_STT;
+      else process.env.KAKI_FAKE_STT = previousFake;
+      if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = previousNodeEnv;
+    }
+  });
+
   it('accepts a valid dev event and delivers it', async () => {
     const screen = await connect('screen');
 

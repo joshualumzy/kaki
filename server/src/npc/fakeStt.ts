@@ -2,26 +2,31 @@ import { DataPacket_Kind, RoomServiceClient } from 'livekit-server-sdk';
 import { FAKE_STT_TOPIC, KAKI_LISTENER_IDENTITY, type FakeSpeechMessage } from '@kaki/shared';
 import { livekitCredentials } from '../services/livekit';
 
+/** The one place the fake-speech flag is read, so the runner and the health check agree. */
+function fakeSttRequested(env: NodeJS.ProcessEnv): boolean {
+  return env.KAKI_FAKE_STT === '1';
+}
+
 /**
  * The dev-only fake speech recogniser. With `KAKI_FAKE_STT=1` the runner accepts scripted lines sent
  * by the LiveKit server on {@link FAKE_STT_TOPIC} and hands them to the same path real recognition
  * uses, so automated runs speak without a microphone. It is refused outright in production.
  */
 export function fakeSttFromEnv(env: NodeJS.ProcessEnv = process.env): boolean {
-  if (env.KAKI_FAKE_STT !== '1') return false;
+  if (!fakeSttRequested(env)) return false;
   if (env.NODE_ENV === 'production') {
     throw new Error('KAKI_FAKE_STT=1 is for development and tests only; unset it in production.');
   }
   return true;
 }
 
-/** Whether scripted speech is on, for a status page that must not crash on a production misconfiguration. */
+/**
+ * Whether scripted speech is configured on, for the health check. It reports the flag truthfully
+ * even in a production misconfiguration: the runner still refuses to start, but the status page
+ * must not say scripted speech is off while it is set.
+ */
 export function fakeSttEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  try {
-    return fakeSttFromEnv(env);
-  } catch {
-    return false;
-  }
+  return fakeSttRequested(env);
 }
 
 /** LiveKit's HTTP API lives at the same host as its WebSocket URL. */

@@ -35,10 +35,14 @@ describe('fakeSttFromEnv', () => {
 });
 
 describe('fakeSttEnabled', () => {
-  it('reports the same answer as the runner, without throwing in production', () => {
+  it('reports the flag truthfully, without throwing in production', () => {
     expect(fakeSttEnabled({})).toBe(false);
+    expect(fakeSttEnabled({ KAKI_FAKE_STT: '0', NODE_ENV: 'development' })).toBe(false);
     expect(fakeSttEnabled({ KAKI_FAKE_STT: '1', NODE_ENV: 'development' })).toBe(true);
-    expect(fakeSttEnabled({ KAKI_FAKE_STT: '1', NODE_ENV: 'production' })).toBe(false);
+  });
+
+  it('reports the dangerous production misconfiguration as on', () => {
+    expect(fakeSttEnabled({ KAKI_FAKE_STT: '1', NODE_ENV: 'production' })).toBe(true);
   });
 });
 

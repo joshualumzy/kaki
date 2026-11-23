@@ -119,75 +119,126 @@ export async function ensureWorkspaceToolsSchema(pool: Pool): Promise<void> {
 }
 
 /**
+ * The advisory lock key that serialises the meetings migration. Every process uses the same key,
+ * so the server and the npc runner booting together take turns instead of racing.
+ */
+const MEETINGS_SCHEMA_LOCK_ID = '814002701';
+
+/** One migration run per pool, shared by the startup call and every store call. */
+const meetingsSchemaRuns = new WeakMap<Pool, Promise<void>>();
+
+/**
  * Create the meetings table if it is missing, then add the real-product columns an older step-2
  * table does not have. The workspace and owner ids stay plain text: the sample workspace is built
  * into code, not a row, and an existing meeting may predate accounts.
+ *
+ * The migration runs once per pool (one pool per process), and a failed run is not remembered as
+ * success: the next call retries it. Concurrent processes are serialised by a Postgres advisory
+ * lock held inside the migration transaction.
  */
-export async function ensureMeetingsSchema(pool: Pool): Promise<void> {
-  await pool.query(`
-    create table if not exists meetings (
-      id text primary key,
-      workspace_id text not null,
-      owner_user_id text,
-      title text not null,
-      kind text not null default 'real',
-      scheduled_for timestamptz,
-      agenda jsonb,
-      created_at timestamptz not null default now(),
-      ended_at timestamptz
-    )
-  `);
-  await pool.query('alter table meetings add column if not exists status text');
-  // Kaki's own copy of an ended meeting's minutes, kept apart from any connected tool.
-  await pool.query('alter table meetings add column if not exists minutes_text text');
-  await pool.query('alter table meetings add column if not exists minutes_todos jsonb');
-  await pool.query('alter table meetings add column if not exists minutes_archived_at timestamptz');
-  await pool.query('alter table meetings add column if not exists agenda jsonb');
-  // Step-2 rows had no status; an open meeting is the truthful default for them.
-  await pool.query("update meetings set status = 'open' where status is null");
-  await pool.query("alter table meetings alter column status set default 'open'");
-  await pool.query('alter table meetings alter column status set not null');
-  await pool.query(`
-    do $$
-    begin
-      if not exists (
-        select 1 from pg_constraint
-         where conrelid = 'meetings'::regclass
-           and conname = 'meetings_kind_check'
-           and pg_get_constraintdef(oid) like '%practice%'
-      ) then
-        alter table meetings drop constraint if exists meetings_kind_check;
-        alter table meetings add constraint meetings_kind_check
-          check (kind in ('real', 'practice'));
-      end if;
-      if not exists (
-        select 1 from pg_constraint
-         where conrelid = 'meetings'::regclass and conname = 'meetings_status_check'
-      ) then
-        alter table meetings add constraint meetings_status_check
-          check (status in ('scheduled', 'open', 'ended'));
-      end if;
-    end $$;
-  `);
-  // A practice meeting saved before its row carried a kind is still the account's own words:
-  // mark it as practice so deleting the account removes it instead of handing it to the sample
-  // workspace. The state table is created later in some paths, so skip until it has the column.
-  await pool.query(`
-    do $$
-    begin
-      if exists (
-        select 1 from information_schema.columns
-         where table_schema = current_schema()
-           and table_name = 'meeting_state'
-           and column_name = 'kind'
-      ) then
-        update meetings m
-           set kind = 'practice'
-         where m.kind = 'real'
-           and exists (
-             select 1 from meeting_state s where s.id = m.id and s.kind = 'practice'
-           );
-      end if;
-    end $$;
-  `);
+export function ensureMeetingsSchema(pool: Pool): Promise<void> {
+  const started = meetingsSchemaRuns.get(pool);
+  if (started !== undefined) return started;
+  const run = migrateMeetingsSchema(pool).catch((error: unknown) => {
+    meetingsSchemaRuns.delete(pool);
+    throw error;
+  });
+  meetingsSchemaRuns.set(pool, run);
+  return run;
+}
+
+async function migrateMeetingsSchema(pool: Pool): Promise<void> {
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+    // Take the lock before any DDL: two processes creating the same table at once can still make
+    // `create table if not exists` collide, and the whole migration must be one serial unit.
+    await client.query('select pg_advisory_xact_lock($1::bigint)', [MEETINGS_SCHEMA_LOCK_ID]);
+    await client.query(`
+      create table if not exists meetings (
+        id text primary key,
+        workspace_id text not null,
+        owner_user_id text,
+        title text not null,
+        kind text not null default 'real',
+        scheduled_for timestamptz,
+        agenda jsonb,
+        created_at timestamptz not null default now(),
+        ended_at timestamptz
+      )
+    `);
+    await client.query('alter table meetings add column if not exists status text');
+    // Kaki's own copy of an ended meeting's minutes, kept apart from any connected tool.
+    await client.query('alter table meetings add column if not exists minutes_text text');
+    await client.query('alter table meetings add column if not exists minutes_todos jsonb');
+    await client.query('alter table meetings add column if not exists minutes_archived_at timestamptz');
+    await client.query('alter table meetings add column if not exists agenda jsonb');
+    // Step-2 rows had no status; an open meeting is the truthful default for them.
+    await client.query("update meetings set status = 'open' where status is null");
+    await client.query("alter table meetings alter column status set default 'open'");
+    await client.query('alter table meetings alter column status set not null');
+    // Replace the kind check safely: an older table may carry a differently named check that
+    // still limits kind to 'real', which would make the practice backfill below throw every boot.
+    // Find every check that mentions kind and drop the ones that do not allow practice yet.
+    await client.query(`
+      do $$
+      declare
+        found record;
+      begin
+        for found in
+          select conname, pg_get_constraintdef(oid) as definition
+            from pg_constraint
+           where conrelid = 'meetings'::regclass
+             and contype = 'c'
+             and pg_get_constraintdef(oid) like '%kind%'
+        loop
+          if found.definition not like '%practice%' then
+            execute format('alter table meetings drop constraint %I', found.conname);
+          end if;
+        end loop;
+        if not exists (
+          select 1 from pg_constraint
+           where conrelid = 'meetings'::regclass
+             and conname = 'meetings_kind_check'
+        ) then
+          alter table meetings add constraint meetings_kind_check
+            check (kind in ('real', 'practice'));
+        end if;
+        if not exists (
+          select 1 from pg_constraint
+           where conrelid = 'meetings'::regclass and conname = 'meetings_status_check'
+        ) then
+          alter table meetings add constraint meetings_status_check
+            check (status in ('scheduled', 'open', 'ended'));
+        end if;
+      end $$;
+    `);
+    // A practice meeting saved before its row carried a kind is still the account's own words:
+    // mark it as practice so deleting the account removes it instead of handing it to the sample
+    // workspace. The state table is created later in some paths, so skip until it has the column.
+    await client.query(`
+      do $$
+      begin
+        if exists (
+          select 1 from information_schema.columns
+           where table_schema = current_schema()
+             and table_name = 'meeting_state'
+             and column_name = 'kind'
+        ) then
+          update meetings m
+             set kind = 'practice'
+           where m.kind = 'real'
+             and exists (
+               select 1 from meeting_state s where s.id = m.id and s.kind = 'practice'
+             );
+        end if;
+      end $$;
+    `);
+    await client.query('commit');
+  } catch (error) {
+    await client.query('rollback').catch(() => undefined);
+    throw error;
+  } finally {
+    client.release();
+  }
 }
