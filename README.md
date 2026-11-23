@@ -5,7 +5,7 @@ A meeting assistant that gives every seat a private wingman.
 [Live demo](https://green-sky-0c9a41800.4.azurestaticapps.net) · [Screenshots](#screenshots) · [Architecture](#architecture) · [Setup automation](#setup-automation) · [Contents](#contents) · [Poster](docs/poster/kaki-a1-poster.pdf)
 
 ![Kaki meeting room](docs/images/meeting-room.png)
-*A practice meeting. Kaki Wingman has just handed the Operations Director a private fact for the question on the table.*
+*A team meeting in progress: the owner and a guest, with Kaki's agenda, live transcript and a follow-up card in the side panel.*
 
 Kaki (Singlish for "buddy" or "one of us") helps a small team run a meeting and finish the work it creates. A person signs in, gets a personal workspace, and connects the tools that workspace already uses. They start a meeting now or schedule it for later, invite people by link or QR code, and guests join under their own name without an account. Each person holds their own seat and gets a private wingman, while a neutral host keeps the clock and the notes. Follow-ups become to-do cards that a person can hand to Kaki to draft, and the minutes and to-dos stay in the workspace after the meeting ends. A practice meeting, where AI colleagues fill the other seats, is one click away at `/practice`, with no sign-in.
 
@@ -28,6 +28,10 @@ Kaki (Singlish for "buddy" or "one of us") helps a small team run a meeting and 
   <tr>
     <td align="center"><img src="docs/images/landing.png" alt="Kaki landing page" width="420"><br><sub>Choose a team meeting or a practice meeting.</sub></td>
     <td align="center"><img src="docs/images/phone-join.png" alt="Kaki join screen on a phone" width="260"><br><sub>The join screen on a phone.</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/images/phone-room.png" alt="Kaki meeting room on a phone" width="260"><br><sub>The same meeting on a guest's phone.</sub></td>
+    <td align="center"><img src="docs/images/minutes.png" alt="Kaki meeting minutes in the workspace" width="420"><br><sub>The minutes and to-dos stay in the workspace after the meeting.</sub></td>
   </tr>
   <tr>
     <td align="center" colspan="2"><img src="docs/images/waking.png" alt="Kaki start page waking the cloud server" width="420"><br><sub>The always-on start page wakes the cloud server when it is off.</sub></td>
