@@ -908,6 +908,8 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
       startResumed = false;
       pausedLocally = true;
       endedTerminal = true;
+      // The meeting is over: a scripted line still waiting for its speaker must never reach the next one.
+      clearPendingFakeSpeech();
       greetReturnPending = false;
       prepared = undefined;
       talking.clear();
@@ -1025,9 +1027,13 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
   /**
    * Scripted lines that arrived before their speaker's join event. LiveKit delivers the data message
    * before this client has processed ParticipantConnected, so dropping it would lose the first line
-   * of every scripted meeting; hold it until the person registers, or let it expire.
+   * of every scripted meeting; hold it until the person registers, or let it expire. Each line carries
+   * the meeting it was said in, so a late join can only ever deliver lines for the meeting it joins.
    */
-  const pendingFakeSpeech = new Map<string, Array<{ text: string; timer: ReturnType<typeof setTimeout> }>>();
+  const pendingFakeSpeech = new Map<
+    string,
+    Array<{ text: string; meetingId: string | undefined; timer: ReturnType<typeof setTimeout> }>
+  >();
 
   /** Deliver the lines held for `identity` once they are a person in the room, in the order sent. */
   function flushPendingFakeSpeech(identity: string): void {
@@ -1035,7 +1041,14 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     if (pending === undefined) return;
     pendingFakeSpeech.delete(identity);
     for (const item of pending) clearTimeout(item.timer);
-    for (const item of pending) acceptFakeSpeech(identity, item.text);
+    const currentMeetingId = meeting.meetingId();
+    for (const item of pending) {
+      if (item.meetingId !== currentMeetingId) {
+        log(`dropped a fake-speech line for ${identity}: it was said in a different meeting`);
+        continue;
+      }
+      acceptFakeSpeech(identity, item.text);
+    }
   }
 
   /** Forget held lines: the meeting they were meant for is gone. */
@@ -1049,6 +1062,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
   /** A line from the dev-only fake recogniser, said by `identity` as if their microphone had carried it. */
   function acceptFakeSpeech(identity: string, text: string): void {
     if (!humans.has(identity)) {
+      const meetingId = meeting.meetingId();
       const pending = pendingFakeSpeech.get(identity) ?? [];
       const timer = setTimeout(() => {
         const held = pendingFakeSpeech.get(identity);
@@ -1059,7 +1073,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
         log(`dropped a fake-speech line for ${identity}: they never joined the room`);
       }, fakeSpeechJoinWaitMs);
       timer.unref?.();
-      pendingFakeSpeech.set(identity, [...pending, { text, timer }]);
+      pendingFakeSpeech.set(identity, [...pending, { text, meetingId, timer }]);
       log(`held fake speech for ${identity}: they have not joined the room yet`);
       return;
     }

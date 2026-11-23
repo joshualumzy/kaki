@@ -299,6 +299,30 @@ describe('startNpcRunner fake speech recogniser (dev only)', () => {
       await runner.stop();
     }
   });
+
+  it('never delivers a line held in an ended meeting to the same person joining the next one', async () => {
+    const { runner, postHumanLine, log, listener, say } = await startWithFakeSpeech(true);
+    try {
+      const scenario = await loadScenario('kopitiam');
+      // A line arrives for someone who has not joined meeting A yet.
+      say({ identity: 'late-1', text: 'Sorry I am late.' });
+      expect(log.some((line) => line.includes('held fake speech for late-1'))).toBe(true);
+
+      // Meeting A ends; the next meeting begins under the same id before its reset reaches this runner.
+      runner.reconcileMeeting(
+        runnerSnapshot(scenario, { meetingId: 'meeting-1', phase: 'ended', started: false, version: 3 }),
+      );
+
+      // The same person joins the next meeting before the reset snapshot arrives.
+      listener.emit('participantConnected', { identity: 'late-1', name: 'Late', metadata: 'cashier' });
+      await new Promise((resolve) => setTimeout(resolve, 40));
+
+      expect(postHumanLine).not.toHaveBeenCalled();
+      expect(log.some((line) => line.includes('ignored "Sorry I am late."'))).toBe(false);
+    } finally {
+      await runner.stop();
+    }
+  });
 });
 
 describe('server-owned start preparation', () => {
