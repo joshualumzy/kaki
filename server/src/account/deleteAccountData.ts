@@ -46,6 +46,11 @@ export function createPostgresAccountDataDeletion(
       const client = await input.pool.connect();
       try {
         await client.query('begin');
+        // Lock the account row before looking for open meetings. A meeting created for this account
+        // takes a shared lock on the same row before its insert, so it either committed before this
+        // statement (and the check below sees it) or waits for this transaction and then fails
+        // because the account is gone. That closes the window between the check and commit.
+        await client.query('select id from users where id = $1 for update', [userId]);
         // endOwnedBy ran before this transaction. A meeting created since then is still open and
         // would otherwise be deleted without ending for the people in it, so roll back and retry.
         const stillOpen = await client.query<{ id: string }>(

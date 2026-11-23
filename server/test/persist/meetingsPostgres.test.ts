@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { ensureMeetingsSchema } from '../../src/auth/schema';
+import { ensureAuthSchema, ensureMeetingsSchema } from '../../src/auth/schema';
 import { createPostgresMeetingStore } from '../../src/meeting/registry';
 import { createPostgresTestSchema, type PostgresTestSchema } from '../postgresTestSchema';
 
@@ -12,8 +12,12 @@ describe.skipIf(connectionString === undefined)('postgres meeting store agenda',
   beforeAll(async () => {
     if (connectionString === undefined) throw new Error('POSTGRES_URL is missing');
     postgres = await createPostgresTestSchema(connectionString);
+    await ensureAuthSchema(postgres.pool);
     await ensureMeetingsSchema(postgres.pool);
-    await ensureMeetingsSchema(postgres.pool);
+    // Every meeting belongs to an account, and the store checks that owner still exists.
+    await postgres.pool.query(
+      "insert into users (id, email) values ('owner-1', 'owner-1@example.test')",
+    );
   });
 
   afterAll(async () => {

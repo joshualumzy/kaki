@@ -85,8 +85,10 @@ export function resolveArtifactUrl(
 
   if (kind === 'mattermost_post' && toolUrls !== undefined) {
     const local = isLoopbackHost(window.location.hostname);
-    const apiBase = local ? `http://${window.location.hostname}:3001` : window.location.origin;
-    return `${apiBase}/api/mattermost/open?url=${encodeURIComponent(resolved)}`;
+    // The sample workspace's calendar base is Kaki's own public address, so it carries the server's
+    // real PORT; a fixed one would 404 the opener whenever the server runs somewhere else.
+    const apiBase = local ? toolUrls.calendar : window.location.origin;
+    return `${toolLink(apiBase, '/api/mattermost/open')}?url=${encodeURIComponent(resolved)}`;
   }
   return resolved;
 }

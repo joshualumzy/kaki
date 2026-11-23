@@ -28,6 +28,15 @@ describe('resolveArtifactUrl', () => {
     expect(resolved).toContain(encodeURIComponent('http://localhost:8083/kopitiam/pl/post-1'));
   });
 
+  it('opens the local Mattermost link on the server address, whatever its PORT is', () => {
+    const resolved = resolveArtifactUrl(
+      'http://localhost:8083/kopitiam/pl/post-1',
+      'mattermost_post',
+      { ...localTools, calendar: 'http://localhost:4321' },
+    );
+    expect(resolved.startsWith('http://localhost:4321/api/mattermost/open?url=')).toBe(true);
+  });
+
   it('leaves a real workspace Mattermost post on its own server, with no demo opener', () => {
     const post = 'https://chat.example.com/kopitiam/pl/post-1';
     expect(resolveArtifactUrl(post, 'mattermost_post')).toBe(post);

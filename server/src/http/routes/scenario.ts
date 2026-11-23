@@ -187,19 +187,22 @@ export async function handleMattermostOpen(call: RouteCall): Promise<void> {
   }
   const mmUrl = process.env.MATTERMOST_URL?.trim();
   if (mmUrl === undefined || mmUrl === '') {
-    sendMattermostRefusal(request, response, 503, 'Mattermost is not configured: set MATTERMOST_URL.');
+    console.error('kaki mattermost: the demo opener is missing MATTERMOST_URL');
+    sendMattermostRefusal(request, response, 503, 'Mattermost is not configured for this Kaki.');
     return;
   }
   const mmPassword = process.env.MATTERMOST_PASSWORD;
   if (mmPassword === undefined || mmPassword === '') {
-    sendMattermostRefusal(request, response, 503, 'Mattermost is not configured: set MATTERMOST_PASSWORD.');
+    console.error('kaki mattermost: the demo opener is missing MATTERMOST_PASSWORD');
+    sendMattermostRefusal(request, response, 503, 'Mattermost is not configured for this Kaki.');
     return;
   }
   let mmBase: URL;
   try {
     mmBase = new URL(mmUrl);
   } catch {
-    sendMattermostRefusal(request, response, 503, 'Mattermost is not configured: MATTERMOST_URL is not a valid URL.');
+    console.error('kaki mattermost: MATTERMOST_URL is not a valid URL');
+    sendMattermostRefusal(request, response, 503, 'The Mattermost connection is misconfigured.');
     return;
   }
   // Old links were generated with localhost, 127.0.0.1 or the LAN/public host. Match the path
@@ -218,12 +221,10 @@ export async function handleMattermostOpen(call: RouteCall): Promise<void> {
   try {
     publicBase = mattermostPublicBase(mmBase);
   } catch {
-    sendMattermostRefusal(
-      request,
-      response,
-      503,
-      'Mattermost is not configured: MATTERMOST_PUBLIC_URL or KAKI_PUBLIC_URL is not a valid URL.',
+    console.error(
+      'kaki mattermost: MATTERMOST_PUBLIC_URL or KAKI_PUBLIC_URL is not a valid URL',
     );
+    sendMattermostRefusal(request, response, 503, 'The Mattermost connection is misconfigured.');
     return;
   }
   const redirect = new URL(publicBase.toString());

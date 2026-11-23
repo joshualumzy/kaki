@@ -8,6 +8,8 @@ const TICK_MS = 250;
 const READY_PAUSE_MS = 1200;
 /** How long a running VM may keep an unhealthy app before the page says plainly it is in trouble. */
 const APP_START_LIMIT_MS = 90 * 1000;
+/** The fresh grace an already-unhealthy app gets after Retry before the page calls it trouble again. */
+const RETRY_GRACE_MS = 30 * 1000;
 /** The most the cup may rise per tick, so a new wake step eases it up instead of jumping. */
 const MAX_RISE_PER_TICK = 0.012;
 /** Height of the cup's coffee shape in SVG units: moved down by this much, the cup is empty. */
@@ -45,6 +47,8 @@ let stage = null;
 let stageStartedAt = 0;
 let stageFloor = 0;
 let unhealthySince = 0;
+/** Whether this wake has already seen the VM on or starting, so a later 'off' means it went off. */
+let startedSeen = false;
 
 function showStatus(state, message, detail = '') {
   wakeBox.dataset.state = state;
@@ -186,13 +190,23 @@ async function poll() {
     finish();
     return;
   }
+  const data = result.ok ? result.data : undefined;
+  if (data?.state === 'starting' || data?.state === 'unhealthy' || data?.power === 'running') {
+    startedSeen = true;
+  }
+  // The VM went off after this wake had it on or starting. An 'off' straight after the start call
+  // may just be the power state not updated yet, so only that first transition is given more time.
+  if (data?.state === 'off' || data?.state === 'switching-off') {
+    if (data.state === 'switching-off' || startedSeen) {
+      giveUp('The server switched off while Kaki was starting.');
+      return;
+    }
+    schedulePoll(POLL_INTERVAL_MS);
+    return;
+  }
   // The VM is on but its app is not answering. Keep the cup moving for a short while, then say
   // plainly that Kaki is having trouble and offer a retry, rather than waiting the whole wake limit.
-  if (
-    result.ok &&
-    (result.data?.state === 'unhealthy' ||
-      (result.data?.power === 'running' && result.data?.healthy !== true))
-  ) {
+  if (data?.state === 'unhealthy' || (data?.power === 'running' && data?.healthy !== true)) {
     if (unhealthySince === 0) unhealthySince = Date.now();
     showStartingOrTrouble('The server is on, but the Kaki app has not answered yet.');
     if (Date.now() - unhealthySince >= APP_START_LIMIT_MS) {
@@ -202,7 +216,7 @@ async function poll() {
     schedulePoll(POLL_INTERVAL_MS);
     return;
   }
-  if (result.ok && result.data?.state === 'starting') enterStage('startingUp');
+  if (data?.state === 'starting') enterStage('startingUp');
   schedulePoll(POLL_INTERVAL_MS);
 }
 
@@ -215,6 +229,7 @@ async function beginWake(target) {
   retryButton.hidden = true;
   wakeStartedAt = Date.now();
   unhealthySince = 0;
+  startedSeen = false;
   cupLevel = 0;
   drawCup('waking');
   enterStage('switchingOn');
@@ -228,10 +243,10 @@ async function beginWake(target) {
     giveUp(reason);
     return;
   }
-  // The VM was already on when this wake arrived and its app is still unhealthy: the caller must
-  // not wait another app-start window before being offered a retry.
+  // The VM was already on when this wake arrived and its app may still be unhealthy. Give it a
+  // fresh grace window after Retry, but not another full app-start window.
   if (result.data?.started === false && result.data?.power === 'running') {
-    unhealthySince = Date.now() - APP_START_LIMIT_MS;
+    unhealthySince = Date.now() - APP_START_LIMIT_MS + RETRY_GRACE_MS;
   }
   schedulePoll(0);
 }
@@ -274,6 +289,8 @@ async function checkStatus() {
   drawCup('asleep');
   if (result.ok && result.data?.state === 'starting') {
     showStatus('asleep', 'Kaki is starting — choosing an option will wait for it.');
+  } else if (result.ok && result.data?.state === 'switching-off') {
+    showStatus('asleep', 'Kaki is switching off — wait a minute, then choose an option.');
   } else if (result.ok) {
     showStatus('asleep', 'Kaki is asleep — it will start when you choose an option.');
   } else {

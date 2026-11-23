@@ -11,6 +11,8 @@ import { createPostgresTestSchema, type PostgresTestSchema } from '../postgresTe
 
 const connectionString = process.env.POSTGRES_URL;
 
+const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
 function toolRecord(workspaceId: string, tag: string) {
   return {
     workspaceId,
@@ -329,5 +331,72 @@ describe.skipIf(connectionString === undefined)('postgres account data deletion'
         ])
       ).rowCount,
     ).toBe(1);
+  });
+
+  it('makes a meeting insert wait for the account lock, then fail once the account is gone', async () => {
+    if (postgres === undefined) throw new Error('POSTGRES_URL is missing');
+    const userId = randomUUID();
+    await postgres.pool.query('insert into users (id, email) values ($1, $2)', [
+      userId,
+      `${userId}@example.test`,
+    ]);
+    const lock = await postgres.pool.connect();
+    try {
+      await lock.query('begin');
+      // What the deletion holds before it looks for open meetings.
+      await lock.query('select id from users where id = $1 for update', [userId]);
+      const create = meetings.create({
+        workspaceId: 'workspace-race',
+        ownerUserId: userId,
+        title: 'Raced in',
+      });
+      const outcome = await Promise.race([
+        create.then(
+          () => 'inserted' as const,
+          () => 'rejected' as const,
+        ),
+        delay(200).then(() => 'blocked' as const),
+      ]);
+      expect(outcome).toBe('blocked');
+      await lock.query('delete from users where id = $1', [userId]);
+      await lock.query('commit');
+      await expect(create).rejects.toThrow(/no longer exists/);
+      expect(await meetings.listByOwner!(userId)).toEqual([]);
+    } finally {
+      await lock.query('rollback').catch(() => undefined);
+      lock.release();
+    }
+  });
+
+  it('waits for an in-flight meeting insert, then rolls back because the meeting is still open', async () => {
+    if (postgres === undefined) throw new Error('POSTGRES_URL is missing');
+    const ada = await account('Ada In Flight');
+    const lock = await postgres.pool.connect();
+    try {
+      await lock.query('begin');
+      // What a meeting insert holds while it checks the owner still exists.
+      await lock.query('select id from users where id = $1 for key share', [ada.user.id]);
+      const deletionPromise = deletion.deleteAccountData(ada.user.id);
+      const outcome = await Promise.race([
+        deletionPromise.then(
+          () => 'finished' as const,
+          () => 'rejected' as const,
+        ),
+        delay(200).then(() => 'blocked' as const),
+      ]);
+      expect(outcome).toBe('blocked');
+      const raced = await meetings.create({
+        workspaceId: ada.personal.id,
+        ownerUserId: ada.user.id,
+        title: 'Created while deleting',
+      });
+      await lock.query('commit');
+      await expect(deletionPromise).rejects.toThrow(/try again/);
+      expect(await store.findUserById(ada.user.id)).toBeDefined();
+      expect(await meetings.get(raced.id)).toBeDefined();
+    } finally {
+      await lock.query('rollback').catch(() => undefined);
+      lock.release();
+    }
   });
 });

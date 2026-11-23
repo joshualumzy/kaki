@@ -624,14 +624,33 @@ export function createPostgresMeetingStore(pool: Pool): MeetingStore {
   return {
     async create({ id, workspaceId, ownerUserId, title, status = 'open', scheduledFor, agenda = [] }) {
       await ensureMeetingsSchema(pool);
-      const result = await pool.query(
-        `insert into meetings (id, workspace_id, owner_user_id, title, kind, status, scheduled_for, agenda)
-         values ($1, $2, $3, $4, 'real', $5, $6, $7::jsonb)
-         returning id, workspace_id, owner_user_id, title, kind, status, scheduled_for, agenda, created_at, ended_at,
-                   minutes_text, minutes_todos, minutes_archived_at`,
-        [id ?? newMeetingId(), workspaceId, ownerUserId, title, status, scheduledFor ?? null, JSON.stringify(agenda)],
-      );
-      return row(result.rows[0]);
+      const client = await pool.connect();
+      try {
+        await client.query('begin');
+        // Take a shared lock on the owner before inserting. It proves the account still exists, and
+        // it waits for, or blocks, an account deletion's FOR UPDATE lock on the same row, so a
+        // meeting can never be inserted between that deletion's open-meeting check and its commit.
+        const owner = await client.query('select id from users where id = $1 for key share', [
+          ownerUserId,
+        ]);
+        if ((owner.rowCount ?? 0) === 0) {
+          throw new Error(`meeting owner ${ownerUserId} no longer exists`);
+        }
+        const result = await client.query(
+          `insert into meetings (id, workspace_id, owner_user_id, title, kind, status, scheduled_for, agenda)
+           values ($1, $2, $3, $4, 'real', $5, $6, $7::jsonb)
+           returning id, workspace_id, owner_user_id, title, kind, status, scheduled_for, agenda, created_at, ended_at,
+                     minutes_text, minutes_todos, minutes_archived_at`,
+          [id ?? newMeetingId(), workspaceId, ownerUserId, title, status, scheduledFor ?? null, JSON.stringify(agenda)],
+        );
+        await client.query('commit');
+        return row(result.rows[0]);
+      } catch (error) {
+        await client.query('rollback').catch(() => undefined);
+        throw error;
+      } finally {
+        client.release();
+      }
     },
     async get(id) {
       await ensureMeetingsSchema(pool);

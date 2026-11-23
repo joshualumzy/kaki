@@ -309,7 +309,9 @@ describe('one access layer', () => {
       const missing = await get(open, `/api/mattermost/open?url=${target}`);
       expect(missing.status).toBe(503);
       expect(missing.headers.get('content-type')).toContain('text/html');
-      expect(await missing.text()).toMatch(/MATTERMOST_PASSWORD/);
+      const page = await missing.text();
+      expect(page).toMatch(/not configured/);
+      expect(page).not.toMatch(/MATTERMOST_PASSWORD|MATTERMOST_URL|KAKI_PUBLIC_URL/);
     } finally {
       await open.close();
     }
