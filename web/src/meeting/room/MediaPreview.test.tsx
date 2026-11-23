@@ -27,8 +27,8 @@ describe('MediaPreview', () => {
   });
 
   it('keeps the practice hint when the practice form asks for it', () => {
-    renderPreview('Microphone off: you will type to the AI attendees');
-    expect(screen.getByText('Microphone off: you will type to the AI attendees')).toBeTruthy();
+    renderPreview('Microphone off: turn it on in the meeting to speak');
+    expect(screen.getByText('Microphone off: turn it on in the meeting to speak')).toBeTruthy();
   });
 
   it('tells a person how to allow a blocked microphone, or join to type', async () => {
@@ -52,6 +52,32 @@ describe('MediaPreview', () => {
     await waitFor(() =>
       expect(onProblem).toHaveBeenCalledWith(
         "Your microphone is blocked. Allow it in your browser's site settings, or join to type instead.",
+      ),
+    );
+  });
+
+  it('in a speech-only practice, a blocked microphone does not offer typing', async () => {
+    const onProblem = vi.fn();
+    Object.defineProperty(navigator, 'mediaDevices', {
+      configurable: true,
+      value: {
+        getUserMedia: vi.fn(async () => {
+          throw new DOMException('denied', 'NotAllowedError');
+        }),
+      },
+    });
+    render(
+      <MediaPreview
+        value={{ microphone: true, camera: false }}
+        onChange={() => undefined}
+        onProblem={onProblem}
+        speechOnly
+      />,
+    );
+
+    await waitFor(() =>
+      expect(onProblem).toHaveBeenCalledWith(
+        "Your microphone is blocked. Allow it in your browser's site settings to speak in the meeting.",
       ),
     );
   });

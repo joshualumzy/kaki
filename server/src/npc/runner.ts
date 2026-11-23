@@ -413,11 +413,11 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     const reason = error instanceof Error ? error.message : String(error);
     consecutiveSpeechFailures += 1;
     if (consecutiveSpeechFailures >= 2) {
-      speechOutage = `Speech recognition is not working (${reason}). Type your lines instead.`;
+      speechOutage = `Speech recognition is not working (${reason}).`;
     }
     speechStates.set(identity, {
       state: 'failed',
-      message: 'Kaki could not hear that. Please repeat it, or type it instead.',
+      message: 'Kaki could not hear that. Please say it again.',
     });
     publishSpeechStatus();
     // A failed stretch still settles its place in speech order, so nobody after it is held forever.
@@ -1450,8 +1450,6 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
         }
         log(`${participant.identity} pressed resume`);
         releaseLocalStop();
-      } else if (message.kind === 'lock') {
-        if (openedLocally || hostIsHuman()) conversation?.lockDecision();
       } else if (!openedLocally && !hostIsHuman()) {
         log('ignored typed text: the meeting has not started');
       } else {

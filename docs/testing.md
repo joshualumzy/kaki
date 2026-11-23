@@ -9,17 +9,16 @@ deploy, and sessions with real people.
   the server has integration tests that drive the HTTP and WebSocket API.
 - `npm run typecheck` checks the whole TypeScript workspace.
 
-## 2. Robot playtests in the browser
-
-These drive the real app in installed Google Chrome through Playwright, against the local stack or the cloud VM
-(`KAKI_PLAYTEST_URL=...`). Each run writes a pass/fail report to `.live-logs/`.
+## 2. Robot playtests
 
 | Command | What it checks |
 | --- | --- |
-| `npm run playtest:live` | One visitor in the practice meeting with the AI colleagues, from joining to the end of the agenda. |
-| `npm run playtest:ai` | A language model plays the visitor in one of nine styles (hesitant, terse, off-topic, interrupter, silent and others), then a second model judges the meeting for natural talk, contradictions and made-up facts. |
 | `npm run playtest:dialogue` | The conversation engine on its own, without a browser, across every agenda item. |
 | `npm run eval:notetaker` | Runs a recorded meeting through the notetaker and compares the decisions, tasks and open questions it finds with the expected list. |
+
+The full practice-meeting playtests (one robot visitor from joining to the end of the agenda, or a language model
+playing the visitor in one of nine styles) used to speak by typing into the practice meeting. Since #74 practice is
+speech only, so these run on a local test branch with a dev-only speech stand-in, and are not part of the deployed code.
 
 ### Click-through journeys (real product)
 
@@ -32,7 +31,7 @@ steps) to `.live-logs/clickthrough/<journey>/`.
 | a | The full path: landing, sign-in page, workspace and a wrong tool token, a start-now meeting, a guest joining by link, typing, Off the record, leave and rejoin, ending, history, a phone-size new-meeting page. |
 | b | A scheduled meeting: a guest waits in the lobby until the owner starts. |
 | c | The sample workspace: pick it, open a meeting, type a to-do, dispatch it and press its button. |
-| d | Practice meeting at `/practice` and `/demo`: join, start, type, leave, return. |
+| d | Practice meeting at `/practice` and `/demo`: join, start, check that it is speech only, leave, return. |
 | e | Wrong turns: refresh in the room, back button, unknown or ended meeting links, guest and other-workspace pages. |
 | f | Wingman in the sample workspace: what I missed, and workspace records for the owner and for a guest (meeting-only). |
 | g | Ending a meeting and the send-notes cards. |
@@ -51,7 +50,7 @@ The journeys expect the web app at http://localhost:5173.
 
 ### Answer-key eval
 
-`npm run eval:key -- <playtest-report.md>` (`scripts/eval-key-judge.ts`) takes the report of an AI-guest playtest and has a
+`npm run eval:key -- <playtest-report.md>` (`scripts/eval-key-judge.ts`) takes the report of an AI-guest playtest (from the local test branch above) and has a
 model judge each topic against the answer key `scenarios/kopitiam/eval/answer-key.json` (change it with `--key`). Add
 `--empty-workspace` when the workspace had no records. It writes `<report>-eval.json` next to the report.
 

@@ -150,10 +150,7 @@ export function StartPrompt({ onStart, role, viewerName, seatName, starting = fa
             <h2 style={{ margin: 0 }}>How to play</h2>
             <ul className="kd-start-howto">
               <li>
-                <b>Talk:</b> speak into your mic, or type in the box under the meeting.
-              </li>
-              <li>
-                <b>Pause:</b> press <kbd>Space</kbd> or <kbd>Esc</kbd> any time you need a moment.
+                <b>Talk:</b> speak into your mic. Your colleagues hear you and answer out loud.
               </li>
               <li>
                 <b>Kaki:</b> the Kaki panel (on the right, or below on a phone) shows the key facts for each call, and drafts your follow-up messages for you.

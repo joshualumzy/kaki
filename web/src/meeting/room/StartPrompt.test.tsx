@@ -119,12 +119,14 @@ describe('StartPrompt', () => {
     expect(onStart).not.toHaveBeenCalled();
   });
 
-  it('teaches talking, Space or Esc to pause, and the Kaki panel on the second screen', () => {
-    render(<StartPrompt onStart={vi.fn()} />);
+  it('teaches talking on the mic and the Kaki panel on the second screen, with no typing or pause keys', () => {
+    const { container } = render(<StartPrompt onStart={vi.fn()} />);
     goToStart();
-    expect(screen.getByText('Space')).toBeTruthy();
-    expect(screen.getByText('Esc')).toBeTruthy();
+    expect(screen.getByText(/speak into your mic/)).toBeTruthy();
     expect(screen.getByText(/Kaki panel/)).toBeTruthy();
+    expect(container.textContent).not.toMatch(/\btype\b/i);
+    expect(screen.queryByText('Space')).toBeNull();
+    expect(screen.queryByText('Esc')).toBeNull();
   });
 
   it('starts the meeting when the button is pressed', () => {

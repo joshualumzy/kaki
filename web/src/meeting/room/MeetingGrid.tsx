@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   ControlBar,
   GridLayout,
@@ -6,30 +6,26 @@ import {
   useDataChannel,
   useLocalParticipant,
   useParticipants,
-  useRoomContext,
   useTracks,
 } from '@livekit/components-react';
 import { Track } from 'livekit-client';
 import {
-  CONTROL_TOPIC,
   isKakiListener,
   NPC_STATE_TOPIC,
   parseSpeechStatusMessage,
   roleLabel,
   SPEECH_STATUS_TOPIC,
-  type ControlMessage,
   type NpcStateMessage,
   type SpeechStatusMessage,
 } from '@kaki/shared';
 import { useKaki, useScenario } from '../../kaki';
-import { ConnectedTypeBar } from './TypeBar';
 import { CaptionedTile, PendingTile, StageContext } from './CaptionedTile';
 import { RealMeetingBar } from './RealMeetingBar';
 import { RealRoomBanners, RealWaitingOverlay } from './RealRoomOverlays';
 import { MutedHint } from './MutedHint';
 import { useRealRoom } from './realRoom';
 import { distinctDisplayNames, peopleNotInRoom } from './people';
-import { activeStageTaskFor, newClientLineId, starterChipsFromAgendaItem, tracksWithSpeakerFirst, visibleStageTracks } from './stageModel';
+import { activeStageTaskFor, starterChipsFromAgendaItem, tracksWithSpeakerFirst, visibleStageTracks } from './stageModel';
 import { textOnlyNote, transcriptChunks } from './captions';
 import { WingmanActNow } from './WingmanPanel';
 
@@ -54,21 +50,12 @@ export function MeetingGrid({
   meetingCode?: string;
 }) {
   const scenario = useScenario();
-  const room = useRoomContext();
   const realRoom = useRealRoom();
   const meetingState = realRoom?.meetingState;
   const offTheRecord = real && meetingState?.offTheRecord !== null && meetingState?.offTheRecord !== undefined;
-  const { isMicrophoneEnabled, localParticipant } = useLocalParticipant();
-  const { events, send: sendToServer, rejection: commandRejection, wingmanNotes } = useKaki({ kind: 'role', role });
+  const { localParticipant } = useLocalParticipant();
+  const { events, send: sendToServer, wingmanNotes } = useKaki({ kind: 'role', role });
   const { events: screenEvents, latestRecord, speechByTopic, tasks: screenTasks } = useKaki(sharedAudience === 'participant' ? { kind: 'participant' } : { kind: 'screen' });
-  // One path for every line the person produces: the server writes it whether or not an AI runner is up.
-  const sendHumanLine = useCallback(
-    (text: string, source: 'speech' | 'typed') => {
-      sendToServer({ type: 'HUMAN_LINE', text, source, clientLineId: newClientLineId() });
-    },
-    [sendToServer],
-  );
-  const sendTypedLine = useCallback((text: string) => sendHumanLine(text, 'typed'), [sendHumanLine]);
   const participants = useParticipants().filter((participant) => !isKakiListener(participant.identity));
   // A real meeting lists everyone the server seated, even before their LiveKit connection arrives.
   const pendingPeople = useMemo(
@@ -146,13 +133,13 @@ export function MeetingGrid({
         text:
           ownSpeechFailure === undefined
             ? speechStatus.outage.message
-            : `${speechStatus.outage.message} Your last line was not heard: repeat it or type it.`,
+            : `${speechStatus.outage.message} Your last line was not heard.`,
       };
     }
     if (ownSpeechFailure !== undefined) {
       return {
         key: `failed:${ownSpeechFailure.message ?? 'failed'}`,
-        text: ownSpeechFailure.message ?? 'Kaki could not hear that. Please repeat it, or type it instead.',
+        text: ownSpeechFailure.message ?? 'Kaki could not hear that. Please say it again.',
       };
     }
     return undefined;
@@ -182,9 +169,6 @@ export function MeetingGrid({
     [scenario.roles],
   );
   const activeAgendaIndex = latestRecord?.payload.agendaIndex ?? 0;
-  // The pause button follows the server's latest record, so a reload, another seat's Stop or an
-  // empty-room auto-pause all show the same truth the meeting clock has.
-  const serverPaused = latestRecord?.payload.paused === true;
 
   // Who spoke is recorded by the hook as each line arrives, so it survives the record leaving the
   // 50-event window. Exact seats come from speakerRole; names only for older lines without one.
@@ -224,9 +208,9 @@ export function MeetingGrid({
   const stage = useMemo(
     () => ({
       scenario, chunks, events, now, npcState, speechStatus, waitingForHuman,
-      activeItemOwnerRole: activeOwnerRole, activeAgendaIndex, avatars, offTheRecord,
+      activeItemOwnerRole: activeOwnerRole, activeAgendaIndex, avatars, offTheRecord, real,
     }),
-    [scenario, chunks, events, now, npcState, speechStatus, waitingForHuman, activeOwnerRole, activeAgendaIndex, avatars, offTheRecord],
+    [scenario, chunks, events, now, npcState, speechStatus, waitingForHuman, activeOwnerRole, activeAgendaIndex, avatars, offTheRecord, real],
   );
 
   const starterChips = useMemo(() => {
@@ -237,18 +221,6 @@ export function MeetingGrid({
     const hostName = facilitatorRole === undefined ? undefined : facilitatorName;
     return starterChipsFromAgendaItem(activeItem, viewerSeatName, openQs, hostName);
   }, [activeItem, role, scenario.attendees, latestRecord, activeAgendaIndex, facilitatorName, facilitatorRole]);
-
-  const sendQuickLine = useCallback(
-    (text: string) => {
-      window.dispatchEvent(new Event('kaki:quick-line'));
-      const msg: ControlMessage = { kind: 'text', text };
-      room.localParticipant
-        .publishData(new TextEncoder().encode(JSON.stringify(msg)), { reliable: true, topic: CONTROL_TOPIC })
-        .catch(() => undefined);
-      sendHumanLine(text, 'typed');
-    },
-    [room, sendHumanLine],
-  );
 
   const [dismissedToastKey, setDismissedToastKey] = useState<string>('');
   const actionableMyTasksCount = useMemo(() => {
@@ -336,13 +308,9 @@ export function MeetingGrid({
         )}
         {!offTheRecord && speechNotice !== undefined && (
           <div role="alert" className="kd-banner" data-tone="error">
-            {speechNotice.text}{' '}
-            <button
-              type="button"
-              onClick={() => document.querySelector<HTMLInputElement>('.kd-typebar input')?.focus()}
-            >
-              Type it instead
-            </button>
+            {speechNotice.text}
+            {/* A real meeting keeps its Type button in the bottom bar; practice is speech only. */}
+            {real ? ' You can also use Type below.' : null}
           </div>
         )}
         {!real && (scenario.npcs ?? []).length > 0 && !aiPresent && (
@@ -410,10 +378,10 @@ export function MeetingGrid({
             <div className="kd-turn-row">
               <span className="kd-turn-pill">
                 {showStarterIdeas
-                  ? '🟢 Click any line below to say it immediately (or speak/type)'
+                  ? '🟢 Say one of these, or put it in your own words'
                   : waitingForHuman
-                    ? '🟢 Your turn — speak on mic or type below'
-                    : '💬 Jump in anytime — speak, type, or click Need an idea?'}
+                    ? '🟢 Your turn — just speak'
+                    : '💬 Jump in anytime — just speak, or tap Need an idea?'}
               </span>
               <button
                 type="button"
@@ -425,35 +393,19 @@ export function MeetingGrid({
               </button>
             </div>
             {showStarterIdeas && (
-              <div className="kd-starter-chips">
+              // Ideas to say out loud: speaking is the only way in, so nothing here sends a line.
+              <ul className="kd-starter-chips">
                 {starterChips.map((chip) => (
-                  <button
-                    key={chip}
-                    type="button"
-                    className="kd-starter-chip"
-                    onClick={() => {
-                      sendQuickLine(chip);
-                      setShowStarterIdeas(false);
-                    }}
-                  >
+                  <li key={chip} className="kd-starter-chip">
                     💬 {chip}
-                  </button>
+                  </li>
                 ))}
                 {hasVisitorSpokenOnTopic && (
-                  <button
-                    type="button"
-                    className="kd-starter-chip"
-                    onClick={() => {
-                      sendQuickLine(
-                        "We're split on this — let's table it for now and set up a follow-up to settle it later.",
-                      );
-                      setShowStarterIdeas(false);
-                    }}
-                  >
-                    ⏭️ Table topic &amp; set a follow-up
-                  </button>
+                  <li className="kd-starter-chip">
+                    ⏭️ We&apos;re split on this — let&apos;s table it for now and set up a follow-up to settle it later.
+                  </li>
                 )}
-              </div>
+              </ul>
             )}
           </div>
         )}
@@ -464,17 +416,7 @@ export function MeetingGrid({
             {...(meetingCode === undefined ? {} : { meetingCode })}
           />
         ) : (
-          <>
-            <ConnectedTypeBar
-              micOnline={isMicrophoneEnabled}
-              paused={serverPaused}
-              onTextSent={sendTypedLine}
-              pauseRejection={commandRejection}
-              lineRejection={commandRejection}
-              onPauseChange={(paused) => sendToServer({ type: 'SET_PAUSED', paused })}
-            />
-            <ControlBar controls={{ screenShare: false, chat: false }} />
-          </>
+          <ControlBar controls={{ screenShare: false, chat: false }} />
         )}
         <RoomAudioRenderer />
       </div>
