@@ -327,7 +327,7 @@ Input is checked on both sides. The product checks the meeting title, agenda and
 
 ## Code structure and library components
 
-The repository is a TypeScript workspace with three packages: `shared/`, `server/` and `web/`. `shared/` holds the protocol and the rules both sides must agree on, including events, commands, task states, scenario parsing and setup parsing. The server is split by responsibility (`core`, `http`, `meeting`, `host`, `wingman`, `action`, `npc`, `auth`, `workspace`, `persist`, `services`). The web app is split by page and feature (`product`, `landing`, `auth`, `setup`, `meeting`, `kaki`, `ui`, `net`), with shared buttons, cards, labels and artifact links in `web/src/ui/`. Every exported function, component and type carries a short comment.
+The repository is a TypeScript workspace with three packages: `shared/`, `server/` and `web/`. `shared/` holds the protocol and the rules both sides must agree on, including events, commands, task states, scenario parsing and setup parsing. The server is split by responsibility (`core`, `http`, `meeting`, `host`, `wingman`, `action`, `npc`, `auth`, `workspace`, `persist`, `services`). The web app is split by page and feature (`product`, `landing`, `auth`, `meeting`, `kaki`, `ui`, `net`), with shared buttons, cards, labels and artifact links in `web/src/ui/`. Every exported function, component and type carries a short comment.
 
 Commonly used tasks are shared library components rather than repeated code: the `shared/` protocol package, the `web/src/ui/` components, the `web/src/net/` fetch helper, the LLM and LiveKit clients in `server/src/services/`, and the task store that is the only code that changes task state. See also [Built with React](#built-with-react), [Technology choices](#technology-choices) and [Repository structure](#repository-structure).
 
@@ -340,7 +340,7 @@ Commonly used tasks are shared library components rather than repeated code: the
 | Refs with `useRef` | `web/src/kaki/useKaki.ts`, `web/src/kaki/ScenarioContext.tsx` | Socket handles, meeting identity and load ordering must survive renders without causing another render. |
 | Custom hooks | `useKaki` (`web/src/kaki/useKaki.ts`), `useScenario` and `useRefreshScenario` (`web/src/kaki/ScenarioContext.tsx`), `useMe` (`web/src/auth/useMe.ts`) | Each hook packages one piece of shared behaviour: live events, the active scenario and the sign-in check. |
 | Context with `createContext` | `web/src/kaki/ScenarioContext.tsx` | Every page reads the same scenario without passing it through each component. |
-| Routing with React Router 7 | `web/src/App.tsx`, `useNavigate` in `LandingPage`, `JoinPage`, `LoginPage` and `SetupPage`, `useSearchParams` in `JoinPage`, `SignInPage`, `LoginPage` and `ParticipantJoinPage` | The routes cover the landing, sign-in, new-meeting, workspace, join and meeting flows, and the invite code travels in the URL. |
+| Routing with React Router 7 | `web/src/App.tsx`, `useNavigate` in `LandingPage`, `JoinPage` and `AppBar`, `useSearchParams` in `JoinPage` and `SignInPage` | The routes cover the landing, sign-in, new-meeting, workspace, join and meeting flows, and the invite code travels in the URL. |
 | Controlled forms and validation | `web/src/meeting/room/JoinForm.tsx`, `web/src/product/NewMeetingPage.tsx` | Submit stays disabled until required fields are valid, and the server's refusal appears next to the form. |
 | Error boundary | `web/src/meeting/room/ErrorBoundary.tsx`, used in `Dock` | A broken card shows an error instead of taking down the meeting page. |
 | LiveKit React components | `LiveKitRoom`, `useTracks`, `ParticipantTile`, `RoomAudioRenderer`, `useRoomContext` from `@livekit/components-react` | The room, tiles and audio renderer come from the LiveKit React package. |
@@ -384,7 +384,7 @@ Playwright drives the real app in installed Google Chrome:
 | 2 hold-out meetings, before | 28% | 9.5 | 21% | 0 |
 | 2 hold-out meetings, after | 50% | 3.3 | 14% | 0 |
 
-"Extra" items are ones the corpus summary does not list. Many extra follow-ups are real work the summary leaves out, such as checking whether a feature is technically possible. Known limitation and ongoing work: follow-up detection on the hold-out meetings is lower, because those follow-ups are mostly informal work splits ("you take the interface design") that the notetaker rarely turns into cards. Recognising informal assignments is the next area of work for the notetaker.
+"Extra" items are ones the corpus summary does not list. Many extra follow-ups are real work the summary leaves out, such as checking whether a feature is technically possible. Known limitation: follow-up detection on the hold-out meetings is lower, because those follow-ups are mostly informal work splits ("you take the interface design") that the notetaker rarely turns into cards.
 
 See [How we tested Kaki](docs/testing.md) for the full test map.
 
@@ -463,9 +463,9 @@ The recommended model is open core.
 
 Work is tracked in GitHub issues for `IT5007-2610/it5007-courseproject-group-14`, read and updated with the `gh` CLI. The labels follow five triage roles: `ready-for-agent`, `needs-triage`, `needs-info`, `ready-for-human` and `wontfix`.
 
-The repository has 664 commits (`git rev-list --count HEAD`), made continuously through the semester.
+The repository has more than 650 commits (`git rev-list --count HEAD`), made continuously through the semester.
 
-The plan runs in phases: the core stack and protocol first, then the three agents, then the live meeting and demo, then the submission clean-up. Each phase closes with review rounds on architecture, security and how real people use the product; findings become issues and fix commits, and notes from testers become issues and then automated playtests, described in [How we tested Kaki](docs/testing.md).
+The plan runs in phases: the core stack and protocol first, then the three agents, then the live meeting and demo. Each phase closes with review rounds on architecture, security and how real people use the product; findings become issues and fix commits, and notes from testers become issues and then automated playtests, described in [How we tested Kaki](docs/testing.md).
 
 | Issue | Title |
 | --- | --- |
