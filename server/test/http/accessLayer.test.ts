@@ -1,21 +1,28 @@
+import { randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
 import { defaultMeetingSetup, demoRoomName, type Scenario } from '@kaki/shared';
 import { ACCESS_LEVELS } from '../../src/http/access';
 import { createApp, type KakiApp } from '../../src/app';
-import { createAuth } from '../../src/auth/module';
-import { hashPassword } from '../../src/auth/password';
-import { createMemoryAuthStore, type AuthStore } from '../../src/auth/store';
+import { createAuth, type Auth } from '../../src/auth/module';
+import { hashPassword, hashToken } from '../../src/auth/password';
+import { createMemoryAuthStore, type AuthStore, type UserRecord } from '../../src/auth/store';
 import { createRoomToken } from '../../src/services/livekit';
 import { createMeetingCodeSource, type MeetingCodeSource } from '../../src/meeting/meetingCode';
+import { SAMPLE_WORKSPACE_ID } from '../../src/workspace/constants';
 import { testScenario } from '../fixtures/scenario';
-import { portOf } from '../helpers';
+import { meetingPath, openRealMeeting, portOf, type TestMeeting } from '../helpers';
 
 const HOST_EMAIL = 'host@example.com';
 const HOST_PASSWORD = 'correct-horse-battery';
 const MEETING_CODE = 'K7M2Q9';
 
 type ConnectResult = { ok: true; ws: WebSocket } | { ok: false; status: number };
+
+interface SignedIn {
+  user: UserRecord;
+  cookie: string;
+}
 
 function cookieFrom(response: Response): string {
   const header = response.headers.get('set-cookie');
@@ -24,18 +31,14 @@ function cookieFrom(response: Response): string {
   return pair;
 }
 
-function connect(
-  port: number,
-  role: string,
+function openSocket(
+  url: string,
   options: { cookie?: string; authorization?: string; headers?: Record<string, string> } = {},
 ): Promise<ConnectResult> {
   const headers: Record<string, string> = { ...options.headers };
   if (options.cookie !== undefined) headers.cookie = options.cookie;
   if (options.authorization !== undefined) headers.authorization = options.authorization;
-  const ws = new WebSocket(
-    `ws://127.0.0.1:${port}/ws?role=${encodeURIComponent(role)}`,
-    Object.keys(headers).length === 0 ? undefined : { headers },
-  );
+  const ws = new WebSocket(url, Object.keys(headers).length === 0 ? undefined : { headers });
   return new Promise((resolve) => {
     let settled = false;
     ws.once('open', () => {
@@ -55,6 +58,26 @@ function connect(
       resolve({ ok: false, status: 0 });
     });
   });
+}
+
+/** Connect to the legacy shared meeting's WebSocket. */
+function connect(
+  port: number,
+  role: string,
+  options: { cookie?: string; authorization?: string; headers?: Record<string, string> } = {},
+): Promise<ConnectResult> {
+  return openSocket(`ws://127.0.0.1:${port}/ws?role=${encodeURIComponent(role)}`, options);
+}
+
+/** Connect to one real meeting's WebSocket. */
+function connectMeeting(
+  port: number,
+  meeting: { id: string } | string,
+  query: string,
+  options: { cookie?: string; authorization?: string; headers?: Record<string, string> } = {},
+): Promise<ConnectResult> {
+  const id = typeof meeting === 'string' ? meeting : meeting.id;
+  return openSocket(`ws://127.0.0.1:${port}/ws?meeting=${encodeURIComponent(id)}&${query}`, options);
 }
 
 /** A scenario with every kind of private material the projection must withhold. */
@@ -132,7 +155,7 @@ describe('one access layer', () => {
   let apps: KakiApp[] = [];
   let store: AuthStore;
   let meetingCode: MeetingCodeSource;
-  let auth: ReturnType<typeof createAuth>;
+  let auth: Auth;
 
   afterEach(async () => {
     for (const app of apps.splice(0)) await app.close();
@@ -198,6 +221,59 @@ describe('one access layer', () => {
     return cookieFrom(response);
   }
 
+  /** A signed-in product user; a real meeting's owner must be an account, not a password host. */
+  async function signInGoogle(name: string): Promise<SignedIn> {
+    const email = `${randomUUID()}@example.com`;
+    const user = await store.createGoogleUser({ googleSub: randomUUID(), name, email });
+    const token = randomUUID();
+    await store.createSession({
+      tokenHash: hashToken(token),
+      kind: 'user',
+      role: null,
+      meetingCode: null,
+      meetingId: null,
+      displayName: name,
+      userId: user.id,
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    return { user, cookie: `kaki_session=${token}` };
+  }
+
+  /** Create one real meeting owned by a signed-in account, without opening its room yet. */
+  async function createMeeting(
+    app: KakiApp,
+    options: { workspaceId?: string; agenda?: Array<{ title: string; minutes?: number }> } = {},
+  ): Promise<{ meeting: TestMeeting; owner: SignedIn }> {
+    const owner = await signInGoogle('Ada');
+    const meeting = await openRealMeeting(app, {
+      ownerUserId: owner.user.id,
+      title: 'Weekly planning',
+      ...(options.workspaceId === undefined ? {} : { workspaceId: options.workspaceId }),
+      ...(options.agenda === undefined ? {} : { agenda: options.agenda }),
+    });
+    return { meeting, owner };
+  }
+
+  /** Create one real meeting and open its room as its owner. */
+  async function openMeeting(
+    app: KakiApp,
+    options: { workspaceId?: string; agenda?: Array<{ title: string; minutes?: number }> } = {},
+  ): Promise<{ meeting: TestMeeting; owner: SignedIn }> {
+    const created = await createMeeting(app, options);
+    expect((await post(app, meetingPath(created.meeting, '/api/meeting/open'), {}, created.owner.cookie)).status).toBe(200);
+    return created;
+  }
+
+  /** A guest joins the meeting's link, then takes a plain seat through the token route. */
+  async function joinGuest(app: KakiApp, meeting: TestMeeting, name: string): Promise<string> {
+    const joined = await post(app, meetingPath(meeting, '/join'), { name });
+    expect(joined.status).toBe(200);
+    const guest = cookieFrom(joined);
+    const seated = await post(app, meetingPath(meeting, '/api/livekit/token'), { participantName: name }, guest);
+    expect(seated.status).toBe(200);
+    return cookieFrom(seated);
+  }
+
   it('declares an access level for every route and answers unlisted paths with 404', async () => {
     const app = await authApp();
 
@@ -240,6 +316,7 @@ describe('one access layer', () => {
     ).rejects.toThrow(/KAKI_DEV_ROUTES/);
   });
 
+  // Legacy-only: the shared practice room is the one meeting a client can name a room for; a real meeting derives its room from its id.
   it('pins the LiveKit room so a fresh client room cannot reset a running meeting or learn its code', async () => {
     let pinned = '';
     const roster = vi.fn(async (roomName: string) =>
@@ -268,77 +345,71 @@ describe('one access layer', () => {
 
   it('lets only the host start a meeting when sign-in is on', async () => {
     const app = await authApp();
+    const { meeting, owner } = await createMeeting(app);
 
-    expect((await post(app, '/api/meeting/start', {})).status).toBe(401);
+    expect((await post(app, meetingPath(meeting, '/api/meeting/start'), {})).status).toBe(401);
 
     // The owner opens the empty room and takes a seat; the old host token is replaced by the seat session.
-    const host = await signInAsHost(app);
-    expect((await post(app, '/api/meeting/open', {}, host)).status).toBe(200);
+    expect((await post(app, meetingPath(meeting, '/api/meeting/open'), {}, owner.cookie)).status).toBe(200);
     const seated = await post(
       app,
-      '/api/livekit/token',
-      { participantName: 'Ada', participantRole: 'chef' },
-      host,
+      meetingPath(meeting, '/api/livekit/token'),
+      { participantName: 'Ada' },
+      owner.cookie,
     );
     expect(seated.status).toBe(200);
     const seatHost = cookieFrom(seated);
 
-    const participant = await join(app, 'cashier');
-    expect((await post(app, '/api/meeting/start', {}, participant)).status).toBe(403);
-    expect((await post(app, '/api/meeting/start', {}, seatHost)).status).toBe(200);
+    const participant = await joinGuest(app, meeting, 'Guest');
+    expect((await post(app, meetingPath(meeting, '/api/meeting/start'), {}, participant)).status).toBe(403);
+    expect((await post(app, meetingPath(meeting, '/api/meeting/start'), {}, seatHost)).status).toBe(200);
   });
 
   it('denies Mattermost open to strangers, rejects off-site targets, and never falls back to a password', async () => {
     vi.stubEnv('MATTERMOST_URL', 'http://mattermost.test');
     vi.stubEnv('MATTERMOST_PASSWORD', 'a-real-password');
     const app = await authApp();
+    const { meeting } = await openMeeting(app, { workspaceId: SAMPLE_WORKSPACE_ID });
     const target = encodeURIComponent('http://mattermost.test/kopitiam/channels/town-square');
 
-    expect((await get(app, `/api/mattermost/open?url=${target}`)).status).toBe(401);
+    expect((await get(app, meetingPath(meeting, `/api/mattermost/open?url=${target}`))).status).toBe(401);
 
-    const host = await signInAsHost(app);
-    expect((await post(app, '/api/meeting/open', {}, host)).status).toBe(200);
-    const participant = await join(app, 'chef');
+    const participant = await joinGuest(app, meeting, 'Guest');
     const offSite = encodeURIComponent('ftp://evil.example/kopitiam/channels/town-square');
-    const denied = await get(app, `/api/mattermost/open?url=${offSite}`, participant);
+    const denied = await get(app, meetingPath(meeting, `/api/mattermost/open?url=${offSite}`), participant);
     expect(denied.status).toBe(400);
 
     vi.stubEnv('MATTERMOST_PASSWORD', '');
-    const open = await createApp({ speechRecognition: 'browser', scenario: testScenario });
-    try {
-      const missing = await get(open, `/api/mattermost/open?url=${target}`);
-      expect(missing.status).toBe(503);
-      expect(((await missing.json()) as { error: string }).error).toMatch(/MATTERMOST_PASSWORD/);
-    } finally {
-      await open.close();
-    }
+    const missing = await get(app, meetingPath(meeting, `/api/mattermost/open?url=${target}`), participant);
+    expect(missing.status).toBe(503);
+    expect(((await missing.json()) as { error: string }).error).toMatch(/MATTERMOST_PASSWORD/);
   });
 
   it('refuses cross-site writes and WebSocket upgrades, while reads and the OAuth callback still work', async () => {
     const app = await authApp({ serviceToken: 'runner-secret' });
     const port = portOf(app);
-    const host = await signInAsHost(app);
+    const { meeting, owner } = await openMeeting(app);
     const evil = 'http://evil.example';
 
-    const blocked = await fetch(`${base(app)}/api/meeting/open`, {
+    const blocked = await fetch(`${base(app)}${meetingPath(meeting, '/api/meeting/open')}`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', cookie: host, origin: evil },
+      headers: { 'content-type': 'application/json', cookie: owner.cookie, origin: evil },
       body: '{}',
     });
     expect(blocked.status).toBe(403);
 
-    const sameOrigin = await fetch(`${base(app)}/api/meeting/open`, {
+    const sameOrigin = await fetch(`${base(app)}${meetingPath(meeting, '/api/meeting/open')}`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', cookie: host, origin: base(app) },
+      headers: { 'content-type': 'application/json', cookie: owner.cookie, origin: base(app) },
       body: '{}',
     });
     expect(sameOrigin.status).toBe(200);
 
-    const sameOriginFetchMetadata = await fetch(`${base(app)}/api/meeting/close`, {
+    const sameOriginFetchMetadata = await fetch(`${base(app)}${meetingPath(meeting, '/api/meeting/close')}`, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
-        cookie: host,
+        cookie: owner.cookie,
         'sec-fetch-site': 'same-origin',
         origin: evil,
       },
@@ -346,8 +417,8 @@ describe('one access layer', () => {
     });
     expect(sameOriginFetchMetadata.status).toBe(200);
 
-    const read = await fetch(`${base(app)}/api/meeting/state`, {
-      headers: { cookie: host, origin: evil },
+    const read = await fetch(`${base(app)}${meetingPath(meeting, '/api/meeting/state')}`, {
+      headers: { cookie: owner.cookie, origin: evil },
     });
     expect(read.status).toBe(200);
 
@@ -356,17 +427,18 @@ describe('one access layer', () => {
     });
     expect(callback.status).not.toBe(403);
 
-    const mattermost = await fetch(`${base(app)}/api/mattermost/open?url=${encodeURIComponent('http://mattermost.test/x')}`, {
-      headers: { cookie: host, origin: evil },
-    });
+    const mattermost = await fetch(
+      `${base(app)}${meetingPath(meeting, `/api/mattermost/open?url=${encodeURIComponent('http://mattermost.test/x')}`)}`,
+      { headers: { cookie: owner.cookie, origin: evil } },
+    );
     expect(mattermost.status).toBe(403);
 
-    const crossSiteSocket = await connect(port, 'service', {
+    const crossSiteSocket = await connectMeeting(port, meeting, 'audience=service', {
       authorization: 'Bearer runner-secret',
       headers: { origin: evil },
     });
     expect(crossSiteSocket).toEqual({ ok: false, status: 403 });
-    const sameOriginSocket = await connect(port, 'service', {
+    const sameOriginSocket = await connectMeeting(port, meeting, 'audience=service', {
       authorization: 'Bearer runner-secret',
       headers: { origin: base(app) },
     });
@@ -374,6 +446,7 @@ describe('one access layer', () => {
     if (sameOriginSocket.ok) sameOriginSocket.ws.terminate();
   });
 
+  // Legacy-only: a phone joins with a code and a role, receiving that role's card and facts.
   it('starts the same seat session for a LiveKit join so the joiner sees their own card and facts', async () => {
     // Someone is already in another seat, so this joined person is not the one starting the meeting.
     const scenario = privateScenario();
@@ -407,42 +480,43 @@ describe('one access layer', () => {
 
   it('never exposes an unopened owner draft on the public scenario, only the opened snapshot', async () => {
     const app = await authApp();
-    const host = await signInAsHost(app);
-    const base = defaultMeetingSetup(testScenario);
+    const { meeting, owner } = await createMeeting(app);
+    const draftBase = defaultMeetingSetup(testScenario);
     const draft = {
-      ...base,
+      ...draftBase,
       title: 'Private draft title',
       agenda: [{ id: 'agenda-1', title: 'Private draft topic', minutes: 5, ownerRoleId: 'chef' }],
     };
-    expect((await put(app, '/api/setup', draft, host)).status).toBe(200);
+    expect((await put(app, meetingPath(meeting, '/api/setup'), draft, owner.cookie)).status).toBe(200);
 
-    const publicBefore = (await (await get(app, '/api/scenario')).json()) as Scenario;
+    const publicBefore = (await (await get(app, meetingPath(meeting, '/api/scenario'))).json()) as Scenario;
     expect(publicBefore.meetingTitle).not.toBe('Private draft title');
     expect(publicBefore.agenda.map((item) => item.title)).not.toContain('Private draft topic');
-    const ownerBefore = (await (await get(app, '/api/scenario', host)).json()) as Scenario;
+    const ownerBefore = (await (await get(app, meetingPath(meeting, '/api/scenario'), owner.cookie)).json()) as Scenario;
     expect(ownerBefore.meetingTitle).toBe('Private draft title');
 
     // Opening the room publishes exactly the plan that was opened.
-    expect((await post(app, '/api/meeting/open', {}, host)).status).toBe(200);
-    const publicOpened = (await (await get(app, '/api/scenario')).json()) as Scenario;
+    expect((await post(app, meetingPath(meeting, '/api/meeting/open'), {}, owner.cookie)).status).toBe(200);
+    const publicOpened = (await (await get(app, meetingPath(meeting, '/api/scenario'))).json()) as Scenario;
     expect(publicOpened.meetingTitle).toBe('Private draft title');
     expect(publicOpened.agenda.map((item) => item.title)).toContain('Private draft topic');
 
     // A later edit is the next meeting's draft; it must not change what this room shows.
     const nextDraft = { ...draft, title: 'Next private title', agenda: [{ ...draft.agenda[0]!, title: 'Next private topic' }] };
-    expect((await put(app, '/api/setup', nextDraft, host)).status).toBe(200);
-    const publicStillOpened = (await (await get(app, '/api/scenario')).json()) as Scenario;
+    expect((await put(app, meetingPath(meeting, '/api/setup'), nextDraft, owner.cookie)).status).toBe(200);
+    const publicStillOpened = (await (await get(app, meetingPath(meeting, '/api/scenario'))).json()) as Scenario;
     expect(publicStillOpened.meetingTitle).toBe('Private draft title');
     expect(publicStillOpened.agenda.map((item) => item.title)).not.toContain('Next private topic');
-    const ownerAfter = (await (await get(app, '/api/scenario', host)).json()) as Scenario;
+    const ownerAfter = (await (await get(app, meetingPath(meeting, '/api/scenario'), owner.cookie)).json()) as Scenario;
     expect(ownerAfter.meetingTitle).toBe('Next private title');
 
-    const chef = await join(app, 'chef');
-    const seatBody = (await (await get(app, '/api/scenario', chef)).json()) as Scenario;
+    const chef = await joinGuest(app, meeting, 'Guest');
+    const seatBody = (await (await get(app, meetingPath(meeting, '/api/scenario'), chef)).json()) as Scenario;
     expect(seatBody.meetingTitle).toBe('Private draft title');
     expect(seatBody.agenda.map((item) => item.title)).not.toContain('Next private topic');
   });
 
+  // Legacy-only: the public role picker and its pack role cards belong to the shared demo meeting.
   it('keeps a playable seat card public but never its facts, and hides AI-only cards', async () => {
     const app = await authApp({ scenario: privateScenario() });
 
@@ -459,6 +533,7 @@ describe('one access layer', () => {
     expect(publicBody.npcs?.[0]?.hiddenGoal).toBeUndefined();
   });
 
+  // Legacy-only: a host takes a pack role seat, so that seat's card and facts are part of the proof.
   it('keeps a signed-in host who takes a seat as host with that seat’s card and powers', async () => {
     const app = await authApp({ scenario: hostSeatScenario() });
     const host = await signInAsHost(app);
@@ -501,6 +576,7 @@ describe('one access layer', () => {
     if (screenFeed.ok) screenFeed.ws.terminate();
   });
 
+  // Legacy-only: a password host taking a pack role seat, then signing back in, is the shared meeting's flow.
   it('gives the host a plain session again when they sign in later', async () => {
     const app = await authApp({ scenario: hostSeatScenario() });
     const host = await signInAsHost(app);
@@ -519,6 +595,7 @@ describe('one access layer', () => {
     expect(body.agenda[0]?.seatFacts).toBeUndefined();
   });
 
+  // Legacy-only: only the shared pack carries directions, seat facts, role cards and private NPC notes to project.
   it('projects the scenario for each audience and gives the runner the full one only on its service route', async () => {
     const app = await authApp({ scenario: privateScenario(), serviceToken: 'runner-secret' });
     const publicBody = (await (await get(app, '/api/scenario')).json()) as Scenario;
@@ -554,6 +631,28 @@ describe('one access layer', () => {
     expect((await get(app, '/api/scenario/full')).status).toBe(401);
   });
 
+  it('gives the runner the full scenario only on a real meeting’s service route', async () => {
+    const app = await authApp({ serviceToken: 'runner-secret' });
+    const { meeting, owner } = await openMeeting(app, { agenda: [{ title: 'Budget', minutes: 10 }] });
+
+    const publicBody = (await (await get(app, meetingPath(meeting, '/api/scenario'))).json()) as Scenario;
+    expect(publicBody.agenda.map((item) => item.title)).toContain('Budget');
+
+    const guest = await joinGuest(app, meeting, 'Guest');
+    expect((await get(app, meetingPath(meeting, '/api/scenario'), guest)).status).toBe(200);
+
+    const full = await fetch(`${base(app)}${meetingPath(meeting, '/api/scenario/full')}`, {
+      headers: { authorization: 'Bearer runner-secret' },
+    });
+    expect(full.status).toBe(200);
+    expect(((await full.json()) as Scenario).agenda.map((item) => item.title)).toContain('Budget');
+
+    // Without the token, the service route is not public for anyone, host included.
+    expect((await get(app, meetingPath(meeting, '/api/scenario/full'))).status).toBe(401);
+    expect((await get(app, meetingPath(meeting, '/api/scenario/full'), owner.cookie)).status).toBe(401);
+  });
+
+  // Legacy-only: phone seats are claimed by code and role, so the same role cannot be held twice.
   it('refuses a seat another live participant session already holds', async () => {
     const app = await authApp();
     const host = await signInAsHost(app);
@@ -571,9 +670,12 @@ describe('one access layer', () => {
   it('accepts the runner token only in the Authorization header and never on a human seat', async () => {
     const app = await authApp({ serviceToken: 'runner-secret' });
     const port = portOf(app);
+    const { meeting } = await openMeeting(app);
 
     const urlToken = await new Promise<number>((resolve) => {
-      const ws = new WebSocket(`ws://127.0.0.1:${port}/ws?role=service&token=runner-secret`);
+      const ws = new WebSocket(
+        `ws://127.0.0.1:${port}/ws?meeting=${encodeURIComponent(meeting.id)}&role=service&token=runner-secret`,
+      );
       ws.once('unexpected-response', (_request, response) => {
         response.resume();
         resolve(response.statusCode ?? 0);
@@ -586,11 +688,15 @@ describe('one access layer', () => {
     });
     expect(urlToken).toBe(401);
 
-    const header = await connect(port, 'service', { authorization: 'Bearer runner-secret' });
+    const header = await connectMeeting(port, meeting, 'audience=service', {
+      authorization: 'Bearer runner-secret',
+    });
     expect(header.ok).toBe(true);
     if (header.ok) header.ws.terminate();
 
-    const humanSeat = await connect(port, 'chef', { authorization: 'Bearer runner-secret' });
+    const humanSeat = await connectMeeting(port, meeting, 'role=everyone', {
+      authorization: 'Bearer runner-secret',
+    });
     expect(humanSeat.ok).toBe(false);
     if (!humanSeat.ok) expect(humanSeat.status).toBe(401);
   });

@@ -1,21 +1,43 @@
+import { randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
 import { defaultMeetingSetup, parseScenario, type Scenario } from '@kaki/shared';
 import { assertSafeBind, clientAddress } from '../../src/http/access';
 import { createApp, type KakiApp } from '../../src/app';
 import { createAuth, secureCookiesFromEnv, type AuthOptions } from '../../src/auth/module';
-import { hashPassword } from '../../src/auth/password';
-import { createMemoryAuthStore, type AuthStore } from '../../src/auth/store';
+import { hashPassword, hashToken } from '../../src/auth/password';
+import { createMemoryAuthStore, type AuthStore, type UserRecord } from '../../src/auth/store';
 import { createMeetingCodeSource, type MeetingCodeSource } from '../../src/meeting/meetingCode';
 import { projectScenario } from '../../src/meeting/scenarioProjection';
+import { SAMPLE_WORKSPACE_ID } from '../../src/workspace/constants';
 import { testScenario } from '../fixtures/scenario';
-import { portOf, settle, waitFor } from '../helpers';
+import {
+  createPracticeTestApp,
+  createTestApp,
+  meetingPath,
+  openRealMeeting,
+  portOf,
+  settle,
+  waitFor,
+  type TestMeeting,
+} from '../helpers';
 
 const HOST_EMAIL = 'host@example.com';
 const HOST_PASSWORD = 'correct-horse-battery';
 const MEETING_CODE = 'K7M2Q9';
 
+const transcriptEvent = {
+  type: 'TRANSCRIPT_CHUNK',
+  audience: { kind: 'all' },
+  payload: { speaker: 'Ada', text: 'Hello', timestamp: new Date().toISOString() },
+};
+
 type ConnectResult = { ok: true; ws: WebSocket } | { ok: false; status: number };
+
+interface SignedIn {
+  user: UserRecord;
+  cookie: string;
+}
 
 function cookieFrom(response: Response): string {
   const header = response.headers.get('set-cookie');
@@ -24,7 +46,62 @@ function cookieFrom(response: Response): string {
   return pair;
 }
 
+async function signInGoogle(store: AuthStore, name: string): Promise<SignedIn> {
+  const email = `${randomUUID()}@example.com`;
+  const user = await store.createGoogleUser({ googleSub: randomUUID(), name, email });
+  const token = randomUUID();
+  await store.createSession({
+    tokenHash: hashToken(token),
+    kind: 'user',
+    role: null,
+    meetingCode: null,
+    meetingId: null,
+    displayName: name,
+    userId: user.id,
+    expiresAt: new Date(Date.now() + 60_000),
+  });
+  return { user, cookie: `kaki_session=${token}` };
+}
+
 function connect(
+  port: number,
+  meetingId: string,
+  query: string,
+  options: { cookie?: string; authorization?: string } = {},
+): Promise<ConnectResult> {
+  const headers: Record<string, string> = {};
+  if (options.cookie !== undefined) headers.cookie = options.cookie;
+  if (options.authorization !== undefined) headers.authorization = options.authorization;
+  const ws = new WebSocket(
+    `ws://127.0.0.1:${port}/ws?meeting=${encodeURIComponent(meetingId)}&${query}`,
+    Object.keys(headers).length === 0 ? undefined : { headers },
+  );
+  return new Promise((resolve) => {
+    let settled = false;
+    ws.once('open', () => {
+      if (settled) return;
+      settled = true;
+      resolve({ ok: true, ws });
+    });
+    ws.once('unexpected-response', (_request, response) => {
+      if (settled) return;
+      settled = true;
+      response.resume();
+      resolve({ ok: false, status: response.statusCode ?? 0 });
+    });
+    ws.once('error', () => {
+      if (settled) return;
+      settled = true;
+      resolve({ ok: false, status: 0 });
+    });
+  });
+}
+
+function waitForClose(socket: WebSocket): Promise<number> {
+  return new Promise((resolve) => socket.once('close', (code) => resolve(code)));
+}
+
+function connectLegacy(
   port: number,
   role: string,
   options: { cookie?: string; authorization?: string } = {},
@@ -55,10 +132,6 @@ function connect(
       resolve({ ok: false, status: 0 });
     });
   });
-}
-
-function waitForClose(socket: WebSocket): Promise<number> {
-  return new Promise((resolve) => socket.once('close', (code) => resolve(code)));
 }
 
 /** A scenario with every kind of private material the projection must withhold. */
@@ -232,14 +305,54 @@ describe('security round 2', () => {
     return cookieFrom(response);
   }
 
-  async function join(app: KakiApp, role: string): Promise<string> {
-    const response = await post(app, '/api/join', { code: MEETING_CODE, role });
-    expect(response.status).toBe(200);
-    return cookieFrom(response);
-  }
-
   async function meetingState(app: KakiApp): Promise<{ meetingId: string }> {
     return (await (await get(app, '/api/meeting/state')).json()) as { meetingId: string };
+  }
+
+  async function meetingAuthApp(
+    options: { serviceToken?: string } = {},
+  ): Promise<{ app: KakiApp; store: AuthStore }> {
+    const store = createMemoryAuthStore();
+    await store.createUser({ email: HOST_EMAIL, passwordHash: await hashPassword(HOST_PASSWORD) });
+    const meetingCode = createMeetingCodeSource(MEETING_CODE);
+    const auth = createAuth({ store, offeredRoles: () => ['chef', 'cashier'], meetingCode });
+    const app = track(
+      await createTestApp({
+        auth,
+        ...(options.serviceToken === undefined ? {} : { serviceToken: options.serviceToken }),
+      }),
+    );
+    return { app, store };
+  }
+
+  async function openMeeting(
+    app: KakiApp,
+    store: AuthStore,
+    options: { workspaceId?: string; agenda?: Array<{ title: string; minutes?: number }> } = {},
+  ): Promise<{ meeting: TestMeeting; owner: SignedIn }> {
+    const owner = await signInGoogle(store, 'Ada');
+    const meeting = await openRealMeeting(app, {
+      ownerUserId: owner.user.id,
+      title: 'Weekly planning',
+      ...(options.workspaceId === undefined ? {} : { workspaceId: options.workspaceId }),
+      ...(options.agenda === undefined ? {} : { agenda: options.agenda }),
+    });
+    expect((await post(app, meetingPath(meeting, '/api/meeting/open'), {}, owner.cookie)).status).toBe(200);
+    return { meeting, owner };
+  }
+
+  async function joinGuest(
+    app: KakiApp,
+    meeting: TestMeeting,
+    name: string,
+  ): Promise<{ cookie: string; seat: string }> {
+    const joined = await post(app, meetingPath(meeting, '/join'), { name });
+    expect(joined.status).toBe(200);
+    const guest = cookieFrom(joined);
+    const seated = await post(app, meetingPath(meeting, '/api/livekit/token'), { participantName: name }, guest);
+    expect(seated.status).toBe(200);
+    const body = (await seated.json()) as { participantRole: string };
+    return { cookie: cookieFrom(seated), seat: body.participantRole };
   }
 
   it('projects every audience to a scenario the shared parser accepts', () => {
@@ -258,37 +371,26 @@ describe('security round 2', () => {
   });
 
   it('lets only the runner token reach the runner routes with auth on', async () => {
-    const { app } = await authApp({ serviceToken: 'runner-secret' });
-    const host = await signInAsHost(app);
-    expect((await post(app, '/api/meeting/open', {}, host)).status).toBe(200);
-    const seat = await join(app, 'chef');
+    const { app, store } = await meetingAuthApp({ serviceToken: 'runner-secret' });
+    const { meeting, owner } = await openMeeting(app, store, { agenda: [{ title: 'Budget', minutes: 10 }] });
+    const guest = await joinGuest(app, meeting, 'Guest');
     const bodies: Array<[string, unknown]> = [
-      [
-        '/api/runner/emit',
-        {
-          type: 'TRANSCRIPT_CHUNK',
-          audience: { kind: 'all' },
-          payload: { speaker: 'Ada', text: 'Hello', timestamp: new Date().toISOString() },
-        },
-      ],
-      ['/api/runner/suggest-task', { title: 'Order stock', context: 'Prep', suggestedAssignee: 'chef' }],
-      ['/api/runner/meeting-memory', [{ kind: 'decision', item: 'Prep', text: 'Order stock' }]],
-      [
-        '/api/runner/settle-topic',
-        { title: 'Order stock', context: 'Prep', suggestedAssignee: 'chef', agendaItemTitle: 'Prep' },
-      ],
+      ['/api/runner/emit', { ...transcriptEvent, payload: { ...transcriptEvent.payload, speaker: 'Guest' } }],
+      ['/api/runner/suggest-task', { title: 'Order stock', context: 'Prep', suggestedAssignee: guest.seat }],
+      ['/api/runner/meeting-memory', []],
+      ['/api/runner/settle-topic', { title: 'Order stock', context: 'Prep', suggestedAssignee: guest.seat, agendaItemTitle: 'Budget' }],
     ];
     for (const [path, body] of bodies) {
-      const asRunner = await fetch(`${base(app)}${path}`, {
+      const asRunner = await fetch(`${base(app)}${meetingPath(meeting, path)}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', authorization: 'Bearer runner-secret' },
         body: JSON.stringify(body),
       });
-      expect(asRunner.status).toBe(200);
+      expect(asRunner.status, path).toBe(200);
 
-      expect((await post(app, path, body)).status).toBe(401);
-      expect((await post(app, path, body, seat)).status).toBe(401);
-      expect((await post(app, path, body, host)).status).toBe(401);
+      expect((await post(app, meetingPath(meeting, path), body)).status).toBe(401);
+      expect((await post(app, meetingPath(meeting, path), body, guest.cookie)).status).toBe(401);
+      expect((await post(app, meetingPath(meeting, path), body, owner.cookie)).status).toBe(401);
     }
   });
 
@@ -538,37 +640,36 @@ describe('security round 2', () => {
   });
 
   it('drops a host seat grant when the meeting rotates but keeps host powers', async () => {
-    const { app } = await authApp({
-      scenario: hostSeatScenario(),
-      roomRoster: async () => [{ name: 'Hosty', role: 'cashier' }],
-    });
-    const host = await signInAsHost(app);
-    expect((await post(app, '/api/meeting/open', {}, host)).status).toBe(200);
+    const { app, store } = await meetingAuthApp();
+    const { meeting, owner } = await openMeeting(app, store);
     const seated = await post(
       app,
-      '/api/livekit/token',
-      { participantName: 'Ada', participantRole: 'chef', meetingCode: MEETING_CODE },
-      host,
+      meetingPath(meeting, '/api/livekit/token'),
+      { participantName: 'Ada' },
+      owner.cookie,
     );
     expect(seated.status).toBe(200);
     const seatHost = cookieFrom(seated);
+    const seat = ((await seated.json()) as { participantRole: string }).participantRole;
     const port = portOf(app);
 
-    const oldSeat = await connect(port, 'chef', { cookie: seatHost });
+    const oldSeat = await connect(port, meeting.id, `role=${encodeURIComponent(seat)}`, { cookie: seatHost });
     expect(oldSeat.ok).toBe(true);
     if (!oldSeat.ok) return;
     const oldSeatClosed = waitForClose(oldSeat.ws);
 
-    app.session.reset();
+    meeting.session.reset();
     await settle();
     expect(await oldSeatClosed).toBe(4001);
 
-    expect((await get(app, '/api/meeting-code', seatHost)).status).toBe(200);
-    const body = (await (await get(app, '/api/scenario', seatHost)).json()) as Scenario;
-    expect(body.roles.find((role) => role.id === 'chef')?.card?.facts).toEqual([]);
-    expect(body.agenda[0]?.seatFacts).toBeUndefined();
+    expect((await get(app, meetingPath(meeting, '/api/meeting-code'), seatHost)).status).toBe(200);
+    const body = (await (await get(app, meetingPath(meeting, '/api/scenario'), seatHost)).json()) as Scenario;
+    expect(body.roles.every((role) => role.card === undefined)).toBe(true);
+    expect(body.agenda.every((item) => item.seatFacts === undefined)).toBe(true);
 
-    const oldSeatFeed = await connect(port, 'chef', { cookie: seatHost });
+    const oldSeatFeed = await connect(port, meeting.id, `role=${encodeURIComponent(seat)}`, {
+      cookie: seatHost,
+    });
     expect(oldSeatFeed.ok).toBe(false);
     if (!oldSeatFeed.ok) expect(oldSeatFeed.status).toBe(401);
   });
@@ -581,8 +682,8 @@ describe('security round 2', () => {
     const host = await signInAsHost(app);
     expect((await post(app, '/api/meeting/open', {}, host)).status).toBe(200);
     const port = portOf(app);
-    const screen = await connect(port, 'screen', { cookie: host });
-    const lifecycle = await connect(port, 'lifecycle', { cookie: host });
+    const screen = await connectLegacy(port, 'screen', { cookie: host });
+    const lifecycle = await connectLegacy(port, 'lifecycle', { cookie: host });
     expect(screen.ok && lifecycle.ok).toBe(true);
     if (!screen.ok || !lifecycle.ok) return;
     const screenClosed = waitForClose(screen.ws);
@@ -605,9 +706,12 @@ describe('security round 2', () => {
 
   it('closes a runner socket once its role is no longer played by an AI', async () => {
     const scenario = { ...aiScenario, npcs: [...(aiScenario.npcs ?? [])] };
-    const { app } = await authApp({ scenario, serviceToken: 'runner-secret' });
+    const app = await createPracticeTestApp({ scenario, serviceToken: 'runner-secret' });
+    apps.push(app);
     const port = portOf(app);
-    const runner = await connect(port, 'manager', { authorization: 'Bearer runner-secret' });
+    const runner = await connect(port, app.meetingId, 'role=manager', {
+      authorization: 'Bearer runner-secret',
+    });
     expect(runner.ok).toBe(true);
     if (!runner.ok) return;
     const closed = waitForClose(runner.ws);
@@ -688,9 +792,8 @@ describe('security round 2', () => {
     vi.stubEnv('MATTERMOST_PUBLIC_URL', 'https://mm.example');
     vi.stubEnv('MATTERMOST_PASSWORD', 'a-real-password');
     vi.stubEnv('KAKI_PUBLIC_URL', 'https://kaki.example');
-    const { app } = await authApp();
-    const host = await signInAsHost(app);
-    expect((await post(app, '/api/meeting/open', {}, host)).status).toBe(200);
+    const { app, store } = await meetingAuthApp();
+    const { meeting, owner } = await openMeeting(app, store, { workspaceId: SAMPLE_WORKSPACE_ID });
 
     const realFetch = globalThis.fetch;
     vi.stubGlobal(
@@ -708,7 +811,7 @@ describe('security round 2', () => {
     );
 
     const target = encodeURIComponent('http://localhost:8083/kopitiam/channels/town-square');
-    const response = await get(app, `/api/mattermost/open?url=${target}`, host);
+    const response = await get(app, meetingPath(meeting, `/api/mattermost/open?url=${target}`), owner.cookie);
     expect(response.status).toBe(302);
     expect(response.headers.get('set-cookie')).toContain('Secure');
   });
@@ -730,7 +833,8 @@ describe('security round 2', () => {
     vi.stubEnv('MATTERMOST_URL', 'http://127.0.0.1:8083');
     vi.stubEnv('MATTERMOST_PUBLIC_URL', 'https://mm.public.example');
     vi.stubEnv('MATTERMOST_PASSWORD', 'a-real-password');
-    const app = track(await createApp({ speechRecognition: 'browser', scenario: testScenario }));
+    const app = track(await createTestApp());
+    const meeting = await openRealMeeting(app, { workspaceId: SAMPLE_WORKSPACE_ID });
 
     const realFetch = globalThis.fetch;
     vi.stubGlobal(
@@ -749,13 +853,13 @@ describe('security round 2', () => {
 
     for (const origin of ['http://localhost:8083', 'http://127.0.0.1:8083', 'https://kaki.public.example:8083']) {
       const target = encodeURIComponent(`${origin}/kopitiam/channels/town-square`);
-      const response = await get(app, `/api/mattermost/open?url=${target}`);
+      const response = await get(app, meetingPath(meeting, `/api/mattermost/open?url=${target}`));
       expect(response.status).toBe(302);
       expect(response.headers.get('location')).toBe('https://mm.public.example/kopitiam/channels/town-square');
     }
 
     const outside = encodeURIComponent('ftp://evil.example/kopitiam/channels/town-square');
-    expect((await get(app, `/api/mattermost/open?url=${outside}`)).status).toBe(400);
+    expect((await get(app, meetingPath(meeting, `/api/mattermost/open?url=${outside}`))).status).toBe(400);
   });
 
   it('runs a dummy password verification for an unknown email', async () => {

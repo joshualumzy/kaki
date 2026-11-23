@@ -1,12 +1,13 @@
+import { randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
 import { defaultMeetingSetup, joinSeatRoles, type Scenario } from '@kaki/shared';
 import { createApp, type KakiApp } from '../src/app';
 import { createAuth } from '../src/auth/module';
-import { hashPassword } from '../src/auth/password';
+import { hashPassword, hashToken } from '../src/auth/password';
 import { createMemoryAuthStore } from '../src/auth/store';
 import { loadScenario } from '../src/core/loadScenario';
 import { createMeetingCodeSource } from '../src/meeting/meetingCode';
-import { portOf } from './helpers';
+import { meetingPath, openRealMeeting, portOf } from './helpers';
 
 const CODE = 'K7M2Q9';
 const TOKEN = 'local-test-runner-token';
@@ -62,6 +63,7 @@ async function openModeApp(options: { roomRoster?: () => Promise<Array<{ name: s
 async function authModeApp(options: { roomRoster?: () => Promise<Array<{ name: string }>> } = {}): Promise<{
   app: KakiApp;
   port: number;
+  store: ReturnType<typeof createMemoryAuthStore>;
 }> {
   const store = createMemoryAuthStore();
   await store.createUser({ email: HOST_EMAIL, passwordHash: await hashPassword(HOST_PASSWORD) });
@@ -83,20 +85,36 @@ async function authModeApp(options: { roomRoster?: () => Promise<Array<{ name: s
     startAckTimeoutMs: 2_000,
   });
   apps.push(app);
-  return { app, port: portOf(app) };
+  return { app, port: portOf(app), store };
 }
 
-async function loginHost(port: number): Promise<string> {
-  return cookieFrom(
-    await request(port, '/api/auth/login', 'POST', { email: HOST_EMAIL, password: HOST_PASSWORD }),
-  );
+/** A signed-in product account; a real meeting's owner is an account, not a password host. */
+async function signInGoogle(store: ReturnType<typeof createMemoryAuthStore>): Promise<{
+  userId: string;
+  cookie: string;
+}> {
+  const email = `${randomUUID()}@example.com`;
+  const user = await store.createGoogleUser({ googleSub: randomUUID(), name: 'Ada', email });
+  const token = randomUUID();
+  await store.createSession({
+    tokenHash: hashToken(token),
+    kind: 'user',
+    role: null,
+    meetingCode: null,
+    meetingId: null,
+    displayName: 'Ada',
+    userId: user.id,
+    expiresAt: new Date(Date.now() + 60_000),
+  });
+  return { userId: user.id, cookie: `kaki_session=${token}` };
 }
 
 describe('one practice meeting per visitor', () => {
   it('offers the pack seats on a visitor’s own practice meeting, whatever the owner draft says', async () => {
     const { app, port } = await authModeApp();
     const base = defaultMeetingSetup(pack);
-    app.session.setDraft({
+    const real = await openRealMeeting(app, { title: 'Owner draft' });
+    real.session.setDraft({
       ...base,
       roles: [{ id: 'owner_only', label: 'Owner only', facilitator: false }],
       seats: [{ displayName: 'Only', roleId: 'owner_only', kind: 'person' }],
@@ -162,39 +180,51 @@ describe('the legacy demo meeting', () => {
     expect(((await legacy.json()) as { started: boolean }).started).toBe(false);
     expect(app.session.kind()).toBe('real');
   });
+});
 
+describe('a real meeting refuses a practice join', () => {
   it('refuses a practice join: practice has its own page now', async () => {
-    const { port } = await openModeApp();
-    const refused = await request(port, '/api/livekit/token', 'POST', {
+    const { app, port } = await openModeApp();
+    const meeting = await openRealMeeting(app);
+    const refused = await request(port, meetingPath(meeting, '/api/livekit/token'), 'POST', {
       participantName: 'Alice',
-      participantRole: 'operations_director',
       kind: 'practice',
     });
-    expect(refused.status).toBe(403);
-    expect(((await refused.json()) as { error: string }).error).toBe('practice-moved');
+    expect(refused.status).toBe(409);
+    expect(((await refused.json()) as { error: string }).error).toBe(
+      'This is a real meeting; practice has its own page.',
+    );
   });
+});
 
+describe('a real meeting keeps its opened lobby', () => {
   it('joins, never resets, the meeting the owner just opened when a friend is first into the empty lobby', async () => {
     let people: Array<{ name: string }> = [];
-    const { app, port } = await authModeApp({ roomRoster: async () => people });
-    const host = await loginHost(port);
-    expect((await request(port, '/api/meeting/open', 'POST', undefined, host)).status).toBe(200);
-    const generation = app.session.generation();
-    const meetingId = app.session.snapshot().meetingId;
+    const { app, port, store } = await authModeApp({ roomRoster: async () => people });
+    const owner = await signInGoogle(store);
+    const meeting = await openRealMeeting(app, { ownerUserId: owner.userId, title: 'Test meeting' });
+    expect((await request(port, meetingPath(meeting, '/api/meeting/open'), 'POST', undefined, owner.cookie)).status).toBe(200);
+    const generation = meeting.session.generation();
+    const meetingId = meeting.session.snapshot().meetingId;
 
     // The owner is still on /setup: nobody is seated yet, so the room reads empty. The first
-    // friend with the code joins that meeting; a reset here would wipe the opened lobby.
-    const friend = await request(port, '/api/livekit/token', 'POST', {
-      participantName: 'Cara',
-      participantRole: 'operations_director',
-      meetingCode: CODE,
-    });
+    // friend joins that meeting; a reset here would wipe the opened lobby.
+    const joined = await request(port, meetingPath(meeting, '/join'), 'POST', { name: 'Cara' });
+    expect(joined.status).toBe(200);
+    const guest = cookieFrom(joined);
+    const friend = await request(
+      port,
+      meetingPath(meeting, '/api/livekit/token'),
+      'POST',
+      { participantName: 'Cara' },
+      guest,
+    );
     expect(friend.status).toBe(200);
-    expect(app.session.kind()).toBe('real');
-    expect(app.session.phase()).toBe('lobby');
-    expect(app.session.generation()).toBe(generation);
-    expect(app.session.snapshot().meetingId).toBe(meetingId);
-    expect(app.session.holders().map((holder) => holder.name)).toEqual(['cara']);
+    expect(meeting.session.kind()).toBe('real');
+    expect(meeting.session.phase()).toBe('lobby');
+    expect(meeting.session.generation()).toBe(generation);
+    expect(meeting.session.snapshot().meetingId).toBe(meetingId);
+    expect(meeting.session.holders().map((holder) => holder.name)).toEqual(['cara']);
     people = [];
   });
 });

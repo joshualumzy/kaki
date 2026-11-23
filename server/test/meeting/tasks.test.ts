@@ -3,13 +3,13 @@ import type { KakiEvent, TaskStatus } from '@kaki/shared';
 import { roleAudience } from '../../src/core/audience';
 import { CommandError } from '../../src/core/hub';
 import { TASK_UNDECIDED_ERROR } from '../../src/meeting/tasks';
-import { createTestApp } from '../helpers';
+import { createPracticeTestApp } from '../helpers';
 
 describe('task store change handlers', () => {
-  let app: Awaited<ReturnType<typeof createTestApp>>;
+  let app: Awaited<ReturnType<typeof createPracticeTestApp>>;
 
   beforeEach(async () => {
-    app = await createTestApp();
+    app = await createPracticeTestApp();
   });
 
   afterEach(async () => {
@@ -232,9 +232,9 @@ describe('task store change handlers', () => {
 });
 
 describe('declining a dispatched task', () => {
-  let app: Awaited<ReturnType<typeof createTestApp>>;
+  let app: Awaited<ReturnType<typeof createPracticeTestApp>>;
   beforeEach(async () => {
-    app = await createTestApp();
+    app = await createPracticeTestApp();
   });
   afterEach(async () => {
     await app.close();
@@ -274,9 +274,9 @@ describe('declining a dispatched task', () => {
 
 
 describe('returning a dispatched task undecided', () => {
-  let app: Awaited<ReturnType<typeof createTestApp>>;
+  let app: Awaited<ReturnType<typeof createPracticeTestApp>>;
   beforeEach(async () => {
-    app = await createTestApp();
+    app = await createPracticeTestApp();
   });
   afterEach(async () => {
     await app.close();

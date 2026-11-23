@@ -1,13 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { KakiEvent } from '@kaki/shared';
-import { createApp, type KakiApp } from '../../src/app';
 import { createAuth } from '../../src/auth/module';
 import { hashPassword } from '../../src/auth/password';
 import { createMemoryAuthStore } from '../../src/auth/store';
 import { createMeetingCodeSource } from '../../src/meeting/meetingCode';
 import { createRunnerClient } from '../../src/npc/runnerClient';
-import { testScenario } from '../fixtures/scenario';
-import { portOf } from '../helpers';
+import { createRealTestApp, meetingUrl, portOf, type TestAppWithMeeting } from '../helpers';
 
 const HOST_EMAIL = 'host@example.com';
 const HOST_PASSWORD = 'correct-horse-battery';
@@ -23,37 +21,45 @@ const transcript = {
 const suggestion = {
   title: 'Order stock',
   context: 'Lunch prep',
-  suggestedAssignee: 'chef',
+  suggestedAssignee: 'everyone',
   agendaItemTitle: 'Prep',
 };
 
 describe('the AI runner HTTP client', () => {
-  let app: KakiApp | undefined;
+  let app: TestAppWithMeeting | undefined;
 
   afterEach(async () => {
     if (app !== undefined) await app.close();
     app = undefined;
   });
 
-  async function authApp(): Promise<{ app: KakiApp; baseUrl: string }> {
+  async function authApp(): Promise<{ app: TestAppWithMeeting; baseUrl: string; meetingId: string }> {
     const store = createMemoryAuthStore();
-    await store.createUser({ email: HOST_EMAIL, passwordHash: await hashPassword(HOST_PASSWORD) });
+    const owner = await store.createUser({ email: HOST_EMAIL, passwordHash: await hashPassword(HOST_PASSWORD) });
     const meetingCode = createMeetingCodeSource(MEETING_CODE);
     const auth = createAuth({ store, offeredRoles: () => ['chef', 'cashier'], meetingCode });
-    app = await createApp({
-      speechRecognition: 'browser',
-      scenario: testScenario,
-      auth,
-      meetingCode,
-      serviceToken: SERVICE_TOKEN,
-      roomRoster: async () => [],
-    });
-    return { app, baseUrl: `http://127.0.0.1:${portOf(app)}` };
+    app = await createRealTestApp(
+      {
+        auth,
+        serviceToken: SERVICE_TOKEN,
+        roomRoster: async () => [],
+      },
+      {
+        title: 'Runner client meeting',
+        ownerUserId: owner.id,
+        agenda: [{ title: 'Prep', minutes: 5 }],
+      },
+    );
+    return { app, baseUrl: `http://127.0.0.1:${portOf(app)}`, meetingId: app.meetingId };
   }
 
   it('sends every read and write with the service credential', async () => {
     const started = await authApp();
-    const client = createRunnerClient({ baseUrl: started.baseUrl, serviceToken: SERVICE_TOKEN });
+    const client = createRunnerClient({
+      baseUrl: started.baseUrl,
+      apiPrefix: `/api/meetings/${started.meetingId}`,
+      serviceToken: SERVICE_TOKEN,
+    });
     const events: KakiEvent[] = [];
     started.app.hub.subscribe((event) => events.push(event));
 
@@ -72,10 +78,14 @@ describe('the AI runner HTTP client', () => {
 
     const state = await client.fetchMeetingState();
     expect(state.meetingId).toBe(
-      ((await (await fetch(`${started.baseUrl}/api/meeting/state`)).json()) as { meetingId: string }).meetingId,
+      (
+        (await (await fetch(meetingUrl(started.app, started.meetingId, '/api/meeting/state'))).json()) as {
+          meetingId: string;
+        }
+      ).meetingId,
     );
     const scenario = await client.fetchScenario();
-    expect(scenario.id).toBe(testScenario.id);
+    expect(scenario.id).toBe(`real-${started.meetingId}`);
   });
 
   it('retries a recognised line with the same id on network errors and a retryable conflict', async () => {
@@ -142,7 +152,10 @@ describe('the AI runner HTTP client', () => {
 
   it('does not reach a service route without the credential', async () => {
     const started = await authApp();
-    const anonymous = createRunnerClient({ baseUrl: started.baseUrl });
+    const anonymous = createRunnerClient({
+      baseUrl: started.baseUrl,
+      apiPrefix: `/api/meetings/${started.meetingId}`,
+    });
     expect((await anonymous.emit(transcript)).status).toBe(401);
     await expect(anonymous.fetchMeetingState()).rejects.toThrow(/HTTP 401/);
     await expect(anonymous.fetchScenario()).rejects.toThrow(/HTTP 401/);

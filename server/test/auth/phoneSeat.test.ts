@@ -1,14 +1,15 @@
+import { randomUUID } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
 import { defaultMeetingSetup, humanSeatRoles, type KakiEvent, type MeetingSetup, type Scenario } from '@kaki/shared';
 import { createApp, type KakiApp } from '../../src/app';
 import { createAuth } from '../../src/auth/module';
-import { createMemoryAuthStore, type AuthStore } from '../../src/auth/store';
-import { hashPassword } from '../../src/auth/password';
+import { createMemoryAuthStore, type AuthStore, type UserRecord } from '../../src/auth/store';
+import { hashPassword, hashToken } from '../../src/auth/password';
 import { loadScenario } from '../../src/core/loadScenario';
 import { createMeetingCodeSource, type MeetingCodeSource } from '../../src/meeting/meetingCode';
 import { testScenario } from '../fixtures/scenario';
-import { createTestApp, portOf, settle, waitFor } from '../helpers';
+import { createTestApp, meetingUrl, meetingWsUrl, openRealMeeting, portOf, settle, waitFor, type TestMeeting } from '../helpers';
 
 const FIXED_CODE = 'K7M2Q9';
 const ENDED = 'This meeting has ended; scan the new code.';
@@ -31,6 +32,40 @@ function connect(
   if (authorization !== undefined) headers.authorization = authorization;
   const ws = new WebSocket(
     `ws://127.0.0.1:${port}/ws?role=${encodeURIComponent(role)}`,
+    Object.keys(headers).length === 0 ? undefined : { headers },
+  );
+  return new Promise((resolve) => {
+    let settled = false;
+    ws.once('open', () => {
+      if (settled) return;
+      settled = true;
+      resolve({ ok: true, ws });
+    });
+    ws.once('unexpected-response', (_request, response) => {
+      if (settled) return;
+      settled = true;
+      response.resume();
+      resolve({ ok: false, status: response.statusCode ?? 0 });
+    });
+    ws.once('error', () => {
+      if (settled) return;
+      settled = true;
+      resolve({ ok: false, status: 0 });
+    });
+  });
+}
+
+function connectMeeting(
+  port: number,
+  meetingId: string,
+  query: string,
+  options: { cookie?: string; authorization?: string } = {},
+): Promise<{ ok: true; ws: WebSocket } | { ok: false; status: number }> {
+  const headers: Record<string, string> = {};
+  if (options.cookie !== undefined) headers.cookie = options.cookie;
+  if (options.authorization !== undefined) headers.authorization = options.authorization;
+  const ws = new WebSocket(
+    meetingWsUrl(port, meetingId, query),
     Object.keys(headers).length === 0 ? undefined : { headers },
   );
   return new Promise((resolve) => {
@@ -172,6 +207,55 @@ describe('phone and screen seat authority', () => {
     return cookieFrom(response);
   }
 
+  function pathFor(meeting: TestMeeting, path: string): string {
+    return meetingUrl(app, meeting.id, path).replace(`http://127.0.0.1:${port}`, '');
+  }
+
+  async function signInGoogle(name: string): Promise<{ user: UserRecord; cookie: string }> {
+    const email = `${randomUUID()}@example.com`;
+    const user = await store.createGoogleUser({ googleSub: randomUUID(), name, email });
+    const token = randomUUID();
+    await store.createSession({
+      tokenHash: hashToken(token),
+      kind: 'user',
+      role: null,
+      meetingCode: null,
+      meetingId: null,
+      displayName: name,
+      userId: user.id,
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    return { user, cookie: `kaki_session=${token}` };
+  }
+
+  async function makeRealMeetingApp(): Promise<{ meeting: TestMeeting; ownerCookie: string }> {
+    const auth = createAuth({ store, meetingCode: createMeetingCodeSource(FIXED_CODE) });
+    app = await createTestApp({ auth, serviceToken: 'runner-secret', roomRoster: async () => [] });
+    port = portOf(app);
+    const owner = await signInGoogle('Ada');
+    const meeting = await openRealMeeting(app, { ownerUserId: owner.user.id, title: 'Weekly planning' });
+    expect((await post(pathFor(meeting, '/api/meeting/open'), {}, owner.cookie)).status).toBe(200);
+    return { meeting, ownerCookie: owner.cookie };
+  }
+
+  async function joinGuest(meeting: TestMeeting, name: string): Promise<string> {
+    const joined = await post(pathFor(meeting, '/join'), { name });
+    expect(joined.status).toBe(200);
+    return cookieFrom(joined);
+  }
+
+  async function takeSeat(
+    meeting: TestMeeting,
+    guestCookie: string,
+    name: string,
+  ): Promise<{ cookie: string; seat: string }> {
+    const seated = await post(pathFor(meeting, '/api/livekit/token'), { participantName: name }, guestCookie);
+    expect(seated.status).toBe(200);
+    const body = (await seated.json()) as { participantRole: string };
+    return { cookie: cookieFrom(seated), seat: body.participantRole };
+  }
+
+  // Legacy only: phone sign-in by meeting code and code rotation exist only on the legacy meeting.
   it('uses the LiveKit meeting code for phone sign-in and rotates both on reset', async () => {
     const meetingCode = createMeetingCodeSource('');
     await makeApp({ meetingCode });
@@ -215,12 +299,12 @@ describe('phone and screen seat authority', () => {
     if (newSocket.ok) sockets.push(newSocket.ws);
   });
 
-  it('gives two assigned phone roles only their own private events', async () => {
-    await makeApp({ meetingCode: createMeetingCodeSource(FIXED_CODE) });
-    const chefCookie = await joinAs(FIXED_CODE, 'chef');
-    const cashierCookie = await joinAs(FIXED_CODE, 'cashier');
-    const chef = await connect(port, 'chef', chefCookie);
-    const cashier = await connect(port, 'cashier', cashierCookie);
+  it('gives two assigned guest seats only their own private events', async () => {
+    const { meeting } = await makeRealMeetingApp();
+    const ada = await takeSeat(meeting, await joinGuest(meeting, 'Ada'), 'Ada');
+    const bao = await takeSeat(meeting, await joinGuest(meeting, 'Bao'), 'Bao');
+    const chef = await connectMeeting(port, meeting.id, `role=${encodeURIComponent(ada.seat)}`, { cookie: ada.cookie });
+    const cashier = await connectMeeting(port, meeting.id, `role=${encodeURIComponent(bao.seat)}`, { cookie: bao.cookie });
     expect(chef.ok && cashier.ok).toBe(true);
     if (!chef.ok || !cashier.ok) return;
     sockets.push(chef.ws, cashier.ws);
@@ -230,18 +314,18 @@ describe('phone and screen seat authority', () => {
     chef.ws.on('message', (data) => chefEvents.push(JSON.parse(data.toString()) as KakiEvent));
     cashier.ws.on('message', (data) => cashierEvents.push(JSON.parse(data.toString()) as KakiEvent));
 
-    app.hub.publish({
+    meeting.hub.publish({
       type: 'WINGMAN_NOTE',
-      audience: { kind: 'role', role: 'chef' },
+      audience: { kind: 'role', role: ada.seat },
       payload: { id: 'answer:chef', kind: 'answer', urgency: 'quiet', title: 'Wingman', text: 'Chef only' },
     });
     await waitFor(() => chefEvents.find((event) => event.type === 'WINGMAN_NOTE'), 'the chef private note');
     await settle();
     expect(cashierEvents.some((event) => event.type === 'WINGMAN_NOTE')).toBe(false);
 
-    app.hub.publish({
+    meeting.hub.publish({
       type: 'WINGMAN_NOTE',
-      audience: { kind: 'role', role: 'cashier' },
+      audience: { kind: 'role', role: bao.seat },
       payload: { id: 'answer:cashier', kind: 'answer', urgency: 'quiet', title: 'Wingman', text: 'Cashier only' },
     });
     await waitFor(() => cashierEvents.find((event) => event.type === 'WINGMAN_NOTE'), 'the cashier private note');
@@ -249,6 +333,7 @@ describe('phone and screen seat authority', () => {
     expect(chefEvents.filter((event) => event.type === 'WINGMAN_NOTE')).toHaveLength(1);
   });
 
+  // Legacy only: only the legacy role picker admits by pack role, so only it can refuse an AI role.
   it('refuses a role an AI stand-in plays', async () => {
     await makeApp({ scenario: aiScenario, meetingCode: createMeetingCodeSource(FIXED_CODE) });
     const host = await loginHost();
@@ -264,6 +349,7 @@ describe('phone and screen seat authority', () => {
     if (!wrongSeat.ok) expect(wrongSeat.status).toBe(401);
   });
 
+  // Legacy only: only the legacy phone join offers setup roles by id; real guests take plain seats.
   it('offers a role added in setup to phone joins, not the roles known at boot', async () => {
     const pack = await loadScenario('kopitiam');
     await makeApp({ scenario: pack, meetingCode: createMeetingCodeSource(FIXED_CODE) });
@@ -282,6 +368,7 @@ describe('phone and screen seat authority', () => {
     expect(await joined.json()).toEqual({ kind: 'participant', role: 'runner' });
   });
 
+  // Legacy only: only the legacy phone join maps a pack role to a setup seat; real seats are plain.
   it('refuses a phone join for a pack role the setup turned into an AI seat', async () => {
     const pack = await loadScenario('kopitiam');
     await makeApp({ scenario: pack, meetingCode: createMeetingCodeSource(FIXED_CODE) });
@@ -305,6 +392,7 @@ describe('phone and screen seat authority', () => {
     expect(allowed.status).toBe(200);
   });
 
+  // Legacy only: it proves an in-flight upgrade during a meeting-code rotation; real reset revocation is covered above.
   it('refuses an opening socket whose authorization predates a code rotation', async () => {
     const meetingCode = createMeetingCodeSource('');
     const roles = humanSeatRoles(testScenario).map((role) => role.id);
@@ -359,23 +447,14 @@ describe('phone and screen seat authority', () => {
   });
 
   it('closes participant lifecycle feeds on rotation but keeps host and runner sockets', async () => {
-    await store.createUser({
-      email: 'host@example.com',
-      passwordHash: await hashPassword('host-password'),
-    });
-    const meetingCode = createMeetingCodeSource('');
-    await makeApp({ meetingCode, serviceToken: 'runner-secret' });
+    const { meeting, ownerCookie } = await makeRealMeetingApp();
+    const bao = await takeSeat(meeting, await joinGuest(meeting, 'Bao'), 'Bao');
 
-    const first = await joinRoom('Ada', 'chef', await loginHost());
-    const participantCookie = await joinAs(first.meetingCode, 'cashier');
-    // A separate host sign-in for the sockets; the next join below replaces only its own session.
-    const hostCookie = await loginHost();
-
-    const participantLifecycle = await connect(port, 'lifecycle', participantCookie);
-    const hostLifecycle = await connect(port, 'lifecycle', hostCookie);
-    const hostScreen = await connect(port, 'screen', hostCookie);
+    const participantLifecycle = await connectMeeting(port, meeting.id, 'audience=lifecycle', { cookie: bao.cookie });
+    const hostLifecycle = await connectMeeting(port, meeting.id, 'audience=lifecycle', { cookie: ownerCookie });
+    const hostScreen = await connectMeeting(port, meeting.id, 'audience=screen', { cookie: ownerCookie });
     // The runner drives the screen; the token may not open a human seat.
-    const runnerScreen = await connect(port, 'screen', undefined, 'Bearer runner-secret');
+    const runnerScreen = await connectMeeting(port, meeting.id, 'audience=screen', { authorization: 'Bearer runner-secret' });
     expect(participantLifecycle.ok && hostLifecycle.ok && hostScreen.ok && runnerScreen.ok).toBe(true);
     if (!participantLifecycle.ok || !hostLifecycle.ok || !hostScreen.ok || !runnerScreen.ok) return;
     sockets.push(participantLifecycle.ws, hostLifecycle.ws, hostScreen.ws, runnerScreen.ws);
@@ -397,8 +476,9 @@ describe('phone and screen seat authority', () => {
       runnerClosed = true;
     });
 
-    const second = await joinRoom('Ada', 'chef', await loginHost());
-    expect(second.meetingCode).not.toBe(first.meetingCode);
+    const beforeReset = meeting.session.snapshot().meetingId;
+    const afterReset = meeting.session.reset();
+    expect(afterReset).not.toBe(beforeReset);
     await waitFor(() => participantClosed, 'the participant lifecycle feed to close');
     expect(participantClosed).toBe(4001);
     await settle();
@@ -407,6 +487,7 @@ describe('phone and screen seat authority', () => {
     expect(runnerClosed).toBe(false);
   });
 
+  // Legacy only: code-on-join and token rate limiting belongs to the legacy meeting-code join.
   it('rate-limits wrong meeting codes on both join and token routes, separately from host sign-in', async () => {
     await store.createUser({
       email: 'host@example.com',

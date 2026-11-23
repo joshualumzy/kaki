@@ -1,12 +1,20 @@
+import { randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
 import type { KakiEvent, Task } from '@kaki/shared';
-import { createApp, type KakiApp } from '../../src/app';
+import type { KakiApp } from '../../src/app';
 import { createAuth } from '../../src/auth/module';
-import { hashPassword } from '../../src/auth/password';
-import { createMemoryAuthStore } from '../../src/auth/store';
+import { hashPassword, hashToken } from '../../src/auth/password';
+import { createMemoryAuthStore, type UserRecord } from '../../src/auth/store';
 import { createMeetingCodeSource } from '../../src/meeting/meetingCode';
-import { portOf, settle, waitFor } from '../helpers';
+import {
+  createRealTestApp,
+  meetingWsUrl,
+  portOf,
+  settle,
+  waitFor,
+  type TestAppWithMeeting,
+} from '../helpers';
 import { testScenario } from '../fixtures/scenario';
 
 const CODE = 'K7M2Q9';
@@ -30,14 +38,13 @@ function cookieFrom(response: Response): string {
   return value;
 }
 
-function connect(port: number, role: string, cookie?: string, meetingId?: string): Promise<SocketResult> {
+function connect(port: number, channel: 'screen' | 'participant' | string, cookie?: string, meetingId?: string): Promise<SocketResult> {
   const headers: Record<string, string> = {};
   if (cookie !== undefined) headers.cookie = cookie;
-  const meetingQuery = meetingId === undefined ? '' : `&meeting=${encodeURIComponent(meetingId)}`;
-  const ws = new WebSocket(
-    `ws://127.0.0.1:${port}/ws?role=${encodeURIComponent(role)}${meetingQuery}`,
-    Object.keys(headers).length === 0 ? undefined : { headers },
-  );
+  const query = channel === 'screen' || channel === 'participant'
+    ? `audience=${channel}`
+    : `role=${encodeURIComponent(channel)}`;
+  const ws = new WebSocket(meetingWsUrl(port, meetingId!, query), Object.keys(headers).length === 0 ? undefined : { headers });
   const messages: KakiEvent[] = [];
   ws.on('message', (data) => messages.push(JSON.parse(data.toString()) as KakiEvent));
   sockets.push(ws);
@@ -51,20 +58,36 @@ function connect(port: number, role: string, cookie?: string, meetingId?: string
   });
 }
 
-async function authApp(): Promise<{ app: KakiApp; port: number }> {
+async function authApp(): Promise<{ app: TestAppWithMeeting; port: number; store: ReturnType<typeof createMemoryAuthStore>; host: UserRecord }> {
   const store = createMemoryAuthStore();
-  await store.createUser({ email: HOST_EMAIL, passwordHash: await hashPassword(HOST_PASSWORD) });
-  const meetingCode = createMeetingCodeSource(CODE);
-  const auth = createAuth({ store, offeredRoles: () => ['chef', 'cashier'], meetingCode });
-  const app = await createApp({
-    scenario: testScenario,
-    auth,
-    meetingCode,
-    roomRoster: async () => [],
-    speechRecognition: 'browser',
-  });
+  const host = await store.createUser({ email: HOST_EMAIL, passwordHash: await hashPassword(HOST_PASSWORD) });
+  const auth = createAuth({ store, offeredRoles: () => ['chef', 'cashier'], meetingCode: createMeetingCodeSource(CODE) });
+  const app = await createRealTestApp(
+    {
+      scenario: testScenario,
+      auth,
+      roomRoster: async () => [],
+      speechRecognition: 'browser',
+    },
+    { title: 'Weekly planning', ownerUserId: host.id },
+  );
   apps.push(app);
-  return { app, port: portOf(app) };
+  return { app, port: portOf(app), store, host };
+}
+
+async function signIn(store: ReturnType<typeof createMemoryAuthStore>, host: UserRecord): Promise<string> {
+  const token = randomUUID();
+  await store.createSession({
+    tokenHash: hashToken(token),
+    kind: 'user',
+    role: null,
+    meetingCode: null,
+    meetingId: null,
+    displayName: 'Ada',
+    userId: host.id,
+    expiresAt: new Date(Date.now() + 60_000),
+  });
+  return `kaki_session=${token}`;
 }
 
 async function request(
@@ -93,11 +116,11 @@ function tasksById(messages: readonly KakiEvent[]): Map<string, Task> {
 }
 
 function taskWithDraft(
-  tasks: KakiApp['tasks'],
+  tasks: TestAppWithMeeting['tasks'],
   input: {
     title: string;
     context: string;
-    assignee: 'chef' | 'cashier';
+    assignee: string;
     body: string;
     purpose?: 'meeting_minutes';
   },
@@ -119,34 +142,63 @@ function taskWithDraft(
   });
 }
 
+function cookiePair(response: Response, fallback?: string): string | undefined {
+  return response.headers.get('set-cookie')?.split(';')[0] ?? fallback;
+}
+
 describe('participant projection', () => {
   it('gives a participant the shared meeting and their own work, redacting other seats', async () => {
-    const { app, port } = await authApp();
-    const host = cookieFrom(
-      await request(port, '/api/auth/login', 'POST', { email: HOST_EMAIL, password: HOST_PASSWORD }),
-    );
-    expect((await request(port, '/api/meeting/open', 'POST', undefined, host)).status).toBe(200);
-    const chef = cookieFrom(await request(port, '/api/join', 'POST', { code: CODE, role: 'chef' }));
-    const cashier = cookieFrom(await request(port, '/api/join', 'POST', { code: CODE, role: 'cashier' }));
-    expect(chef).toBeTruthy();
-    expect(cashier).toBeTruthy();
+    const { app, port, store, host: hostUser } = await authApp();
+    const host = await signIn(store, hostUser);
+    expect(
+      (await request(port, `/api/meetings/${app.meetingId}/meeting/open`, 'POST', undefined, host)).status,
+    ).toBe(200);
+
+    const ownerJoin = await request(port, `/api/meetings/${app.meetingId}/livekit/token`, 'POST', {
+      participantName: 'Ada',
+      participantRole: 'chef',
+    }, host);
+    expect(ownerJoin.status).toBe(200);
+    const ownerBody = (await ownerJoin.json()) as { participantRole: string };
+    const ownerCookie = cookiePair(ownerJoin, host)!;
+
+    const guestJoin = await request(port, `/api/meetings/${app.meetingId}/join`, 'POST', { name: 'Bao' });
+    expect(guestJoin.status).toBe(200);
+    const guestCookie = cookieFrom(guestJoin);
+    const guestSeated = await request(port, `/api/meetings/${app.meetingId}/livekit/token`, 'POST', {
+      participantName: 'Bao',
+      participantRole: 'cashier',
+    }, guestCookie);
+    expect(guestSeated.status).toBe(200);
+    const guestBody = (await guestSeated.json()) as { participantRole: string };
+    const participantCookie = cookiePair(guestSeated, guestCookie)!;
+
+    const otherGuest = await request(port, `/api/meetings/${app.meetingId}/join`, 'POST', { name: 'Cy' });
+    expect(otherGuest.status).toBe(200);
+    const otherCookie = cookieFrom(otherGuest);
+    const otherSeated = await request(port, `/api/meetings/${app.meetingId}/livekit/token`, 'POST', {
+      participantName: 'Cy',
+      participantRole: 'chef',
+    }, otherCookie);
+    expect(otherSeated.status).toBe(200);
+    const otherBody = (await otherSeated.json()) as { participantRole: string };
 
     const own = taskWithDraft(app.tasks, {
       title: 'Own job',
       context: 'OWN CONTEXT',
-      assignee: 'chef',
+      assignee: guestBody.participantRole,
       body: 'OWN DRAFT',
     });
     const other = taskWithDraft(app.tasks, {
       title: 'Other job',
       context: 'OTHER CONTEXT',
-      assignee: 'cashier',
+      assignee: otherBody.participantRole,
       body: 'OTHER DRAFT',
     });
     const minutes = taskWithDraft(app.tasks, {
       title: 'Publish meeting minutes to the team wiki',
       context: 'MINUTES CONTEXT',
-      assignee: 'cashier',
+      assignee: ownerBody.participantRole,
       body: 'SECRET MINUTES',
       purpose: 'meeting_minutes',
     });
@@ -175,25 +227,25 @@ describe('participant projection', () => {
     app.hub.publish(
       {
         type: 'WINGMAN_NOTE',
-        audience: { kind: 'role', role: 'chef' },
+        audience: { kind: 'role', role: guestBody.participantRole },
         payload: { id: 'own-note', kind: 'answer', urgency: 'quiet', title: 'Wingman', text: 'OWN NOTE' },
       },
-      { retainKey: 'note:chef' },
+      { retainKey: 'note:own' },
     );
     app.hub.publish(
       {
         type: 'WINGMAN_NOTE',
-        audience: { kind: 'role', role: 'cashier' },
+        audience: { kind: 'role', role: otherBody.participantRole },
         payload: { id: 'other-note', kind: 'answer', urgency: 'quiet', title: 'Wingman', text: 'OTHER NOTE' },
       },
-      { retainKey: 'note:cashier' },
+      { retainKey: 'note:other' },
     );
 
     // A participant may not read the owner's screen at all; their projection is the only shared feed.
-    expect(await connect(port, 'screen', chef)).toMatchObject({ ok: false });
-    const participant = await connect(port, 'participant', chef);
+    expect(await connect(port, 'screen', participantCookie, app.meetingId)).toMatchObject({ ok: false });
+    const participant = await connect(port, 'participant', participantCookie, app.meetingId);
     if (!participant.ok) throw new Error('participant socket did not open');
-    const ownerScreen = await connect(port, 'screen', host);
+    const ownerScreen = await connect(port, 'screen', ownerCookie, app.meetingId);
     if (!ownerScreen.ok) throw new Error('owner screen did not open');
 
     await waitFor(
@@ -220,7 +272,7 @@ describe('participant projection', () => {
 
     const seen = tasksById(participant.messages);
     expect(seen.get(own.id)).toMatchObject({ context: 'OWN CONTEXT', draft: { body: 'OWN DRAFT' } });
-    expect(seen.get(other.id)).toMatchObject({ title: 'Other job', assignee: 'cashier', context: '' });
+    expect(seen.get(other.id)).toMatchObject({ title: 'Other job', context: '' });
     expect(seen.get(other.id)?.draft).toBeUndefined();
     expect(seen.has(minutes.id)).toBe(false);
 

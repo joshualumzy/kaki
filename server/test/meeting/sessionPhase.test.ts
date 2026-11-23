@@ -8,7 +8,19 @@ import { createMeetingModule } from '../../src/host/meeting';
 import { LEGACY_MEETING_ID } from '../../src/meeting/registry';
 import { createMeetingPersistence } from '../../src/persist/persistence';
 import type { MeetingStateStore, StoredMeeting } from '../../src/persist/state';
-import { connectClient, portOf, settle, waitFor, waitForEvent } from '../helpers';
+import {
+  connectClient,
+  connectMeetingClient,
+  createPracticeTestApp,
+  createRealTestApp,
+  meetingUrl,
+  portOf,
+  realModulesWith,
+  settle,
+  waitFor,
+  waitForEvent,
+  type TestAppWithMeeting,
+} from '../helpers';
 import { testScenario } from '../fixtures/scenario';
 
 /** A saved meeting whose next clear waits, so a test can tell when a reset is about to queue. */
@@ -193,12 +205,17 @@ interface PrepareRequest {
 async function connectHeldService(
   port: number,
   token?: string,
+  meetingId?: string,
 ): Promise<{
   socket: WebSocket;
   prepares: PrepareRequest[];
   reply(kind: 'ready' | 'failed', reason?: string): void;
 }> {
-  const socket = new WebSocket(`ws://127.0.0.1:${port}/ws?role=service`, {
+  const url =
+    meetingId === undefined
+      ? `ws://127.0.0.1:${port}/ws?role=service`
+      : `ws://127.0.0.1:${port}/ws?meeting=${encodeURIComponent(meetingId)}&role=service`;
+  const socket = new WebSocket(url, {
     ...(token === undefined ? {} : { headers: { authorization: `Bearer ${token}` } }),
   });
   const prepares: PrepareRequest[] = [];
@@ -237,20 +254,84 @@ async function connectHeldService(
   };
 }
 
+function startPractice(app: TestAppWithMeeting): Promise<Response> {
+  return fetch(meetingUrl(app, app.meetingId, '/api/meeting/start'), {
+    method: 'POST',
+    headers: { cookie: app.cookie! },
+  });
+}
+
+function joinPractice(app: TestAppWithMeeting, participantName: string, participantRole: string): Promise<Response> {
+  return fetch(meetingUrl(app, app.meetingId, '/api/livekit/token'), {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', cookie: app.cookie! },
+    body: JSON.stringify({ roomName: 'test-room', participantName, participantRole, kind: 'practice' }),
+  });
+}
+
+async function getPracticeScenario(app: TestAppWithMeeting): Promise<Scenario> {
+  const response = await fetch(meetingUrl(app, app.meetingId, '/api/scenario?kind=practice'));
+  expect(response.status).toBe(200);
+  return (await response.json()) as Scenario;
+}
+
+async function connectHeldPracticeService(
+  app: TestAppWithMeeting,
+): Promise<{
+  socket: WebSocket;
+  prepares: PrepareRequest[];
+  reply(kind: 'ready' | 'failed', reason?: string): void;
+}> {
+  return connectHeldService(portOf(app), undefined, app.meetingId);
+}
+
+function joinReal(app: TestAppWithMeeting, participantName: string): Promise<Response> {
+  return fetch(meetingUrl(app, app.meetingId, '/api/livekit/token'), {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ roomName: 'test-room', participantName }),
+  });
+}
+
+function startReal(app: TestAppWithMeeting): Promise<Response> {
+  return fetch(meetingUrl(app, app.meetingId, '/api/meeting/start'), { method: 'POST' });
+}
+
+async function getRealSetup(app: TestAppWithMeeting): Promise<{ setup: MeetingSetup; started: boolean; phase: string }> {
+  const response = await fetch(meetingUrl(app, app.meetingId, '/api/setup'));
+  expect(response.status).toBe(200);
+  return (await response.json()) as { setup: MeetingSetup; started: boolean; phase: string };
+}
+
+function putRealSetup(app: TestAppWithMeeting, setup: MeetingSetup): Promise<Response> {
+  return fetch(meetingUrl(app, app.meetingId, '/api/setup'), {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(setup),
+  });
+}
+
 describe('Start lifecycle', () => {
   it('returns to lobby with the active scenario untouched when the runner refuses', async () => {
-    const app = await startApp(freshScenario());
-    const service = await connectHeldService(portOf(app));
-    expect((await join(app, 'Guest', 'chef')).status).toBe(200);
-    const before = await getScenario(app);
+    const app = await createPracticeTestApp({
+      speechRecognition: 'browser',
+      scenario: freshScenario(),
+      roomRoster: async () => [],
+      rejoinGraceMs: 60_000,
+      rejoinPollMs: 60_000,
+    });
+    apps.push(app);
+    const service = await connectHeldPracticeService(app);
+    expect((await joinPractice(app, 'Guest', 'chef')).status).toBe(200);
+    const before = await getPracticeScenario(app);
 
-    const starting = startMeeting(app);
+    const starting = startPractice(app);
     await waitFor(() => (service.prepares.length === 1 ? true : undefined), 'the runner prepare');
     service.reply('failed', 'cast unavailable');
 
     expect((await starting).status).toBe(503);
     expect(app.session.phase()).toBe('lobby');
-    expect(await getScenario(app)).toEqual(before);
+    expect(await getPracticeScenario(app)).toEqual(before);
   });
 
   it('shows the Start candidate to the service channel only, and refuses joins while starting', async () => {
@@ -284,18 +365,20 @@ describe('Start lifecycle', () => {
   });
 
   it('blames the reset, not the runner, when the meeting resets while Start is in flight', async () => {
-    const app = await startApp(freshScenario(), {
-      modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
+    const app = await createPracticeTestApp({
+      speechRecognition: 'browser',
+      scenario: freshScenario(),
+      roomRoster: async () => [],
+      rejoinGraceMs: 60_000,
+      rejoinPollMs: 60_000,
     });
-    const service = await connectHeldService(portOf(app));
-    expect((await join(app, 'Guest', 'chef')).status).toBe(200);
+    apps.push(app);
+    const service = await connectHeldPracticeService(app);
+    expect((await joinPractice(app, 'Guest', 'chef')).status).toBe(200);
 
-    const starting = startMeeting(app);
+    const starting = startPractice(app);
     await waitFor(() => (service.prepares.length === 1 ? true : undefined), 'the runner prepare');
-    const screen = await connectClient(portOf(app), 'screen');
-    screen.ws.send(JSON.stringify({ type: 'NEW_MEETING' }));
-    await waitForEvent(screen, (event) => event.type === 'MEETING_RESET', 'the reset');
-    screen.close();
+    app.session.reset();
 
     const response = await starting;
     expect(response.status).toBe(503);
@@ -530,41 +613,39 @@ describe('Start lifecycle', () => {
   });
 
   it('refuses Start after the meeting ended and lets the owner write the next draft', async () => {
-    const app = await startApp(freshScenario(), {
-      modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
-    });
-    const service = await connectHeldService(portOf(app));
-    expect((await join(app, 'Guest', 'chef')).status).toBe(200);
-    const starting = startMeeting(app);
-    await waitFor(() => (service.prepares.length === 1 ? true : undefined), 'the runner prepare');
-    service.reply('ready');
-    expect((await starting).status).toBe(200);
-
-    const screen = await connectClient(portOf(app), 'screen');
-    screen.ws.send(JSON.stringify({ type: 'END_MEETING' }));
-    await waitForEvent(
-      screen,
-      (event) => event.type === 'HOST_SPEECH_TRIGGERED' && event.payload.kind === 'CLOSING',
-      'the meeting to end',
+    const app = await createRealTestApp(
+      {
+        speechRecognition: 'browser',
+        scenario: freshScenario(),
+        roomRoster: async () => [],
+        meetingModules: realModulesWith([createMeetingModule({ notetakerIntervalMs: 60_000 })]),
+      },
+      { title: 'Weekly planning', agenda: freshScenario().agenda },
     );
-    screen.close();
-    await waitFor(() => (app.session.phase() === 'ended' ? true : undefined), 'the ended phase');
+    apps.push(app);
+    expect((await joinReal(app, 'Guest')).status).toBe(200);
+    expect((await startReal(app)).status).toBe(200);
 
-    const ended = await getSetup(app);
+    const screen = await connectMeetingClient(portOf(app), app.meetingId, 'screen');
+    screen.ws.send(JSON.stringify({ type: 'END_MEETING' }));
+    await waitFor(() => (app.session.phase() === 'ended' ? true : undefined), 'the ended phase');
+    screen.close();
+
+    const ended = await getRealSetup(app);
     expect(ended.started).toBe(false);
     expect(ended.phase).toBe('ended');
 
     const next = ended.setup;
     next.title = 'Tomorrow huddle';
-    expect((await putSetup(app, next)).status).toBe(200);
+    expect((await putRealSetup(app, next)).status).toBe(200);
 
-    const refused = await startMeeting(app);
+    const refused = await startReal(app);
     expect(refused.status).toBe(409);
     expect(await refused.json()).toEqual({
       error: 'This meeting has ended; press New meeting to start the next one.',
     });
 
-    const after = await getSetup(app);
+    const after = await getRealSetup(app);
     expect(after.started).toBe(false);
     expect(after.phase).toBe('ended');
     expect(after.setup.title).toBe('Tomorrow huddle');

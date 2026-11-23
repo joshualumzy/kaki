@@ -1117,73 +1117,53 @@ describe('rejoining an empty meeting', () => {
   });
 });
 
-describe('legacy rejoin and start races', () => {
+describe('rejoin and start races', () => {
   type Roster = Array<{ name: string; role?: string }> | undefined;
 
-  async function startApp(
-    options: {
-      graceMs?: number;
-      pollMs?: number;
-      roster?: () => Roster;
-      modules?: Parameters<typeof createApp>[0]['modules'];
-      startAckTimeoutMs?: number;
-    } = {},
-  ) {
-    return createApp({
-      speechRecognition: 'browser',
-      scenario: testScenario,
-      modules: options.modules ?? [],
-      roomRoster: async () => (options.roster === undefined ? [] : options.roster()),
-      rejoinGraceMs: options.graceMs ?? 60_000,
-      rejoinPollMs: options.pollMs ?? 60_000,
-      admissionReservationMs: 20,
-      ...(options.startAckTimeoutMs === undefined ? {} : { startAckTimeoutMs: options.startAckTimeoutMs }),
-    });
-  }
-
-  async function join(app: Awaited<ReturnType<typeof startApp>>, body: Record<string, unknown>) {
-    // A team-meeting join exists only after the owner has opened the real meeting.
-    await fetch(`http://127.0.0.1:${portOf(app)}/api/meeting/open`, { method: 'POST' });
-    return fetch(`http://127.0.0.1:${portOf(app)}/api/livekit/token`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ roomName: 'test-room', ...body }),
-    });
-  }
-
-  function startMeeting(app: Awaited<ReturnType<typeof startApp>>) {
-    return fetch(`http://127.0.0.1:${portOf(app)}/api/meeting/start`, { method: 'POST' });
-  }
-
-  function connectService(port: number): Promise<WebSocket> {
-    const socket = new WebSocket(`ws://127.0.0.1:${port}/ws?role=service`);
+  function connectService(port: number, meetingId: string): Promise<WebSocket> {
+    const socket = new WebSocket(meetingWsUrl(port, meetingId, 'role=service'));
     return new Promise((resolve, reject) => {
       socket.once('open', () => resolve(socket));
       socket.once('error', reject);
     });
   }
 
-  it('never starts a reset replacement from a late acknowledgement', async () => {
-    const scenario: Scenario = {
-      ...testScenario,
-      npcs: [
-        { attendee: 'Ada', voice: 'v', personality: 'p', agenda: 'a', concerns: [], role: 'host' },
-      ],
-    };
-    const app = await createApp({
+  const hostScenario: Scenario = {
+    ...testScenario,
+    npcs: [
+      { attendee: 'Ada', voice: 'v', personality: 'p', agenda: 'a', concerns: [], role: 'host' },
+    ],
+  };
+
+  async function practiceSeatApp(startAckTimeoutMs = 1_000): Promise<TestAppWithMeeting> {
+    return createPracticeTestApp({
       speechRecognition: 'browser',
-      scenario,
-      modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
+      scenario: hostScenario,
+      startAckTimeoutMs,
       roomRoster: async () => [],
       rejoinGraceMs: 60_000,
       rejoinPollMs: 60_000,
-      startAckTimeoutMs: 1_000,
+      practiceModules: practiceModulesWith([createMeetingModule({ notetakerIntervalMs: 60_000 })]),
     });
+  }
+
+  it('never starts a reset replacement from a late acknowledgement', async () => {
+    const app = await practiceSeatApp();
     const port = portOf(app);
-    const screen = await connectClient(port, 'screen');
-    const runner = await connectService(port);
+    let screen = await connectMeetingClient(port, app.meetingId, 'screen');
+    const runner = await connectService(port, app.meetingId);
     let ackMode: 'none' | 'ready' = 'none';
     const prepares: Array<{ requestId: string; attempt: string; meetingId: string }> = [];
+    const join = () => fetch(meetingUrl(app, app.meetingId, '/api/livekit/token'), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie: app.cookie! },
+      body: JSON.stringify({ roomName: 'test-room', participantName: 'Bao', participantRole: 'cashier', kind: 'practice' }),
+    });
+    const startMeeting = () => fetch(meetingUrl(app, app.meetingId, '/api/meeting/start'), {
+      method: 'POST',
+      headers: { cookie: app.cookie! },
+    });
+    const capability = app.cookie!.slice(app.cookie!.indexOf('.') + 1);
     try {
       runner.on('message', (data) => {
         const message = JSON.parse(data.toString()) as {
@@ -1200,8 +1180,8 @@ describe('legacy rejoin and start races', () => {
         }
       });
 
-      expect((await join(app, { participantName: 'Bao', participantRole: 'cashier' })).status).toBe(200);
-      const firstStart = startMeeting(app);
+      expect((await join()).status).toBe(200);
+      const firstStart = startMeeting();
       await waitFor(() => (prepares[0] === undefined ? undefined : prepares[0]), 'the first prepare');
       const oldPrepare = prepares[0]!;
 
@@ -1220,17 +1200,20 @@ describe('legacy rejoin and start races', () => {
       expect(resetStart.status).toBe(503);
       await settle(100);
       expect(screen.messages.filter((event) => event.type === 'MEETING_STARTED')).toHaveLength(0);
-      const afterReset = (await (await fetch(`http://127.0.0.1:${port}/api/meeting/state`)).json()) as {
+      const afterReset = (await (await fetch(meetingUrl(app, app.meetingId, '/api/meeting/state'))).json()) as {
         meetingId: string;
         started: boolean;
       };
       expect(afterReset).toMatchObject({ meetingId: replacement, started: false });
 
       // The replacement meeting gets its own attempt; the old acknowledgement cannot satisfy it.
-      // A reset clears its holders, so the same person joins the replacement before Start.
-      expect((await join(app, { participantName: 'Bao', participantRole: 'cashier' })).status).toBe(200);
+      // A reset also clears the visitor's capability and revokes the practice screen, so re-grant
+      // the capability and reconnect the screen before the same person rejoins.
+      app.session.beginPractice({ token: capability });
+      expect((await join()).status).toBe(200);
+      screen = await connectMeetingClient(port, app.meetingId, 'screen');
       ackMode = 'ready';
-      const secondStart = await startMeeting(app);
+      const secondStart = await startMeeting();
       expect(secondStart.status).toBe(200);
       expect(prepares).toHaveLength(2);
       expect(prepares[1]!.meetingId).toBe(replacement);
@@ -1246,25 +1229,20 @@ describe('legacy rejoin and start races', () => {
   });
 
   it('never commits a meeting whose reset lands after the acknowledgement but before the start', async () => {
-    const scenario: Scenario = {
-      ...testScenario,
-      npcs: [
-        { attendee: 'Ada', voice: 'v', personality: 'p', agenda: 'a', concerns: [], role: 'host' },
-      ],
-    };
-    const app = await createApp({
-      speechRecognition: 'browser',
-      scenario,
-      modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
-      roomRoster: async () => [],
-      rejoinGraceMs: 60_000,
-      rejoinPollMs: 60_000,
-      startAckTimeoutMs: 1_000,
-    });
+    const app = await practiceSeatApp();
     const port = portOf(app);
-    const screen = await connectClient(port, 'screen');
-    const runner = await connectService(port);
+    const screen = await connectMeetingClient(port, app.meetingId, 'screen');
+    const runner = await connectService(port, app.meetingId);
     const prepares: Array<{ requestId: string; attempt: string; meetingId: string }> = [];
+    const join = () => fetch(meetingUrl(app, app.meetingId, '/api/livekit/token'), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie: app.cookie! },
+      body: JSON.stringify({ roomName: 'test-room', participantName: 'Bao', participantRole: 'cashier', kind: 'practice' }),
+    });
+    const startMeeting = () => fetch(meetingUrl(app, app.meetingId, '/api/meeting/start'), {
+      method: 'POST',
+      headers: { cookie: app.cookie! },
+    });
     try {
       runner.on('message', (data) => {
         const message = JSON.parse(data.toString()) as {
@@ -1278,12 +1256,12 @@ describe('legacy rejoin and start races', () => {
         prepares.push({ requestId, attempt, meetingId });
       });
 
-      expect((await join(app, { participantName: 'Bao', participantRole: 'cashier' })).status).toBe(200);
-      const firstStart = startMeeting(app);
+      expect((await join()).status).toBe(200);
+      const firstStart = startMeeting();
       await waitFor(() => (prepares[0] === undefined ? undefined : prepares[0]), 'the prepare');
       const oldPrepare = prepares[0]!;
 
-      // The hub calls the app's service handler first, which resolves the Start waiter; ours runs
+      // The hub calls the meeting's service handler first, which resolves the Start waiter; ours runs
       // next, still synchronously, so the reset lands after acknowledgement and before the commit.
       let replacement: string | undefined;
       app.hub.onServiceMessage?.((message) => {
@@ -1303,7 +1281,7 @@ describe('legacy rejoin and start races', () => {
       expect(resetStart.status).toBe(503);
       await settle(100);
       expect(screen.messages.filter((event) => event.type === 'MEETING_STARTED')).toHaveLength(0);
-      const afterReset = (await (await fetch(`http://127.0.0.1:${port}/api/meeting/state`)).json()) as {
+      const afterReset = (await (await fetch(meetingUrl(app, app.meetingId, '/api/meeting/state'))).json()) as {
         meetingId: string;
         started: boolean;
       };
@@ -1315,45 +1293,71 @@ describe('legacy rejoin and start races', () => {
     }
   });
 
-
   async function twoInAStartedMeeting(
     graceMs: number,
     pollMs: number,
-  ): Promise<{ app: Awaited<ReturnType<typeof startApp>>; screen: TestClient; people: { value: Roster }; taskId: string; code: string }> {
+  ): Promise<{
+    app: TestAppWithMeeting;
+    screen: TestClient;
+    people: { value: Roster };
+    taskId: string;
+    code: string;
+    join: (participantName: string) => Promise<Response>;
+  }> {
     const people: { value: Roster } = { value: [] };
-    const app = await startApp({ graceMs, pollMs, roster: () => people.value });
-    const screen = await connectClient(portOf(app), 'screen');
-    const first = await join(app, { participantName: 'Ada', participantRole: 'chef' });
-    const firstBody = (await first.json()) as { meetingCode: string };
-    people.value = [{ name: 'Ada', role: 'chef' }];
-    const second = await join(app, { participantName: 'Bao', participantRole: 'cashier', meetingCode: firstBody.meetingCode });
-    expect(second.status).toBe(200);
-    people.value = [{ name: 'Ada', role: 'chef' }, { name: 'Bao', role: 'cashier' }];
-    expect((await startMeeting(app)).status).toBe(200);
-    const task = app.tasks.suggest({ title: 'Keep this card', context: 'Before the break', suggestedAssignee: 'chef' });
+    const app = await createRealTestApp(
+      {
+        speechRecognition: 'browser',
+        scenario: testScenario,
+        roomRoster: async () => people.value,
+        rejoinGraceMs: graceMs,
+        rejoinPollMs: pollMs,
+        admissionReservationMs: 20,
+      },
+      { title: 'Weekly planning', agenda: [{ title: 'Prep', minutes: 5 }] },
+    );
+    const port = portOf(app);
+    const screen = await connectMeetingClient(port, app.meetingId, 'screen');
+    // The owner's open carries the meeting into the next one after the grace; while it runs it answers 409 harmlessly.
+    const join = async (participantName: string): Promise<Response> => {
+      await fetch(meetingUrl(app, app.meetingId, '/api/meeting/open'), { method: 'POST' });
+      return fetch(meetingUrl(app, app.meetingId, '/api/livekit/token'), {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ roomName: 'test-room', participantName }),
+      });
+    };
+    expect((await join('Ada')).status).toBe(200);
+    people.value = [{ name: 'Ada' }];
+    expect((await join('Bao')).status).toBe(200);
+    people.value = [{ name: 'Ada' }, { name: 'Bao' }];
+    expect((await fetch(meetingUrl(app, app.meetingId, '/api/meeting/start'), { method: 'POST' })).status).toBe(200);
+    const code = app.instance.meetingCode();
+    const assignee = app.session.holders()[0]?.seat ?? 'everyone';
+    const task = app.tasks.suggest({ title: 'Keep this card', context: 'Before the break', suggestedAssignee: assignee });
     await settle(120);
-    return { app, screen, people, taskId: task.id, code: firstBody.meetingCode };
+    return { app, screen, people, taskId: task.id, code, join };
   }
 
   it('keeps the meeting when one leaves while the other stays, and when both return in either order', async () => {
-    const { app, screen, people, taskId, code } = await twoInAStartedMeeting(60_000, 5);
+    const { app, screen, people, taskId, code, join } = await twoInAStartedMeeting(60_000, 5);
     try {
       const resetsBefore = screen.messages.filter((event) => event.type === 'MEETING_RESET').length;
       // Ada leaves, Bao stays: the poll sees a person, so there is no grace and no reset.
-      people.value = [{ name: 'Bao', role: 'cashier' }];
+      people.value = [{ name: 'Bao' }];
       await settle(50);
       expect(screen.messages.filter((event) => event.type === 'MEETING_RESET')).toHaveLength(resetsBefore);
 
       // Bao leaves too: the grace starts. Ada returns first, then Bao.
       people.value = [];
       await settle(50);
-      const adaBack = await join(app, { participantName: 'Ada', participantRole: 'chef' });
-      const adaBody = (await adaBack.json()) as { meetingCode: string; started?: boolean };
+      const adaBack = await join('Ada');
+      const adaBody = (await adaBack.json()) as { started?: boolean };
       expect(adaBack.status).toBe(200);
-      expect(adaBody.meetingCode).toBe(code);
       expect(adaBody.started).toBe(true);
-      people.value = [{ name: 'Ada', role: 'chef' }];
-      const baoBack = await join(app, { participantName: 'Bao', participantRole: 'cashier', meetingCode: code });
+      expect(app.instance.meetingCode()).toBe(code);
+      people.value = [{ name: 'Ada' }];
+      const baoBack = await join('Bao');
       const baoBody = (await baoBack.json()) as { started?: boolean };
       expect(baoBack.status).toBe(200);
       expect(baoBody.started).toBe(true);
@@ -1366,18 +1370,19 @@ describe('legacy rejoin and start races', () => {
   });
 
   it('keeps the meeting when both return in the other order', async () => {
-    const { app, screen, people, taskId, code } = await twoInAStartedMeeting(60_000, 5);
+    const { app, screen, people, taskId, code, join } = await twoInAStartedMeeting(60_000, 5);
     try {
       const resetsBefore = screen.messages.filter((event) => event.type === 'MEETING_RESET').length;
       people.value = [];
       await settle(50);
-      const baoBack = await join(app, { participantName: 'Bao', participantRole: 'cashier', meetingCode: code });
+      const baoBack = await join('Bao');
       expect(baoBack.status).toBe(200);
-      people.value = [{ name: 'Bao', role: 'cashier' }];
-      const adaBack = await join(app, { participantName: 'Ada', participantRole: 'chef', meetingCode: code });
+      people.value = [{ name: 'Bao' }];
+      const adaBack = await join('Ada');
       const adaBody = (await adaBack.json()) as { started?: boolean };
       expect(adaBack.status).toBe(200);
       expect(adaBody.started).toBe(true);
+      expect(app.instance.meetingCode()).toBe(code);
       expect(app.tasks.get(taskId)?.title).toBe('Keep this card');
       expect(screen.messages.filter((event) => event.type === 'MEETING_RESET')).toHaveLength(resetsBefore);
     } finally {
@@ -1387,13 +1392,13 @@ describe('legacy rejoin and start races', () => {
   });
 
   it('resets to an unstarted meeting once the grace expires', async () => {
-    const { app, screen, people, taskId } = await twoInAStartedMeeting(20, 5);
+    const { app, screen, people, taskId, join } = await twoInAStartedMeeting(20, 5);
     try {
       const resetsBefore = screen.messages.filter((event) => event.type === 'MEETING_RESET').length;
       people.value = [];
       await settle(60);
 
-      const back = await join(app, { participantName: 'Ada', participantRole: 'chef' });
+      const back = await join('Ada');
       const body = (await back.json()) as { started?: boolean };
       expect(back.status).toBe(200);
       expect(body.started).toBe(false);

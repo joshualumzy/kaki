@@ -1,25 +1,30 @@
+import { randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
-import {
-  DEFAULT_MEETING_PACE,
-  defaultMeetingSetup,
-  type KakiEvent,
-  type MeetingSetup,
-  type Scenario,
-} from '@kaki/shared';
-import { createApp, type KakiApp } from '../src/app';
+import { type KakiEvent } from '@kaki/shared';
 import { createAuth } from '../src/auth/module';
-import { hashPassword } from '../src/auth/password';
+import { hashPassword, hashToken } from '../src/auth/password';
 import { createMemoryAuthStore, type AuthStore } from '../src/auth/store';
 import { createAgendaClock } from '../src/host/clock';
 import { createMeetingModule } from '../src/host/meeting';
 import { createFakeLlm } from '../src/services/llm';
 import { loadScenario } from '../src/core/loadScenario';
 import { createMeetingCodeSource } from '../src/meeting/meetingCode';
-import { portOf, settle, waitFor } from './helpers';
+import { SAMPLE_WORKSPACE_ID } from '../src/workspace/constants';
+import {
+  createPracticeTestApp,
+  createRealTestApp,
+  meetingUrl,
+  meetingWsUrl,
+  portOf,
+  practiceModulesWith,
+  realModulesWith,
+  settle,
+  waitFor,
+  type TestAppWithMeeting,
+} from './helpers';
 import { testScenario } from './fixtures/scenario';
 
-const CODE = 'K7M2Q9';
 const TOKEN = 'local-test-runner-token';
 /** The sample workspace's Mattermost connection, so a chat card has somewhere real to go. */
 const mattermostEnv = {
@@ -31,7 +36,7 @@ const mattermostEnv = {
 
 type SocketResult = { ok: true; ws: WebSocket; messages: KakiEvent[] } | { ok: false; status: number };
 
-const apps: KakiApp[] = [];
+const apps: TestAppWithMeeting[] = [];
 const sockets: WebSocket[] = [];
 
 afterEach(async () => {
@@ -40,30 +45,45 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
-/** The real pack, but the owner has made the two human seats and kept the pack's roles. */
-function twoPersonSetup(pack: Scenario): MeetingSetup {
-  return {
-    ...defaultMeetingSetup(pack),
-    title: 'Opening huddle',
-    agenda: [{ id: 'agenda-1', title: 'Opening checklist', minutes: 5, ownerRoleId: 'operations_director' }],
-    seats: [
-      { displayName: 'Wei Ling', roleId: 'operations_director', kind: 'person' },
-      { displayName: 'Arjun', roleId: 'tech_pos_lead', kind: 'person' },
-    ],
-    pace: { ...DEFAULT_MEETING_PACE },
-  };
-}
-
 function cookieFrom(response: Response): string {
   const value = response.headers.get('set-cookie')?.split(';')[0];
   if (!value) throw new Error('Expected a session cookie');
   return value;
 }
 
-function connect(port: number, role: string, cookie?: string): Promise<SocketResult> {
+async function requestUrl(
+  url: string,
+  method = 'GET',
+  body?: unknown,
+  cookie?: string,
+): Promise<Response> {
+  const headers: Record<string, string> = {};
+  if (body !== undefined) headers['content-type'] = 'application/json';
+  if (cookie !== undefined) headers.cookie = cookie;
+  return fetch(url, {
+    method,
+    headers,
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
+}
+
+function openMeeting(app: TestAppWithMeeting, cookie?: string): Promise<Response> {
+  return requestUrl(meetingUrl(app, app.meetingId, '/api/meeting/open'), 'POST', undefined, cookie);
+}
+
+function startMeeting(app: TestAppWithMeeting, cookie?: string): Promise<Response> {
+  return requestUrl(meetingUrl(app, app.meetingId, '/api/meeting/start'), 'POST', undefined, cookie);
+}
+
+function connect(
+  port: number,
+  meetingId: string,
+  role: string,
+  cookie?: string,
+): Promise<SocketResult> {
   const headers: Record<string, string> = {};
   if (cookie !== undefined) headers.cookie = cookie;
-  const ws = new WebSocket(`ws://127.0.0.1:${port}/ws?role=${encodeURIComponent(role)}`, { headers });
+  const ws = new WebSocket(meetingWsUrl(port, meetingId, `role=${encodeURIComponent(role)}`), { headers });
   const messages: KakiEvent[] = [];
   ws.on('message', (data) => messages.push(JSON.parse(data.toString()) as KakiEvent));
   return new Promise((resolve) => {
@@ -76,67 +96,94 @@ function connect(port: number, role: string, cookie?: string): Promise<SocketRes
   });
 }
 
+/** Join a sign-in-off real meeting under a typed name; there is no code or role picker. */
+async function joinOpenSeat(
+  app: TestAppWithMeeting,
+  name: string,
+): Promise<{ seat: string; cookie?: string }> {
+  const joined = await requestUrl(
+    meetingUrl(app, app.meetingId, '/api/livekit/token'),
+    'POST',
+    { participantName: name },
+  );
+  expect(joined.status).toBe(200);
+  const body = (await joined.json()) as { participantRole: string };
+  const cookie = joined.headers.get('set-cookie')?.split(';')[0];
+  return { seat: body.participantRole, ...(cookie === undefined ? {} : { cookie }) };
+}
+
+/** Guest join then take a seat, returning the rotated seat cookie and its seat id. */
+async function guestSeat(
+  app: TestAppWithMeeting,
+  name: string,
+): Promise<{ seat: string; cookie: string }> {
+  const joined = await requestUrl(meetingUrl(app, app.meetingId, '/join'), 'POST', { name });
+  expect(joined.status).toBe(200);
+  const guest = cookieFrom(joined);
+  const seated = await requestUrl(
+    meetingUrl(app, app.meetingId, '/api/livekit/token'),
+    'POST',
+    { participantName: name },
+    guest,
+  );
+  expect(seated.status).toBe(200);
+  const body = (await seated.json()) as { participantRole: string };
+  return { seat: body.participantRole, cookie: cookieFrom(seated) };
+}
+
 async function humanOnlyApp(
   speechRecognition: 'server' | 'browser' = 'browser',
-): Promise<{ app: KakiApp; port: number; llm: ReturnType<typeof createFakeLlm> }> {
-  const pack = await loadScenario('kopitiam');
-  const llm = createFakeLlm(() => JSON.stringify({ newQuestions: [], answeredQuestionIds: [], answeredQuestions: [], newTasks: [], revisions: [] }));
-  const app = await createApp({
-    scenario: pack,
-    actionTools: { env: mattermostEnv },
-    modules: [createMeetingModule({ llm, notetakerIntervalMs: 40 })],
-    roomRoster: async () => [],
-    speechRecognition,
-  });
+): Promise<{ app: TestAppWithMeeting; port: number; llm: ReturnType<typeof createFakeLlm> }> {
+  const llm = createFakeLlm(() =>
+    JSON.stringify({ newQuestions: [], answeredQuestionIds: [], answeredQuestions: [], newTasks: [], revisions: [] }),
+  );
+  const app = await createRealTestApp(
+    {
+      actionTools: { env: mattermostEnv },
+      meetingModules: realModulesWith([createMeetingModule({ llm, notetakerIntervalMs: 40 })]),
+      roomRoster: async () => [],
+      speechRecognition,
+    },
+    {
+      workspaceId: SAMPLE_WORKSPACE_ID,
+      title: 'Opening huddle',
+      agenda: [{ title: 'Opening checklist', minutes: 5 }],
+    },
+  );
   apps.push(app);
   return { app, port: portOf(app), llm };
 }
 
-async function seatTwoPeople(app: KakiApp, port: number, setup?: MeetingSetup): Promise<void> {
-  const chosen = setup ?? twoPersonSetup(await loadScenario('kopitiam'));
-  const put = await fetch(`http://127.0.0.1:${port}/api/setup`, {
-    method: 'PUT',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(chosen),
-  });
-  expect(put.status).toBe(200);
-  const opened = await fetch(`http://127.0.0.1:${port}/api/meeting/open`, { method: 'POST' });
-  expect(opened.status).toBe(200);
-  const first = await fetch(`http://127.0.0.1:${port}/api/livekit/token`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ roomName: 'room', participantName: 'Alice', participantRole: 'operations_director' }),
-  });
-  expect(first.status).toBe(200);
-  const code = ((await first.json()) as { meetingCode: string }).meetingCode;
-  const second = await fetch(`http://127.0.0.1:${port}/api/livekit/token`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      roomName: 'room',
-      participantName: 'Ben',
-      participantRole: 'tech_pos_lead',
-      meetingCode: code,
-    }),
-  });
-  expect(second.status).toBe(200);
+async function openAndSeatTwoPeople(
+  app: TestAppWithMeeting,
+): Promise<{ aliceSeat: string; benSeat: string }> {
+  expect((await openMeeting(app)).status).toBe(200);
+  const alice = await joinOpenSeat(app, 'Alice');
+  const ben = await joinOpenSeat(app, 'Ben');
   expect(app.session.holders()).toHaveLength(2);
+  return { aliceSeat: alice.seat, benSeat: ben.seat };
 }
 
 async function humanOnlyMeeting(
-  options: { speechRecognition?: 'server' | 'browser'; setup?: MeetingSetup } = {},
-): Promise<{ app: KakiApp; port: number; llm: ReturnType<typeof createFakeLlm> }> {
+  options: { speechRecognition?: 'server' | 'browser' } = {},
+): Promise<{
+  app: TestAppWithMeeting;
+  port: number;
+  llm: ReturnType<typeof createFakeLlm>;
+  aliceSeat: string;
+  benSeat: string;
+}> {
   const { app, port, llm } = await humanOnlyApp(options.speechRecognition ?? 'browser');
-  await seatTwoPeople(app, port, options.setup);
+  const { aliceSeat, benSeat } = await openAndSeatTwoPeople(app);
   // No service socket is opened: browser-side recognition needs no AI runner at all.
-  const started = await fetch(`http://127.0.0.1:${port}/api/meeting/start`, { method: 'POST' });
+  const started = await startMeeting(app);
   expect(started.status).toBe(200);
   await waitFor(() => (app.session.phase() === 'running' ? true : undefined), 'the meeting to run');
-  return { app, port, llm };
+  return { app, port, llm, aliceSeat, benSeat };
 }
 
-function serviceSocket(port: number, stt: 'server' | 'browser' = 'server'): Promise<SocketResult> {
-  const ws = new WebSocket(`ws://127.0.0.1:${port}/ws?role=service&stt=${stt}`);
+function serviceSocket(port: number, meetingId: string, stt: 'server' | 'browser' = 'server'): Promise<SocketResult> {
+  const ws = new WebSocket(meetingWsUrl(port, meetingId, `role=service&stt=${stt}`));
   const messages: KakiEvent[] = [];
   ws.on('message', (data) => messages.push(JSON.parse(data.toString()) as KakiEvent));
   return new Promise((resolve) => {
@@ -155,27 +202,26 @@ function humanLine(text: string, clientLineId: string, extra: Record<string, unk
 
 describe('human-only meetings record people\'s lines', () => {
   it('writes speech lines with the admitted person\'s name, sets the seat as role metadata, feeds the notetaker, and dedupes', async () => {
-    const { port, llm } = await humanOnlyMeeting();
-    const screen = await connect(port, 'screen');
-    const operations_director = await connect(port, 'operations_director');
-    const programmer = await connect(port, 'tech_pos_lead');
-    if (!screen.ok || !operations_director.ok || !programmer.ok) throw new Error('sockets did not open');
-    sockets.push(screen.ws, operations_director.ws, programmer.ws);
+    const { app, port, llm, aliceSeat, benSeat } = await humanOnlyMeeting();
+    const screen = await connect(port, app.meetingId, 'screen');
+    const alice = await connect(port, app.meetingId, aliceSeat);
+    const ben = await connect(port, app.meetingId, benSeat);
+    if (!screen.ok || !alice.ok || !ben.ok) throw new Error('sockets did not open');
+    sockets.push(screen.ws, alice.ws, ben.ws);
 
-    operations_director.ws.send(humanLine('I checked the front counter this morning.', 'line-1'));
+    alice.ws.send(humanLine('I checked the front counter this morning.', 'line-1'));
     // A spoofed speaker field must never decide who said it.
-    programmer.ws.send(
+    ben.ws.send(
       JSON.stringify({
         type: 'HUMAN_LINE',
         text: 'The laptop campers bought one kopi each.',
-        
         clientLineId: 'line-2',
         speaker: 'Sam',
       }),
     );
     // A retry with the same id is the same line, not a second one.
-    operations_director.ws.send(humanLine('The queue was out the door.', 'line-3'));
-    operations_director.ws.send(humanLine('The queue was out the door.', 'line-3'));
+    alice.ws.send(humanLine('The queue was out the door.', 'line-3'));
+    alice.ws.send(humanLine('The queue was out the door.', 'line-3'));
 
     await waitFor(
       () => screen.messages.filter((event) => event.type === 'TRANSCRIPT_CHUNK').length >= 3 ? true : undefined,
@@ -189,9 +235,9 @@ describe('human-only meetings record people\'s lines', () => {
     expect(lines).toHaveLength(3);
     expect(lines.map((line) => [line.payload.speaker, line.payload.speakerRole, line.payload.text])).toEqual(
       expect.arrayContaining([
-        ['Alice', 'operations_director', 'I checked the front counter this morning.'],
-        ['Ben', 'tech_pos_lead', 'The laptop campers bought one kopi each.'],
-        ['Alice', 'operations_director', 'The queue was out the door.'],
+        ['Alice', aliceSeat, 'I checked the front counter this morning.'],
+        ['Ben', benSeat, 'The laptop campers bought one kopi each.'],
+        ['Alice', aliceSeat, 'The queue was out the door.'],
       ]),
     );
 
@@ -213,37 +259,14 @@ describe('human-only meetings record people\'s lines', () => {
   it('refuses human lines in the lobby and after the meeting has ended, and logs the refusal', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const { app, port } = await humanOnlyApp();
-    const pack = await loadScenario('kopitiam');
-    const put = await fetch(`http://127.0.0.1:${port}/api/setup`, {
-      method: 'PUT',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(twoPersonSetup(pack)),
-    });
-    expect(put.status).toBe(200);
-    expect((await fetch(`http://127.0.0.1:${port}/api/meeting/open`, { method: 'POST' })).status).toBe(200);
-    const first = await fetch(`http://127.0.0.1:${port}/api/livekit/token`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ roomName: 'room', participantName: 'Alice', participantRole: 'operations_director' }),
-    });
-    const code = ((await first.json()) as { meetingCode: string }).meetingCode;
-    await fetch(`http://127.0.0.1:${port}/api/livekit/token`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        roomName: 'room',
-        participantName: 'Ben',
-        participantRole: 'tech_pos_lead',
-        meetingCode: code,
-      }),
-    });
-    const operations_director = await connect(port, 'operations_director');
-    if (!operations_director.ok) throw new Error('operations_director socket did not open');
-    sockets.push(operations_director.ws);
+    const { aliceSeat } = await openAndSeatTwoPeople(app);
+    const alice = await connect(port, app.meetingId, aliceSeat);
+    if (!alice.ok) throw new Error('alice socket did not open');
+    sockets.push(alice.ws);
 
-    operations_director.ws.send(humanLine('Too early.', 'lobby-line'));
+    alice.ws.send(humanLine('Too early.', 'lobby-line'));
     const lobby = await waitFor(
-      () => operations_director.messages.find((event) => event.type === 'COMMAND_REJECTED'),
+      () => alice.messages.find((event) => event.type === 'COMMAND_REJECTED'),
       'a lobby rejection',
     );
     expect(lobby).toMatchObject({ payload: { commandType: 'HUMAN_LINE', reason: 'The meeting is not running' } });
@@ -256,43 +279,38 @@ describe('human-only meetings record people\'s lines', () => {
       ),
     ).toBe(true);
 
-    expect((await fetch(`http://127.0.0.1:${port}/api/meeting/start`, { method: 'POST' })).status).toBe(200);
+    expect((await startMeeting(app)).status).toBe(200);
     await waitFor(() => (app.session.phase() === 'running' ? true : undefined), 'the meeting to run');
-    const screen = await connect(port, 'screen');
+    const screen = await connect(port, app.meetingId, 'screen');
     if (!screen.ok) throw new Error('screen socket did not open');
     sockets.push(screen.ws);
     screen.ws.send(JSON.stringify({ type: 'END_MEETING' }));
     await waitFor(() => (app.session.phase() === 'ended' ? true : undefined), 'the meeting to end');
 
-    operations_director.ws.send(humanLine('Too late.', 'ended-line'));
+    alice.ws.send(humanLine('Too late.', 'ended-line'));
     const ended = await waitFor(
-      () => operations_director.messages.find((event) => event.type === 'COMMAND_REJECTED' && event.payload.reason === 'The meeting is not running'),
+      () => alice.messages.find((event) => event.type === 'COMMAND_REJECTED' && event.payload.reason === 'The meeting is not running'),
       'an ended rejection',
     );
     expect(ended).toMatchObject({ payload: { commandType: 'HUMAN_LINE', reason: 'The meeting is not running' } });
   });
 });
 
-describe('a renamed person seat keeps its role', () => {
-  it('writes the admitted name with the seat role, so talk time and the notetaker still know who spoke', async () => {
-    const pack = await loadScenario('kopitiam');
-    const setup = twoPersonSetup(pack);
-    setup.seats = setup.seats.map((seat) =>
-      seat.roleId === 'operations_director' ? { ...seat, displayName: 'Alice Tan' } : seat,
-    );
-    const { port, llm } = await humanOnlyMeeting({ setup });
-    const screen = await connect(port, 'screen');
-    const operations_director = await connect(port, 'operations_director');
-    if (!screen.ok || !operations_director.ok) throw new Error('sockets did not open');
-    sockets.push(screen.ws, operations_director.ws);
+describe('a person\'s own seat keeps their name and role', () => {
+  it('writes the admitted name with their seat, so talk time and the notetaker still know who spoke', async () => {
+    const { app, port, llm, aliceSeat } = await humanOnlyMeeting();
+    const screen = await connect(port, app.meetingId, 'screen');
+    const alice = await connect(port, app.meetingId, aliceSeat);
+    if (!screen.ok || !alice.ok) throw new Error('sockets did not open');
+    sockets.push(screen.ws, alice.ws);
 
-    operations_director.ws.send(humanLine('I checked the front counter this morning.', 'renamed-line'));
+    alice.ws.send(humanLine('I checked the front counter this morning.', 'renamed-line'));
     const line = await waitFor(
       () => screen.messages.find((event) => event.type === 'TRANSCRIPT_CHUNK'),
-      'the renamed seat transcript line',
+      'the seat transcript line',
     );
     expect(line).toMatchObject({
-      payload: { speaker: 'Alice', speakerRole: 'operations_director', text: 'I checked the front counter this morning.' },
+      payload: { speaker: 'Alice', speakerRole: aliceSeat, text: 'I checked the front counter this morning.' },
     });
 
     const record = await waitFor(
@@ -300,18 +318,18 @@ describe('a renamed person seat keeps its role', () => {
         screen.messages.find(
           (event) =>
             event.type === 'MEETING_RECORD_UPDATED' &&
-            (event.payload.speakerTalkSeconds.operations_director ?? 0) >= 1,
+            (event.payload.speakerTalkSeconds[aliceSeat] ?? 0) >= 1,
         ),
-      'talk time for the renamed seat',
+      'talk time for the seat',
     );
-    expect(record).toMatchObject({ payload: { speakerTalkSeconds: { operations_director: expect.any(Number) } } });
+    expect(record).toMatchObject({ payload: { speakerTalkSeconds: { [aliceSeat]: expect.any(Number) } } });
 
-    const operationsDirectorLabel = pack.roles.find((role) => role.id === 'operations_director')?.label;
-    expect(operationsDirectorLabel).toBeDefined();
+    const seatLabel = app.session.active().roles.find((role) => role.id === aliceSeat)?.label;
+    expect(seatLabel).toBeDefined();
     await waitFor(
       () =>
         llm.calls.some((messages) =>
-          messages.some((message) => message.content.includes(`Alice (${operationsDirectorLabel})`)),
+          messages.some((message) => message.content.includes(`Alice (${seatLabel})`)),
         )
           ? true
           : undefined,
@@ -322,22 +340,51 @@ describe('a renamed person seat keeps its role', () => {
 
 describe('a practice room matches speech by the name identity its token issues', () => {
   it('accepts a server-recognised practice line under its display name', async () => {
-    const { port } = await humanOnlyMeeting();
-    const screen = await connect(port, 'screen');
+    const pack = await loadScenario('kopitiam');
+    const app = await createPracticeTestApp({
+      scenario: pack,
+      speechRecognition: 'browser',
+      roomRoster: async () => [],
+    });
+    apps.push(app);
+    const port = portOf(app);
+    const screen = await connect(port, app.meetingId, 'screen');
     if (!screen.ok) throw new Error('screen socket did not open');
     sockets.push(screen.ws);
-    const meetingId = ((await (await fetch(`http://127.0.0.1:${port}/api/meeting/state`)).json()) as { meetingId: string })
-      .meetingId;
+
+    // A practice meeting starts with its AI colleagues, so the runner answers the prepare handshake.
+    const service = await connect(port, app.meetingId, 'service');
+    if (!service.ok) throw new Error('service socket did not open');
+    sockets.push(service.ws);
+    service.ws.on('message', (data) => {
+      const message = JSON.parse(data.toString()) as {
+        kind?: string;
+        request?: { requestId?: string; attempt?: string; meetingId?: string };
+      };
+      const { requestId, attempt, meetingId } = message.request ?? {};
+      if (message.kind !== 'prepare' || requestId === undefined || attempt === undefined || meetingId === undefined) return;
+      service.ws.send(JSON.stringify({ kind: 'ready', requestId, attempt, meetingId }));
+    });
+
+    const joined = await requestUrl(
+      meetingUrl(app, app.meetingId, '/api/livekit/token'),
+      'POST',
+      { participantName: 'Alice', participantRole: 'operations_director', kind: 'practice' },
+      app.cookie,
+    );
+    expect(joined.status).toBe(200);
+    expect((await startMeeting(app, app.cookie)).status).toBe(200);
+    await waitFor(() => (app.session.phase() === 'running' ? true : undefined), 'the practice meeting to run');
+
     const text = 'The practice line still lands.';
-    const response = await fetch(`http://127.0.0.1:${port}/api/runner/human-line`, {
+    const response = await fetch(meetingUrl(app, app.meetingId, '/api/runner/human-line'), {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${TOKEN}` },
       body: JSON.stringify({
-        meetingId,
+        meetingId: app.meetingId,
         participantIdentity: 'Alice',
         seat: 'operations_director',
         text,
-        
         clientLineId: 'practice-speech',
       }),
     });
@@ -352,9 +399,9 @@ describe('a practice room matches speech by the name identity its token issues',
 
 describe('speech recording needs the runner when recognition is server-side', () => {
   it('refuses Start in a human-only meeting with no runner, with a clear reason', async () => {
-    const { app, port } = await humanOnlyApp('server');
-    await seatTwoPeople(app, port);
-    const refused = await fetch(`http://127.0.0.1:${port}/api/meeting/start`, { method: 'POST' });
+    const { app } = await humanOnlyApp('server');
+    await openAndSeatTwoPeople(app);
+    const refused = await startMeeting(app);
     expect(refused.status).toBe(503);
     expect(((await refused.json()) as { error?: string }).error).toMatch(/Speech recording isn't ready/);
     expect(app.session.phase()).toBe('lobby');
@@ -362,15 +409,15 @@ describe('speech recording needs the runner when recognition is server-side', ()
 
   it('opens with a server-side runner and says so when that runner drops mid-meeting', async () => {
     const { app, port } = await humanOnlyApp('server');
-    const service = await serviceSocket(port);
+    const service = await serviceSocket(port, app.meetingId);
     if (!service.ok) throw new Error('service socket did not open');
     sockets.push(service.ws);
-    await seatTwoPeople(app, port);
-    const screen = await connect(port, 'screen');
+    await openAndSeatTwoPeople(app);
+    const screen = await connect(port, app.meetingId, 'screen');
     if (!screen.ok) throw new Error('screen socket did not open');
     sockets.push(screen.ws);
 
-    const started = await fetch(`http://127.0.0.1:${port}/api/meeting/start`, { method: 'POST' });
+    const started = await startMeeting(app);
     expect(started.status).toBe(200);
     await waitFor(() => (app.session.phase() === 'running' ? true : undefined), 'the meeting to run');
     await waitFor(
@@ -388,47 +435,46 @@ describe('speech recording needs the runner when recognition is server-side', ()
 
 describe('human lines are bounded, rate limited and deduped per seat', () => {
   it('refuses a speech line beyond its cap with a clear reason', async () => {
-    const { port } = await humanOnlyMeeting();
-    const operations_director = await connect(port, 'operations_director');
-    if (!operations_director.ok) throw new Error('operations_director socket did not open');
-    sockets.push(operations_director.ws);
+    const { app, port, aliceSeat } = await humanOnlyMeeting();
+    const alice = await connect(port, app.meetingId, aliceSeat);
+    if (!alice.ok) throw new Error('alice socket did not open');
+    sockets.push(alice.ws);
 
-    operations_director.ws.send(
+    alice.ws.send(
       JSON.stringify({
         type: 'HUMAN_LINE',
         text: 'y'.repeat(2_001),
-        
         clientLineId: 'too-long-speech',
       }),
     );
     const refusal = await waitFor(
-      () => operations_director.messages.find((event) => event.type === 'COMMAND_REJECTED'),
+      () => alice.messages.find((event) => event.type === 'COMMAND_REJECTED'),
       'the long speech line refusal',
     );
     expect(refusal).toMatchObject({ payload: { commandType: 'HUMAN_LINE', reason: expect.stringMatching(/too long/i) } });
   });
 
   it('refuses a burst from one seat while another seat keeps its own dedupe memory', async () => {
-    const { port } = await humanOnlyMeeting();
-    const screen = await connect(port, 'screen');
-    const operations_director = await connect(port, 'operations_director');
-    const programmer = await connect(port, 'tech_pos_lead');
-    if (!screen.ok || !operations_director.ok || !programmer.ok) throw new Error('sockets did not open');
-    sockets.push(screen.ws, operations_director.ws, programmer.ws);
+    const { app, port, aliceSeat, benSeat } = await humanOnlyMeeting();
+    const screen = await connect(port, app.meetingId, 'screen');
+    const alice = await connect(port, app.meetingId, aliceSeat);
+    const ben = await connect(port, app.meetingId, benSeat);
+    if (!screen.ok || !alice.ok || !ben.ok) throw new Error('sockets did not open');
+    sockets.push(screen.ws, alice.ws, ben.ws);
 
-    operations_director.ws.send(humanLine('A line from the operations_director.', 'shared-id'));
-    programmer.ws.send(humanLine('A line from the programmer.', 'shared-id'));
+    alice.ws.send(humanLine('A line from Alice.', 'shared-id'));
+    ben.ws.send(humanLine('A line from Ben.', 'shared-id'));
     await waitFor(
       () => screen.messages.filter((event) => event.type === 'TRANSCRIPT_CHUNK').length >= 2 ? true : undefined,
       'both seats to use the same line id',
     );
 
     for (let index = 0; index < 6; index += 1) {
-      operations_director.ws.send(humanLine(`Burst line ${index}.`, `burst-${index}`));
+      alice.ws.send(humanLine(`Burst line ${index}.`, `burst-${index}`));
     }
     const refused = await waitFor(
       () =>
-        operations_director.messages.find(
+        alice.messages.find(
           (event) => event.type === 'COMMAND_REJECTED' && /Too many lines/i.test(event.payload.reason),
         ),
       'the per-seat rate-limit refusal',
@@ -438,33 +484,51 @@ describe('human lines are bounded, rate limited and deduped per seat', () => {
 });
 
 describe('human lines are not held for a human-only meeting but are held with an AI cast', () => {
-  it('dispatches a human-only task and holds an AI meeting task until its topic settles', async () => {
+  it('dispatches a human-only task and holds a practice AI task until its topic settles', async () => {
     // Human-only: the same suggestion is released by the normal non-held rule.
-    const human = await humanOnlyMeeting();
-    const humanTask = human.app.tasks.suggest({
+    const human = await createRealTestApp(
+      {
+        actionTools: { env: mattermostEnv },
+        meetingModules: realModulesWith([createMeetingModule({ notetakerIntervalMs: 60_000 })]),
+        roomRoster: async () => [],
+        speechRecognition: 'browser',
+      },
+      {
+        workspaceId: SAMPLE_WORKSPACE_ID,
+        title: 'Weekly planning',
+        agenda: [{ title: 'Opening checklist', minutes: 5 }],
+      },
+    );
+    apps.push(human);
+    expect((await openMeeting(human)).status).toBe(200);
+    const alice = await joinOpenSeat(human, 'Alice');
+    expect((await startMeeting(human)).status).toBe(200);
+    await waitFor(() => (human.session.phase() === 'running' ? true : undefined), 'the human meeting to run');
+    const humanTask = human.tasks.suggest({
       title: 'Post the opening checklist',
       context: 'The room agreed on the opening checklist.',
-      suggestedAssignee: 'operations_director',
+      suggestedAssignee: alice.seat,
       actionKind: 'mattermost_post',
       agendaItemTitle: 'Opening checklist',
     });
     await waitFor(
-      () => (human.app.tasks.get(humanTask.id)?.status === 'DISPATCHED' ? true : undefined),
+      () => (human.tasks.get(humanTask.id)?.status === 'DISPATCHED' ? true : undefined),
       'the human-only card to dispatch',
     );
 
     // With an AI cast, the Director owns TOPIC_SETTLED, so the card stays held until it arrives.
     const pack = await loadScenario('kopitiam');
     const clock = createAgendaClock({ agenda: pack.agenda });
-    const app = await createApp({
+    const app = await createPracticeTestApp({
       scenario: pack,
       actionTools: { env: mattermostEnv },
-      modules: [createMeetingModule({ clock, notetakerIntervalMs: 60_000 })],
+      practiceModules: practiceModulesWith([createMeetingModule({ clock, notetakerIntervalMs: 60_000 })]),
       roomRoster: async () => [],
+      speechRecognition: 'browser',
     });
     apps.push(app);
     const port = portOf(app);
-    const service = await connect(port, 'service');
+    const service = await connect(port, app.meetingId, 'service');
     if (!service.ok) throw new Error('service socket did not open');
     sockets.push(service.ws);
     service.ws.on('message', (data) => {
@@ -476,15 +540,14 @@ describe('human lines are not held for a human-only meeting but are held with an
       if (message.kind !== 'prepare' || requestId === undefined || attempt === undefined || meetingId === undefined) return;
       service.ws.send(JSON.stringify({ kind: 'ready', requestId, attempt, meetingId }));
     });
-    expect((await fetch(`http://127.0.0.1:${port}/api/meeting/open`, { method: 'POST' })).status).toBe(200);
-    const joined = await fetch(`http://127.0.0.1:${port}/api/livekit/token`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ roomName: 'room', participantName: 'Booth Playtest', participantRole: 'tech_pos_lead' }),
-    });
-    const joinedBody = await joined.json().catch(() => undefined);
-    expect(joined.status, JSON.stringify(joinedBody)).toBe(200);
-    expect((await fetch(`http://127.0.0.1:${port}/api/meeting/start`, { method: 'POST' })).status).toBe(200);
+    const joined = await requestUrl(
+      meetingUrl(app, app.meetingId, '/api/livekit/token'),
+      'POST',
+      { participantName: 'Booth Playtest', participantRole: 'tech_pos_lead', kind: 'practice' },
+      app.cookie,
+    );
+    expect(joined.status).toBe(200);
+    expect((await startMeeting(app, app.cookie)).status).toBe(200);
     await waitFor(() => (app.session.phase() === 'running' ? true : undefined), 'the AI meeting to run');
 
     const aiTask = app.tasks.suggest({
@@ -511,59 +574,64 @@ describe('human lines are not held for a human-only meeting but are held with an
 
 describe('human-line security with sign-in on', () => {
   async function authOnApp(): Promise<{
-    app: KakiApp;
+    app: TestAppWithMeeting;
     port: number;
-    clock: ReturnType<typeof createAgendaClock>;
+    host: string;
     setPeople(people: Array<{ name: string }>): void;
   }> {
     const store: AuthStore = createMemoryAuthStore();
-    await store.createUser({ email: 'host@example.com', passwordHash: await hashPassword('host-password') });
-    const meetingCode = createMeetingCodeSource(CODE);
-    const auth = createAuth({ store, offeredRoles: () => ['chef', 'cashier'], meetingCode });
+    const user = await store.createUser({ email: 'host@example.com', passwordHash: await hashPassword('host-password') });
+    await store.updateUserProfile({ id: user.id, name: 'Ada', email: user.email });
+    // A real meeting's owner is a signed-in product user, not the legacy password host.
+    const token = randomUUID();
+    await store.createSession({
+      tokenHash: hashToken(token),
+      kind: 'user',
+      role: null,
+      meetingCode: null,
+      meetingId: null,
+      displayName: 'Ada',
+      userId: user.id,
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    const host = `kaki_session=${token}`;
+    const meetingCode = createMeetingCodeSource('');
+    const auth = createAuth({ store, meetingCode });
     const clock = createAgendaClock({ agenda: testScenario.agenda });
     let people: Array<{ name: string }> = [];
-    const app = await createApp({
-      scenario: testScenario,
-      auth,
-      meetingCode,
-      serviceToken: TOKEN,
-      modules: [createMeetingModule({ clock, notetakerIntervalMs: 60_000 })],
-      roomRoster: async () => people,
-      rejoinGraceMs: 60_000,
-      rejoinPollMs: 20,
-      emptyRoomPauseMs: 20,
-      speechRecognition: 'browser',
-    });
+    const app = await createRealTestApp(
+      {
+        auth,
+        serviceToken: TOKEN,
+        meetingModules: realModulesWith([createMeetingModule({ clock, notetakerIntervalMs: 60_000 })]),
+        roomRoster: async () => people,
+        rejoinGraceMs: 60_000,
+        rejoinPollMs: 20,
+        emptyRoomPauseMs: 20,
+        speechRecognition: 'browser',
+      },
+      {
+        title: 'Weekly planning',
+        agenda: testScenario.agenda.map(({ title, minutes }) => ({ title, minutes })),
+        ownerUserId: user.id,
+      },
+    );
     apps.push(app);
-    return { app, port: portOf(app), clock, setPeople: (next) => { people = next; } };
-  }
-
-  async function request(port: number, path: string, method = 'GET', body?: unknown, cookie?: string): Promise<Response> {
-    const headers: Record<string, string> = {};
-    if (body !== undefined) headers['content-type'] = 'application/json';
-    if (cookie !== undefined) headers.cookie = cookie;
-    return fetch(`http://127.0.0.1:${port}${path}`, {
-      method,
-      headers,
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-    });
+    return { app, port: portOf(app), host, setPeople: (next) => { people = next; } };
   }
 
   it('refuses anonymous sockets, another seat, another meeting, and lines outside a running meeting', async () => {
-    const { app, port, setPeople } = await authOnApp();
-    const host = cookieFrom(await request(port, '/api/auth/login', 'POST', { email: 'host@example.com', password: 'host-password' }));
-    expect((await request(port, '/api/meeting/open', 'POST', undefined, host)).status).toBe(200);
-    const chef = cookieFrom(await request(port, '/api/livekit/token', 'POST', {
-      roomName: 'room', participantName: 'Ada', participantRole: 'chef', meetingCode: CODE,
-    }));
-    const cashier = cookieFrom(await request(port, '/api/join', 'POST', { code: CODE, role: 'cashier' }));
+    const { app, port, host, setPeople } = await authOnApp();
+    expect((await openMeeting(app, host)).status).toBe(200);
+    const ada = await guestSeat(app, 'Ada');
+    const bao = await guestSeat(app, 'Bao');
     setPeople([{ name: 'Ada' }, { name: 'Bao' }]);
 
-    expect((await connect(port, 'chef')).ok).toBe(false);
-    expect((await connect(port, 'chef', cashier)).ok).toBe(false);
+    expect((await connect(port, app.meetingId, ada.seat)).ok).toBe(false);
+    expect((await connect(port, app.meetingId, ada.seat, bao.cookie)).ok).toBe(false);
 
-    const phone = await connect(port, 'chef', chef);
-    if (!phone.ok) throw new Error('chef socket did not open');
+    const phone = await connect(port, app.meetingId, ada.seat, ada.cookie);
+    if (!phone.ok) throw new Error('seat socket did not open');
     sockets.push(phone.ws);
     phone.ws.send(humanLine('Before Start.', 'auth-lobby'));
     await waitFor(
@@ -571,9 +639,9 @@ describe('human-line security with sign-in on', () => {
       'the lobby refusal',
     );
 
-    expect((await request(port, '/api/meeting/start', 'POST', {}, host)).status).toBe(200);
+    expect((await startMeeting(app, host)).status).toBe(200);
     await waitFor(() => (app.session.phase() === 'running' ? true : undefined), 'the auth meeting to run');
-    const screen = await connect(port, 'screen', host);
+    const screen = await connect(port, app.meetingId, 'screen', host);
     if (!screen.ok) throw new Error('screen socket did not open');
     sockets.push(screen.ws);
 
@@ -594,21 +662,18 @@ describe('human-line security with sign-in on', () => {
 
     screen.ws.send(JSON.stringify({ type: 'NEW_MEETING' }));
     await waitFor(() => (app.session.phase() === 'lobby' ? true : undefined), 'the reset');
-    expect((await connect(port, 'chef', chef)).ok).toBe(false);
+    expect((await connect(port, app.meetingId, ada.seat, ada.cookie)).ok).toBe(false);
   });
 
   it('refuses a held line tagged with another meeting or another seat', async () => {
-    const { app, port, setPeople } = await authOnApp();
-    const host = cookieFrom(await request(port, '/api/auth/login', 'POST', { email: 'host@example.com', password: 'host-password' }));
-    expect((await request(port, '/api/meeting/open', 'POST', undefined, host)).status).toBe(200);
-    const chef = cookieFrom(await request(port, '/api/livekit/token', 'POST', {
-      roomName: 'room', participantName: 'Ada', participantRole: 'chef', meetingCode: CODE,
-    }));
+    const { app, port, host, setPeople } = await authOnApp();
+    expect((await openMeeting(app, host)).status).toBe(200);
+    const ada = await guestSeat(app, 'Ada');
     setPeople([{ name: 'Ada' }]);
-    expect((await request(port, '/api/meeting/start', 'POST', {}, host)).status).toBe(200);
+    expect((await startMeeting(app, host)).status).toBe(200);
     await waitFor(() => (app.session.phase() === 'running' ? true : undefined), 'the auth meeting to run');
-    const screen = await connect(port, 'screen', host);
-    const phone = await connect(port, 'chef', chef);
+    const screen = await connect(port, app.meetingId, 'screen', host);
+    const phone = await connect(port, app.meetingId, ada.seat, ada.cookie);
     if (!screen.ok || !phone.ok) throw new Error('sockets did not open');
     sockets.push(screen.ws, phone.ws);
 
@@ -619,7 +684,7 @@ describe('human-line security with sign-in on', () => {
     );
     expect(wrongMeeting).toMatchObject({ payload: { commandType: 'HUMAN_LINE' } });
 
-    phone.ws.send(humanLine('The chef cannot speak as the cashier.', 'held-wrong-seat', { seat: 'cashier' }));
+    phone.ws.send(humanLine('Only this seat may speak here.', 'held-wrong-seat', { seat: 'everyone' }));
     await waitFor(
       () => phone.messages.find((event) => event.type === 'COMMAND_REJECTED' && /different seat/i.test(event.payload.reason)),
       'the wrong-seat refusal',
@@ -631,27 +696,30 @@ describe('human-line security with sign-in on', () => {
         (event) =>
           event.type === 'TRANSCRIPT_CHUNK' &&
           (event.payload.text === 'This belongs to an old meeting.' ||
-            event.payload.text === 'The chef cannot speak as the cashier.'),
+            event.payload.text === 'Only this seat may speak here.'),
       ),
     ).toBe(false);
   });
 
   it('records a signed-in host\'s own line when the host takes a seat', async () => {
-    const { app, port, setPeople } = await authOnApp();
-    const host = cookieFrom(await request(port, '/api/auth/login', 'POST', { email: 'host@example.com', password: 'host-password' }));
-    expect((await request(port, '/api/meeting/open', 'POST', undefined, host)).status).toBe(200);
+    const { app, port, host, setPeople } = await authOnApp();
+    expect((await openMeeting(app, host)).status).toBe(200);
     // The owner joins their own seat: the host session now also carries that seat.
-    const joined = await request(port, '/api/livekit/token', 'POST', {
-      roomName: 'room', participantName: 'Ada', participantRole: 'chef',
-    }, host);
+    const joined = await requestUrl(
+      meetingUrl(app, app.meetingId, '/api/livekit/token'),
+      'POST',
+      { participantName: 'Ada' },
+      host,
+    );
     expect(joined.status).toBe(200);
-    const hostSeat = cookieFrom(joined);
+    const hostSeatCookie = cookieFrom(joined);
+    const hostSeat = ((await joined.json()) as { participantRole: string }).participantRole;
     setPeople([{ name: 'Ada' }]);
-    expect((await request(port, '/api/meeting/start', 'POST', {}, hostSeat)).status).toBe(200);
+    expect((await startMeeting(app, hostSeatCookie)).status).toBe(200);
     await waitFor(() => (app.session.phase() === 'running' ? true : undefined), 'the auth meeting to run');
 
-    const seat = await connect(port, 'chef', hostSeat);
-    const screen = await connect(port, 'screen', hostSeat);
+    const seat = await connect(port, app.meetingId, hostSeat, hostSeatCookie);
+    const screen = await connect(port, app.meetingId, 'screen', hostSeatCookie);
     if (!seat.ok || !screen.ok) throw new Error('host sockets did not open');
     sockets.push(seat.ws, screen.ws);
 
@@ -662,34 +730,28 @@ describe('human-line security with sign-in on', () => {
       ),
       'the host seat line',
     );
-    expect(accepted).toMatchObject({ payload: { speaker: 'Ada', speakerRole: 'chef' } });
+    expect(accepted).toMatchObject({ payload: { speaker: 'Ada', speakerRole: hostSeat } });
   });
 
   it('accepts a recognised line through the service route and refuses a guest session', async () => {
-    const { app, port, setPeople } = await authOnApp();
-    const host = cookieFrom(await request(port, '/api/auth/login', 'POST', { email: 'host@example.com', password: 'host-password' }));
-    expect((await request(port, '/api/meeting/open', 'POST', undefined, host)).status).toBe(200);
-    const chef = cookieFrom(await request(port, '/api/livekit/token', 'POST', {
-      roomName: 'room', participantName: 'Ada', participantRole: 'chef', meetingCode: CODE,
-    }));
+    const { app, port, host, setPeople } = await authOnApp();
+    expect((await openMeeting(app, host)).status).toBe(200);
+    const ada = await guestSeat(app, 'Ada');
     setPeople([{ name: 'Ada' }]);
-    expect((await request(port, '/api/meeting/start', 'POST', {}, host)).status).toBe(200);
+    expect((await startMeeting(app, host)).status).toBe(200);
     await waitFor(() => (app.session.phase() === 'running' ? true : undefined), 'the auth meeting to run');
-    const screen = await connect(port, 'screen', host);
+    const screen = await connect(port, app.meetingId, 'screen', host);
     if (!screen.ok) throw new Error('screen socket did not open');
     sockets.push(screen.ws);
 
-    const meetingId = ((await (await fetch(`http://127.0.0.1:${port}/api/meeting/state`)).json()) as { meetingId: string })
-      .meetingId;
     const line = {
-      meetingId,
+      meetingId: app.meetingId,
       participantIdentity: 'Ada',
-      seat: 'chef',
+      seat: ada.seat,
       text: 'This was recognised by the server.',
-      
       clientLineId: 'service-line',
     };
-    const accepted = await fetch(`http://127.0.0.1:${port}/api/runner/human-line`, {
+    const accepted = await fetch(meetingUrl(app, app.meetingId, '/api/runner/human-line'), {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${TOKEN}` },
       body: JSON.stringify(line),
@@ -701,15 +763,15 @@ describe('human-line security with sign-in on', () => {
     );
     expect(transcript).toMatchObject({ payload: { speaker: 'Ada' } });
 
-    const wrongSeat = await fetch(`http://127.0.0.1:${port}/api/runner/human-line`, {
+    const wrongSeat = await fetch(meetingUrl(app, app.meetingId, '/api/runner/human-line'), {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${TOKEN}` },
-      body: JSON.stringify({ ...line, seat: 'cashier', clientLineId: 'service-wrong-seat' }),
+      body: JSON.stringify({ ...line, seat: 'another-seat', clientLineId: 'service-wrong-seat' }),
     });
     expect(wrongSeat.status).toBe(409);
     expect(((await wrongSeat.json()) as { error?: string }).error).toMatch(/no longer holds that seat/i);
 
-    const unknownPerson = await fetch(`http://127.0.0.1:${port}/api/runner/human-line`, {
+    const unknownPerson = await fetch(meetingUrl(app, app.meetingId, '/api/runner/human-line'), {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${TOKEN}` },
       body: JSON.stringify({ ...line, participantIdentity: 'Mallory', clientLineId: 'service-unknown' }),
@@ -717,7 +779,7 @@ describe('human-line security with sign-in on', () => {
     expect(unknownPerson.status).toBe(409);
     expect(((await unknownPerson.json()) as { error?: string }).error).toMatch(/no longer seated/i);
 
-    const oldMeeting = await fetch(`http://127.0.0.1:${port}/api/runner/human-line`, {
+    const oldMeeting = await fetch(meetingUrl(app, app.meetingId, '/api/runner/human-line'), {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${TOKEN}` },
       body: JSON.stringify({ ...line, meetingId: 'an-old-meeting', clientLineId: 'service-old' }),
@@ -725,9 +787,9 @@ describe('human-line security with sign-in on', () => {
     expect(oldMeeting.status).toBe(409);
     expect(((await oldMeeting.json()) as { error?: string }).error).toMatch(/different meeting/i);
 
-    const refused = await fetch(`http://127.0.0.1:${port}/api/runner/human-line`, {
+    const refused = await fetch(meetingUrl(app, app.meetingId, '/api/runner/human-line'), {
       method: 'POST',
-      headers: { 'content-type': 'application/json', cookie: chef },
+      headers: { 'content-type': 'application/json', cookie: ada.cookie },
       body: JSON.stringify({ ...line, clientLineId: 'guest-line' }),
     });
     expect(refused.status).toBe(401);

@@ -1,18 +1,29 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
-import { defaultMeetingSetup, meetingScenarioFromSetup, type Scenario } from '@kaki/shared';
+import { defaultMeetingSetup, type Scenario } from '@kaki/shared';
 import { createApp, type KakiApp } from '../../src/app';
 import { createAuth } from '../../src/auth/module';
 import { createMemoryAuthStore } from '../../src/auth/store';
 import { createMeetingModule } from '../../src/host/meeting';
 import { createMeetingCodeSource } from '../../src/meeting/meetingCode';
+import { createMemoryMeetingStore, type MeetingStore } from '../../src/meeting/registry';
+import { realBaseScenario, realMeetingSetup, realScenarioWithPeople } from '../../src/meeting/realMeeting';
+import type { MeetingRow } from '../../src/meeting/types';
 import { createMeetingPersistence, type MeetingPersistence } from '../../src/persist/persistence';
 import {
   MEETING_STATE_SCHEMA_VERSION,
   type MeetingStateStore,
   type StoredMeeting,
 } from '../../src/persist/state';
-import { portOf, settle, waitFor } from '../helpers';
+import {
+  createTestApp,
+  meetingUrl,
+  portOf,
+  realModulesWith,
+  settle,
+  waitFor,
+  type TestAppWithMeeting,
+} from '../helpers';
 import { testScenario } from '../fixtures/scenario';
 
 class MemoryStore implements MeetingStateStore {
@@ -75,8 +86,61 @@ function savedRunning({
   };
 }
 
-function savedEnded(): StoredMeeting {
-  const running = savedRunning();
+function savedRealRunning(
+  row: MeetingRow,
+  {
+    holders = [{ name: 'ada', seat: 'chef' }],
+    abandoned,
+  }: {
+    holders?: Array<{ name: string; seat: string }>;
+    abandoned?: boolean;
+  } = {},
+): StoredMeeting {
+  const base = realBaseScenario(row);
+  // A saved setup needs at least one person seat even when nobody holds one right now.
+  const sealed = realMeetingSetup(base, holders.length > 0 ? holders : [{ name: 'ada', seat: 'chef' }]);
+  return {
+    schemaVersion: MEETING_STATE_SCHEMA_VERSION,
+    meetingId: row.id,
+    phase: 'running',
+    draft: defaultMeetingSetup(base),
+    draftTouched: false,
+    sealed,
+    sealedKind: 'real',
+    ...(abandoned === true ? { abandoned: true } : {}),
+    holders,
+    meetingCode: 'AB12CD',
+    startedAt: '2026-01-01T00:00:00.000Z',
+    savedAt: '2026-01-01T00:05:00.000Z',
+    state: {
+      clock: {
+        started: true,
+        ended: false,
+        paused: false,
+        agendaIndex: 0,
+        itemElapsedSeconds: 30,
+        meetingElapsedSeconds: 30,
+      },
+      notetaker: {
+        pending: [],
+        inFlight: [],
+        recentGrounded: [],
+        contextAgendaIndex: 0,
+        agendaContext: [],
+        openQuestions: [],
+        questionCount: 0,
+        status: 'ok',
+        talkByItem: [],
+        talkTotals: [],
+        talkTotal: 0,
+      },
+      tasks: [],
+    },
+  };
+}
+
+function savedRealEnded(row: MeetingRow): StoredMeeting {
+  const running = savedRealRunning(row);
   return {
     ...running,
     phase: 'ended',
@@ -170,11 +234,87 @@ async function connectService(app: KakiApp): Promise<void> {
   app.server.once('close', () => socket.terminate());
 }
 
+interface RealStartOptions {
+  savedFor?: (row: MeetingRow) => StoredMeeting;
+  store?: MemoryStore;
+  scenario?: Scenario;
+  roster?: () => Array<{ name: string }> | undefined | Promise<Array<{ name: string }> | undefined>;
+  graceMs?: number;
+  pollMs?: number;
+  reservationMs?: number;
+  meetings?: MeetingStore;
+  row?: MeetingRow;
+}
+
+interface RealStarted {
+  app: TestAppWithMeeting;
+  persistence: MeetingPersistence;
+  store: MemoryStore;
+  meetings: MeetingStore;
+  row: MeetingRow;
+}
+
+async function startRealApp({
+  savedFor,
+  store = new MemoryStore(),
+  scenario = testScenario,
+  roster = () => [],
+  graceMs = 20,
+  pollMs = 60_000,
+  reservationMs,
+  meetings: existingMeetings,
+  row: existingRow,
+}: RealStartOptions = {}): Promise<RealStarted> {
+  const meetings = existingMeetings ?? createMemoryMeetingStore();
+  const row = existingRow ?? await meetings.create({
+    workspaceId: 'workspace-1',
+    ownerUserId: 'test-owner',
+    title: 'Weekly planning',
+    agenda: scenario.agenda,
+  });
+  const saved = savedFor?.(row);
+  if (saved !== undefined) store.saved = saved;
+  const persistence = createMeetingPersistence({ store, saved: store.saved, log: () => undefined });
+  const app = (await createTestApp({
+    speechRecognition: 'browser',
+    scenario,
+    meetings,
+    persistenceFor: async () => persistence,
+    meetingModules: realModulesWith([createMeetingModule({ notetakerIntervalMs: 60_000 })]),
+    roomRoster: async () => roster(),
+    rejoinGraceMs: graceMs,
+    rejoinPollMs: pollMs,
+    ...(reservationMs === undefined ? {} : { admissionReservationMs: reservationMs }),
+  })) as TestAppWithMeeting;
+  apps.push(app);
+  const instance = await app.registry.get(row.id);
+  if (instance === undefined) throw new Error(`the real meeting ${row.id} did not load`);
+  Object.assign(app, {
+    id: instance.id,
+    instance,
+    hub: instance.hub,
+    tasks: instance.tasks,
+    session: instance.session,
+    memory: instance.memory,
+    roomName: instance.roomName,
+    meetingId: row.id,
+  });
+  return { app, persistence, store, meetings, row };
+}
+
+async function joinReal(app: TestAppWithMeeting, participantName: string, participantRole: string): Promise<Response> {
+  return fetch(meetingUrl(app, app.meetingId, '/api/livekit/token'), {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ participantName, participantRole }),
+  });
+}
+
 describe('restoring a running meeting keeps the people LiveKit still shows', () => {
   it('keeps the holder when the roster still shows them at the end of the grace', async () => {
     let rosterCalls = 0;
-    const { app } = await startApp({
-      saved: savedRunning(),
+    const { app } = await startRealApp({
+      savedFor: (row) => savedRealRunning(row),
       roster: () => {
         rosterCalls += 1;
         return [{ name: 'Ada' }];
@@ -190,7 +330,7 @@ describe('restoring a running meeting keeps the people LiveKit still shows', () 
 
   it('keeps the holders and logs once when the roster cannot be read', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    const { app } = await startApp({ saved: savedRunning(), roster: () => undefined });
+    const { app } = await startRealApp({ savedFor: (row) => savedRealRunning(row), roster: () => undefined });
 
     await settle(80);
 
@@ -201,8 +341,8 @@ describe('restoring a running meeting keeps the people LiveKit still shows', () 
   });
 
   it('prunes and abandons the meeting once the roster confirms the room is empty', async () => {
-    const { app, persistence, store } = await startApp({
-      saved: savedRunning(),
+    const { app, persistence, store } = await startRealApp({
+      savedFor: (row) => savedRealRunning(row),
       roster: () => [],
     });
 
@@ -223,8 +363,8 @@ describe('a delayed grace read never prunes a replacement meeting', () => {
     const firstRead = new Promise<Array<{ name: string }>>((resolve) => {
       release = resolve;
     });
-    const { app } = await startApp({
-      saved: savedRunning(),
+    const { app, row } = await startRealApp({
+      savedFor: (meeting) => savedRealRunning(meeting),
       roster: () => {
         rosterCalls += 1;
         return rosterCalls === 1 ? firstRead : [];
@@ -234,16 +374,17 @@ describe('a delayed grace read never prunes a replacement meeting', () => {
     });
     await waitFor(() => (rosterCalls > 0 ? true : undefined), 'the old grace roster read');
 
-    const setup = defaultMeetingSetup(structuredClone(testScenario));
+    const base = realBaseScenario(row);
+    const holder = { name: 'bea', seat: 'cashier' };
     app.session.reset();
-    app.session.addHolder({ name: 'bea', seat: 'cashier' });
-    app.session.beginStart(meetingScenarioFromSetup(testScenario, setup), setup);
+    app.session.addHolder(holder);
+    app.session.beginStart(realScenarioWithPeople(base, [holder]), realMeetingSetup(base, [holder]));
     app.session.commitStart('2026-01-02T00:00:00.000Z');
 
     release([]);
     await settle(80);
 
-    expect(app.session.holders()).toEqual([{ name: 'bea', seat: 'cashier' }]);
+    expect(app.session.holders()).toEqual([holder]);
     expect(app.session.abandoned()).toBe(false);
     expect(app.session.phase()).toBe('running');
   });
@@ -326,29 +467,31 @@ describe('an abandoned meeting never resumes after a restart', () => {
     expect(response.status).toBe(409);
     expect(await meetingId(app)).toBe('meeting-1');
   });
+});
 
+describe('a restored running meeting with no holders', () => {
   it('still resumes a running meeting with no holders inside its first grace', async () => {
-    const { app } = await startApp({
-      saved: savedRunning({ holders: [] }),
+    const { app } = await startRealApp({
+      savedFor: (row) => savedRealRunning(row, { holders: [] }),
       roster: () => [],
       graceMs: 60_000,
     });
-    const before = await meetingId(app);
+    const before = app.session.snapshot().meetingId;
 
-    const response = await join(app, 'Priya', 'chef');
+    const response = await joinReal(app, 'Priya', 'chef');
 
     expect(response.status).toBe(200);
     const body = (await response.json()) as { resumed?: boolean };
     expect(body.resumed).toBe(true);
-    expect(await meetingId(app)).toBe(before);
+    expect(app.session.snapshot().meetingId).toBe(before);
     expect(app.session.abandoned()).toBe(false);
   });
 });
 
 describe('a restored ended team meeting still under review', () => {
   it('keeps the room open for its minutes review until the owner closes it', async () => {
-    const { app } = await startApp({
-      saved: savedEnded(),
+    const { app } = await startRealApp({
+      savedFor: (row) => savedRealEnded(row),
       roster: () => [{ name: 'Ada' }],
       graceMs: 60_000,
       pollMs: 60_000,
@@ -357,15 +500,15 @@ describe('a restored ended team meeting still under review', () => {
     expect(app.session.phase()).toBe('ended');
     expect(app.session.reviewingEndedTeamMeeting()).toBe(true);
 
-    const close = await fetch(`http://127.0.0.1:${portOf(app)}/api/meeting/close`, { method: 'POST' });
+    const close = await fetch(meetingUrl(app, app.meetingId, '/api/meeting/close'), { method: 'POST' });
     expect(close.status).toBe(200);
     expect(app.session.phase()).toBe('lobby');
     expect(app.session.reviewingEndedTeamMeeting()).toBe(false);
   });
 
   it('releases the review when the room is verified empty', async () => {
-    const { app } = await startApp({
-      saved: savedEnded(),
+    const { app } = await startRealApp({
+      savedFor: (row) => savedRealEnded(row),
       roster: () => [],
       graceMs: 40,
       pollMs: 5,
