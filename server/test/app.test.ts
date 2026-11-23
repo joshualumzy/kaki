@@ -291,6 +291,16 @@ describe('app', () => {
     expect((await post('/api/runner/suggest-task', suggestion)).status).toBe(400);
     expect((await post('/api/runner/settle-topic', suggestion)).status).toBe(400);
     expect(app.tasks.list().some((task) => task.purpose === 'meeting_minutes')).toBe(false);
+    const stamped = {
+      title: 'Pretend follow-up',
+      context: 'A runner body must not claim to be a settlement card.',
+      suggestedAssignee: 'chef',
+      agendaItemTitle: 'Prep',
+      fromSettlement: true,
+    };
+    expect((await post('/api/runner/suggest-task', stamped)).status).toBe(400);
+    expect((await post('/api/runner/settle-topic', stamped)).status).toBe(400);
+    expect(app.tasks.list().some((task) => task.fromSettlement === true)).toBe(false);
   });
 
   it('settlement reuses a held follow-up card for the same role, kind and topic', async () => {
@@ -310,7 +320,7 @@ describe('app', () => {
       expect(settled.id).toBe(early.id);
       expect(app.tasks.list()).toHaveLength(1);
       expect(app.tasks.get(early.id)).toMatchObject({ status: 'DISPATCHED', title: 'Post the prep plan',
-        context: 'Visitor decision: use fresh stock', decisionSource: 'use fresh stock' });
+        context: 'Visitor decision: use fresh stock', decisionSource: 'use fresh stock', fromSettlement: true });
     } finally { release(); }
   });
 

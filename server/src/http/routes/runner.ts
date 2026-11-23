@@ -270,6 +270,9 @@ export async function handleSettleTopic(call: RouteCall): Promise<void> {
       if (duplicate.id !== task.id) context.tasks.transition(duplicate.id, 'DISMISSED');
     }
   }
+  // This is the visitor's authoritative follow-up for the topic; a later notetaker suggestion of the same
+  // deliverable and owner must be dropped rather than become a second card.
+  task = context.tasks.markFromSettlement(task.id);
   context.hub.publish({
     type: 'TOPIC_SETTLED',
     audience: { kind: 'screen' },

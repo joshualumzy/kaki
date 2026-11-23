@@ -46,6 +46,8 @@ export interface TaskStore {
   suggestWithPurpose(input: SuggestInput, purpose: TaskPurpose): Task;
   /** Replace an early suggestion with the visitor's final wording before dispatch; its purpose never changes. */
   reviseSuggested(id: string, input: SuggestInput, sourceSeconds?: number): Task;
+  /** Mark a card as the visitor's authoritative follow-up for its settled topic. */
+  markFromSettlement(id: string): Task;
   /**
    * Cache the model's fit judgement on a task that has not been accepted for an action yet. Returns
    * false when the task moved on (so a slow check never overwrites a later decision).
@@ -263,6 +265,17 @@ export function createTaskStore({
     return revised;
   }
 
+  /** Mark the visitor's authoritative follow-up for a settled topic, so a later suggestion of the same card is dropped. */
+  function markFromSettlement(id: string): Task {
+    const current = requireTask(id);
+    if (current.fromSettlement === true) return current;
+    const next: Task = { ...current, fromSettlement: true, updatedAt: new Date().toISOString() };
+    tasks.set(id, next);
+    publishTask(next, current.assignee);
+    notifyChange(next, current.status);
+    return next;
+  }
+
   function setActionFit(id: string, fit: ActionFit, expectedUpdatedAt?: string): boolean {
     const current = tasks.get(id);
     if (current === undefined) return false;
@@ -391,6 +404,7 @@ export function createTaskStore({
     suggest,
     suggestWithPurpose,
     reviseSuggested,
+    markFromSettlement,
     setActionFit,
     supersede: (id) => transition(id, 'SUPERSEDED'),
     get: (id) => tasks.get(id),

@@ -81,6 +81,11 @@ export interface Task {
   /** The server-owned milestone this task serves, if it was not created from a person's follow-up. */
   purpose?: TaskPurpose;
   /**
+   * True when this is the visitor's authoritative follow-up for a settled topic. A later suggestion of the same
+   * deliverable for the same owner on that topic is the same card, however the decision was worded.
+   */
+  fromSettlement?: true;
+  /**
    * The accepted decision this task announces, copied verbatim from the transcript. The notetaker only keeps a
    * model-selected quote when it matches a line on the current agenda item, so this is grounded, not proof that the
    * model picked the right decision.
@@ -264,8 +269,10 @@ export function isSuggestInput(value: unknown, scenario: Scenario): value is Sug
     isNonEmptyString(value.context) &&
     isRoleIn(scenario, value.suggestedAssignee) &&
     (value.actionKind === undefined || isActionKind(value.actionKind)) &&
-    // `purpose` is server-internal: a request body carrying it is rejected, never silently accepted.
+    // `purpose` and `fromSettlement` are server-internal: a request body carrying either is rejected, never
+    // silently accepted.
     !('purpose' in value) &&
+    !('fromSettlement' in value) &&
     (value.decisionSource === undefined || isNonEmptyString(value.decisionSource)) &&
     (value.agendaItemTitle === undefined || isNonEmptyString(value.agendaItemTitle)) &&
     (value.cardId === undefined || isNonEmptyString(value.cardId))

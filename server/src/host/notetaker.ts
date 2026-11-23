@@ -34,6 +34,7 @@ import {
   isLikelyDuplicate,
   recoversMattermostDecision,
   selfVolunteeredAssignment,
+  settledFollowUpCard,
   taskMatchesAssignment,
   volunteerRole,
   type ResolvedTaskCandidate,
@@ -618,6 +619,17 @@ export function createNotetaker({
         console.warn(
           `kaki notetaker: ignored duplicateOf ${activeDuplicateOf.id} for "${task.title}"; it names a different task`,
         );
+      }
+      // One decision gives one follow-up per deliverable and owner. The settlement card already is that follow-up
+      // for this topic, so a later suggestion of the same kind for the same owner is the same card however the
+      // decision was worded (a self-correction can change the quote without changing the follow-up).
+      const occupied = settledFollowUpCard(withOrigin, existingTasks);
+      if (occupied !== undefined) {
+        console.warn(
+          `kaki notetaker: dropped task "${task.title}"; ${occupied.id} already covers ${withOrigin.actionKind} ` +
+            `on this topic for ${withOrigin.suggestedAssignee}`,
+        );
+        continue;
       }
       try {
         tasks.suggest(

@@ -212,6 +212,20 @@ describe('ConnectedStartPrompt', () => {
     expect(onStarted).not.toHaveBeenCalled();
   });
 
+  it('does not abort the Start request when the room confirms and the prompt unmounts first', () => {
+    let signal: AbortSignal | undefined;
+    const fetchMock = vi.fn((_url: string, init?: { signal?: AbortSignal }) => {
+      signal = init?.signal;
+      return new Promise<never>(() => undefined);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const { unmount } = render(<ConnectedStartPrompt onStarted={vi.fn()} meetingId="mtg-1" />);
+    pressStart();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    unmount();
+    expect(signal?.aborted).toBe(false);
+  });
+
   it('ignores a late answer after unmount', async () => {
     let resolveFetch: ((value: { ok: boolean; status: number; json: () => Promise<{ started: boolean }> }) => void) | undefined;
     vi.stubGlobal('fetch', vi.fn(() => new Promise((resolve) => { resolveFetch = resolve; })));

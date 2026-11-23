@@ -4342,13 +4342,14 @@ export class NpcConversation<Clip> {
       if (this.silencePromptStage >= 3) {
         this.ports.log?.('[silence] the guest stayed silent after the offer; closing the topic honestly');
         this.speakAfterSilenceWait(scheduledAt + baseMs, () =>
-          this.resolveUnresolved('the guest stayed silent after the check-in, the colleague nudge and the offer'));
+          this.resolveUnresolved('the guest stayed silent after the last prompt on the topic'));
         return;
       }
       // A live offer is re-asked as that same question once, so the gate stays the last thing heard. That
       // reaches the offer rung, so the next silence closes the topic instead of nudging again.
       const gateReask = this.liveGateReask();
       if (gateReask !== undefined) {
+        // The re-ask is the offer rung: marking stage 3 makes the next silence close the topic honestly.
         this.silencePromptStage = 3;
         this.ports.log?.(`[silence] re-asking the live ${gateReask.gate} instead of a generic nudge`);
         this.speakAfterSilenceWait(scheduledAt + baseMs, () => {
@@ -4421,10 +4422,14 @@ export class NpcConversation<Clip> {
       speak();
       return;
     }
+    // The hold belongs to the topic that scheduled it. The room can move or reopen another item while the cue
+    // is held, so a stale cue must not act on whatever topic happens to be current when it finally fires.
+    const topic = this.currentItem()?.title;
     this.clearSilenceTimer();
     this.silenceTimer = setTimeout(() => {
       this.silenceTimer = undefined;
       if (this.closed || this.paused || this.human === undefined) return;
+      if (this.currentItem()?.title !== topic) return;
       speak();
     }, waitMs).unref();
   }

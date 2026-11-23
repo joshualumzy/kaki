@@ -777,6 +777,29 @@ describe('one-speaker replies to the guest', () => {
     h.conversation.close();
   });
 
+  it('does not speak a held silence cue after the room has moved to another topic', async () => {
+    const twoItems = {
+      ...scenario,
+      agenda: [
+        scenario.agenda[0]!,
+        { title: 'Service', minutes: 5, canWait: true, deadline: 'before doors open at 8', ownerRole: 'cashier' },
+      ],
+    };
+    const h = harness(twoItems);
+    const spoken: string[] = [];
+    const hold = h.conversation as unknown as {
+      speakAfterSilenceWait(notBefore: number, speak: () => void): void;
+      reopenedTitle: string | undefined;
+    };
+    hold.speakAfterSilenceWait(Date.now() + 100, () => spoken.push('stale cue'));
+    // The item changes while the cue is still held; the timer itself must notice, not only the paths that
+    // remember to clear the silence timer.
+    hold.reopenedTitle = 'Service';
+    await vi.advanceTimersByTimeAsync(150);
+    expect(spoken).toEqual([]);
+    h.conversation.close();
+  });
+
   it('asks the read-back when a reply chain ends with readiness met, instead of a free model check-in', async () => {
     const factScenario = {
       ...scenario,

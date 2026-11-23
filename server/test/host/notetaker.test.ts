@@ -1715,6 +1715,42 @@ describe('duplicate handling across batches', () => {
     ]);
   });
 
+  it('drops a later card when the topic already has an active card for that deliverable and owner', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const assignment = 'Mei, can you post the seating decision in the team channel today so everyone has it?';
+      const { tasks, notetaker } = setup(() =>
+        reply({
+          newTasks: [
+            candidate('Post the seating decision in the team channel', 'menu_store_lead', assignment, {
+              actionKind: 'mattermost_post',
+              decisionEvidence: seatingDecision,
+            }),
+          ],
+        }),
+      );
+      const settled = tasks.suggest({
+        title: 'Share the decision on the seat crunch',
+        context: 'Visitor decision: a two-hour limit.',
+        suggestedAssignee: 'menu_store_lead',
+        actionKind: 'mattermost_post',
+        agendaItemTitle: scenario.agenda[0]!.title,
+        decisionSource: 'Two hours, and a manager enforces it.',
+      });
+      tasks.markFromSettlement(settled.id);
+
+      notetaker.addChunk({ speaker: 'Feifei Li', text: seatingDecision });
+      notetaker.addChunk({ speaker: 'Mei', text: assignment });
+      await notetaker.run();
+
+      expect(tasks.list()).toHaveLength(1);
+      expect(tasks.list()[0]!.id).toBe(settled.id);
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('already covers mattermost_post on this topic'));
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it('keeps same-owner work with overlapping wording unless the model names it duplicated', async () => {
     const firstLine = 'Mei, can you review the trial numbers tonight?';
     const secondLine = 'Mei, can you review the trial numbers and the trial notes tonight?';

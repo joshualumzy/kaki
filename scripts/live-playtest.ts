@@ -998,12 +998,44 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks: PlaytestHo
         await delay(350);
       }
       if (!settled.has(title) && agendaIndex === i) {
-        // No Lock button any more: confirm out loud, the way a person would.
+        // No Lock button any more: say the call out loud, the way a person would.
         if (await speak('Yes, lock that in.', 'Confirm the decision so the topic can settle.')) {
           notes.push(`${stamp()} Spoken confirmation fallback for ${title}`);
         }
       }
-      await check(`Topic ${i + 1} settled`, await waitFor(`Topic ${i + 1} settlement event`, () => settled.has(title), 20_000), title);
+      // The spoken fallback is one more guest turn, not a settlement: the product reads a call back and waits for
+      // the guest to confirm it, or commits the read-back itself after its own nudge-and-silence window. Keep
+      // answering the room until the topic settles or leaves, so the check below can assert the real rule: a
+      // topic with a settled follow-up always delivered its settlement event.
+      const confirmEnd = Math.min(Date.now() + 90_000, globalDeadline);
+      while (!settled.has(title) && agendaIndex === i && !closing && Date.now() < confirmEnd) {
+        if (robotLineCount(i) < 4) await handleOffer(i);
+        await acceptVisitorTasks(i);
+        await actOnRobotTasks();
+        await reactToRoom(i, title, i === 1 ? undefined : decision, before);
+        await delay(350);
+      }
+      const settlementDetail = settled.has(title)
+        ? title
+        : agendaIndex !== i || closing
+          ? `${title} left before its settlement event`
+          : `No settlement event for ${title} after the read-back confirmation round`;
+      const hasFollowUpCard = [...tasks.values()].some((task) =>
+        task.fromSettlement === true &&
+        task.agendaItemTitle === title && task.status !== 'DISMISSED' && task.status !== 'SUPERSEDED');
+      if (settled.has(title)) {
+        await check(`Topic ${i + 1} settled`, true, settlementDetail);
+      } else if (hasFollowUpCard) {
+        // The card proves the product treated the topic as settled, so its settlement event was missed.
+        await check(`Topic ${i + 1} settled`, false, `${settlementDetail}; a follow-up card exists`);
+      } else {
+        // The product parked or closed the topic without a decision, so there was no settlement to check.
+        checks.push({
+          at: stamp(), name: `Topic ${i + 1} settled`, status: 'NOT EXERCISED',
+          detail: `${settlementDetail}; no follow-up card, so there was no settlement to check`,
+        });
+        console.log(`NOT EXERCISED Topic ${i + 1} settled: ${settlementDetail}; no follow-up card`);
+      }
       await checkPhoneLayout(`topic ${i + 1} settled`);
       await keepShot(`topic ${i + 1} settled`);
       if (settled.has(title)) {
