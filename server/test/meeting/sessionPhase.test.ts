@@ -200,6 +200,33 @@ describe('Start lifecycle', () => {
     expect((await starting).status).toBe(200);
   });
 
+  it('lets a practice visitor rejoin a running meeting without failing the token request', async () => {
+    const app = await createPracticeTestApp({
+      speechRecognition: 'browser',
+      scenario: freshScenario(),
+      roomRoster: async () => [],
+      rejoinGraceMs: 60_000,
+      rejoinPollMs: 60_000,
+    });
+    apps.push(app);
+    const service = await connectHeldService(app);
+    expect((await joinPractice(app, 'Guest', 'chef')).status).toBe(200);
+
+    const starting = startPractice(app);
+    await waitFor(() => (service.prepares.length === 1 ? true : undefined), 'the runner prepare');
+    service.reply('ready');
+    expect((await starting).status).toBe(200);
+    expect(app.session.phase()).toBe('running');
+
+    // Coming back after Leave is the same seat and the same meeting: the token is issued again,
+    // and shaping the lobby a second time must not throw.
+    const rejoin = await joinPractice(app, 'Guest', 'chef');
+    expect(rejoin.status).toBe(200);
+    const body = (await rejoin.json()) as { token: string; resumed: boolean };
+    expect(body.token).not.toBe('');
+    expect(body.resumed).toBe(true);
+  });
+
   it('blames the reset, not the runner, when the meeting resets while Start is in flight', async () => {
     const app = await createPracticeTestApp({
       speechRecognition: 'browser',

@@ -406,8 +406,9 @@ async function handlePracticeLivekitToken(call: RouteCall): Promise<void> {
       }
 
       // The first person into the practice draws its topics for their seat, exactly as the shared
-      // practice room did on its first join.
-      context.shapeLobbyFor(seatId);
+      // practice room did on its first join. A running practice is already shaped: doing it again
+      // would be an illegal transition (and used to be a 500 on rejoin).
+      if (admissionPhase === 'lobby') context.shapeLobbyFor(seatId);
       context.session.bindPracticeSeat(seatId);
       const roomName = context.roomNameFor(admissionMeetingId);
       const token = await createRoomToken(
