@@ -11,6 +11,8 @@ import {
   speakLine,
   signedInPerson,
   stamp,
+  withJourneyLock,
+  closeBrowser,
 } from './lib';
 
 const JOURNEY = 'l';
@@ -101,7 +103,9 @@ async function expectMicHelp(run: Run, page: Page, where: string): Promise<void>
     run.finding('ERROR', where, 'a denied microphone showed no message at all', shot);
     return;
   }
-  if (!message.includes("Allow it in your browser's site settings to take part.")) {
+  // A real meeting asks for the microphone "to take part"; a speech-only practice asks "to speak
+  // in the meeting". Both must name the browser's site settings, which is the way out.
+  if (!/Allow it in your browser's site settings to (?:take part|speak in the meeting)\./.test(message)) {
     run.finding('CONFUSING', where, `the message does not say how to allow the microphone: "${message}"`, shot);
   } else {
     run.pass(`${where}: a denied microphone gets the plain site-settings message: "${message}" (${shot}).`);
@@ -259,11 +263,11 @@ async function main(): Promise<void> {
     await practice.context.close();
   } finally {
     run.save();
-    await browser.close();
+    await closeBrowser(browser);
   }
 }
 
-void main().catch((error: unknown) => {
+void withJourneyLock(JOURNEY, main).catch((error: unknown) => {
   console.error(error instanceof Error ? error.message : error);
   process.exitCode = 1;
 });

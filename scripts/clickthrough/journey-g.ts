@@ -7,6 +7,8 @@ import {
   speakLine,
   signedInPerson,
   stamp,
+  withJourneyLock,
+  closeBrowser,
 } from './lib';
 
 async function step(run: Run, page: Page, where: string, action: () => Promise<void>): Promise<void> {
@@ -52,7 +54,9 @@ async function main(): Promise<void> {
     });
 
     await step(run, page, 'minutes card', async () => {
-      const card = page.locator('.kd-task-card', { hasText: /minutes/i }).first();
+      // The minutes task is assigned to this owner, so it appears in their "Needs you now" card,
+      // not in the team action board that `.kd-task-card` renders.
+      const card = page.locator('[id^="task-"]', { hasText: /Publish meeting minutes/i }).first();
       const shown = await card.waitFor({ timeout: 90_000 }).then(() => true).catch(() => false);
       const shot = await run.shot(page, 'after-end-cards');
       if (!shown) {
@@ -60,7 +64,7 @@ async function main(): Promise<void> {
         return;
       }
       run.pass(`A meeting-minutes card is shown: "${(await card.innerText()).replace(/\s+/g, ' ').slice(0, 120)}" (${shot}).`);
-      const approve = page.getByRole('button', { name: /Approve/ }).first();
+      const approve = card.getByRole('button', { name: /Approve/ }).first();
       if (!(await approve.waitFor({ timeout: 60_000 }).then(() => true).catch(() => false))) {
         run.finding('DEAD-END', 'minutes card', 'card has no Approve button', await run.shot(page, 'no-approve'));
         return;
@@ -80,11 +84,11 @@ async function main(): Promise<void> {
     });
   } finally {
     run.save();
-    await browser.close();
+    await closeBrowser(browser);
   }
 }
 
-void main().catch((error: unknown) => {
+void withJourneyLock(JOURNEY, main).catch((error: unknown) => {
   console.error(error instanceof Error ? error.message : error);
   process.exitCode = 1;
 });

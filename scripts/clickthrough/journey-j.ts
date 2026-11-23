@@ -8,6 +8,8 @@ import {
   signedInPerson,
   stamp,
   BASE,
+  withJourneyLock,
+  closeBrowser,
 } from './lib';
 
 async function step(run: Run, page: Page, where: string, action: () => Promise<void>): Promise<void> {
@@ -47,7 +49,7 @@ async function main(): Promise<void> {
       await enterOwnRoom(b.page, linkB);
     });
     if (linkA === '' || linkB === '') return;
-    await step(run, a.page, 'type both', async () => {
+    await step(run, a.page, 'speak both', async () => {
       await speakLine(a.page, lineA);
       await speakLine(a.page, 'I will send the supplier the updated order by Friday.');
       await speakLine(b.page, lineB);
@@ -100,11 +102,11 @@ async function main(): Promise<void> {
     }
   } finally {
     run.save();
-    await browser.close();
+    await closeBrowser(browser);
   }
 }
 
-void main().catch((error: unknown) => {
+void withJourneyLock(JOURNEY, main).catch((error: unknown) => {
   console.error(error instanceof Error ? error.message : error);
   process.exitCode = 1;
 });

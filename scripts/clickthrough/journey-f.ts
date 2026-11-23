@@ -10,6 +10,8 @@ import {
   speakLine,
   signedInPerson,
   stamp,
+  withJourneyLock,
+  closeBrowser,
 } from './lib';
 
 const JOURNEY = 'f';
@@ -63,7 +65,7 @@ async function main(): Promise<void> {
     });
     if (link === '') return;
 
-    await step(run, page, 'type meeting facts', async () => {
+    await step(run, page, 'speak meeting facts', async () => {
       await speakLine(page, `We agreed to move the launch to Friday (${suffix}).`);
       await speakLine(page, 'The supplier delivery window is three working days, per our supplier SOP.');
       await page.getByText(`We agreed to move the launch to Friday (${suffix}).`).first().waitFor({ state: 'attached', timeout: 20_000 });
@@ -152,11 +154,11 @@ async function main(): Promise<void> {
     await guest.context.close();
   } finally {
     run.save();
-    await browser.close();
+    await closeBrowser(browser);
   }
 }
 
-void main().catch((error: unknown) => {
+void withJourneyLock(JOURNEY, main).catch((error: unknown) => {
   console.error(error instanceof Error ? error.message : error);
   process.exitCode = 1;
 });

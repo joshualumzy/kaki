@@ -2,7 +2,7 @@ import type { Page } from 'playwright';
 // First: the fake speaker reads the LiveKit keys from the repo's .env.
 import '../../server/src/env';
 import { createFakeSpeaker } from '../../server/src/npc/fakeStt';
-import { BASE, launch, Run, guestPerson } from './lib';
+import { BASE, launch, Run, guestPerson, withJourneyLock, closeBrowser } from './lib';
 
 const JOURNEY = 'd';
 
@@ -180,11 +180,11 @@ async function main(): Promise<void> {
     });
   } finally {
     run.save();
-    await browser.close();
+    await closeBrowser(browser);
   }
 }
 
-void main().catch((error: unknown) => {
+void withJourneyLock(JOURNEY, main).catch((error: unknown) => {
   console.error(error instanceof Error ? error.message : error);
   process.exitCode = 1;
 });

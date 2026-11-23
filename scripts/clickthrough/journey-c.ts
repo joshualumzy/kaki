@@ -8,6 +8,8 @@ import {
   speakLine,
   signedInPerson,
   stamp,
+  withJourneyLock,
+  closeBrowser,
 } from './lib';
 
 const JOURNEY = 'c';
@@ -86,7 +88,7 @@ async function main(): Promise<void> {
     });
 
     const line = "I'll send the supplier the updated order by Friday.";
-    await step(run, page, 'type the to-do line', async () => {
+    await step(run, page, 'speak the to-do line', async () => {
       if (!roomReady) return;
       await speakLine(page, line);
       await page.getByText(line).first().waitFor({ timeout: 20_000 });
@@ -174,11 +176,11 @@ async function main(): Promise<void> {
     });
   } finally {
     run.save();
-    await browser.close();
+    await closeBrowser(browser);
   }
 }
 
-void main().catch((error: unknown) => {
+void withJourneyLock(JOURNEY, main).catch((error: unknown) => {
   console.error(error instanceof Error ? error.message : error);
   process.exitCode = 1;
 });

@@ -9,6 +9,8 @@ import {
   speakLine,
   stamp,
   tomorrow,
+  withJourneyLock,
+  closeBrowser,
 } from './lib';
 
 const JOURNEY = 'b';
@@ -121,11 +123,11 @@ async function main(): Promise<void> {
     });
   } finally {
     run.save();
-    await browser.close();
+    await closeBrowser(browser);
   }
 }
 
-void main().catch((error: unknown) => {
+void withJourneyLock(JOURNEY, main).catch((error: unknown) => {
   console.error(error instanceof Error ? error.message : error);
   process.exitCode = 1;
 });

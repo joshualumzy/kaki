@@ -10,6 +10,8 @@ import {
   speakLine,
   signedInPerson,
   stamp,
+  withJourneyLock,
+  closeBrowser,
 } from './lib';
 
 async function step(run: Run, page: Page, where: string, action: () => Promise<void>): Promise<void> {
@@ -60,7 +62,7 @@ async function main(): Promise<void> {
     await step(run, g1.page, 'guest 1 joins', async () => { await joinAsGuest(g1.page, invite, twin); });
     await step(run, g2.page, 'guest 2 joins', async () => { await joinAsGuest(g2.page, invite, twin); });
     const lines = { o: `Owner says alpha ${suffix}`, a: `First twin says bravo ${suffix}`, b: `Second twin says charlie ${suffix}` };
-    await step(run, page, 'everyone types', async () => {
+    await step(run, page, 'everyone speaks', async () => {
       await speakLine(page, lines.o);
       await speakLine(g1.page, lines.a);
       await speakLine(g2.page, lines.b);
@@ -92,7 +94,7 @@ async function main(): Promise<void> {
         await p.getByText(other).first().waitFor({ state: 'attached', timeout: 25_000 });
         await speakLine(p, `After refresh ${label} ${suffix}`);
         await page.getByText(`After refresh ${label} ${suffix}`).first().waitFor({ state: 'attached', timeout: 25_000 });
-        run.pass(`${label} refreshed, kept their seat, history and can still type (${shot}).`);
+        run.pass(`${label} refreshed, kept their seat, history and can still speak (${shot}).`);
       });
     }
     await step(run, page, 'people after refresh', async () => {
@@ -113,11 +115,11 @@ async function main(): Promise<void> {
     await g2.context.close();
   } finally {
     run.save();
-    await browser.close();
+    await closeBrowser(browser);
   }
 }
 
-void main().catch((error: unknown) => {
+void withJourneyLock(JOURNEY, main).catch((error: unknown) => {
   console.error(error instanceof Error ? error.message : error);
   process.exitCode = 1;
 });

@@ -11,6 +11,8 @@ import {
   signedInPerson,
   stamp,
   workspaces,
+  withJourneyLock,
+  closeBrowser,
 } from './lib';
 
 const JOURNEY = 'a';
@@ -181,20 +183,20 @@ async function main(): Promise<void> {
     const guestLine = `Guest line ${suffix}: the supplier is confirmed.`;
     const closingLine = `Owner closing line ${suffix}: minutes must keep this.`;
 
-    await step(run, ownerPage, 'owner types', async () => {
+    await step(run, ownerPage, 'owner speaks', async () => {
       if (!roomOpened) return;
       await speakLine(ownerPage, ownerLine);
       await ownerPage.getByText(ownerLine).first().waitFor({ timeout: 15_000 });
       const shot = await run.shot(ownerPage, 'owner-spoken');
-      run.pass(`Owner can type into the meeting and sees the line (${shot}).`);
+      run.pass(`Owner can speak into the meeting and sees the line (${shot}).`);
     });
 
-    await step(run, guestPage, 'guest types', async () => {
+    await step(run, guestPage, 'guest speaks', async () => {
       if (!roomOpened) return;
       await speakLine(guestPage, guestLine);
       await guestPage.getByText(guestLine).first().waitFor({ timeout: 15_000 });
       const shot = await run.shot(guestPage, 'guest-spoken');
-      run.pass(`Guest can type into the meeting and sees the line (${shot}).`);
+      run.pass(`Guest can speak into the meeting and sees the line (${shot}).`);
     });
 
     await step(run, ownerPage, 'names in transcript', async () => {
@@ -312,11 +314,11 @@ async function main(): Promise<void> {
     await phone.context.close();
   } finally {
     run.save();
-    await browser.close();
+    await closeBrowser(browser);
   }
 }
 
-void main().catch((error: unknown) => {
+void withJourneyLock(JOURNEY, main).catch((error: unknown) => {
   console.error(error instanceof Error ? error.message : error);
   process.exitCode = 1;
 });
