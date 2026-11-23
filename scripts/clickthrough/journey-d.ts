@@ -92,7 +92,7 @@ async function main(): Promise<void> {
         run.pass(`Practice is speech only: no type box, Send, Lock or Pause under the stage (${shot}).`);
       }
       const body = (await page.locator('body').innerText()).replace(/\s+/g, ' ');
-      if (/\btype (in|below|it)\b/i.test(body)) {
+      if (/\b(type (in|below|it|to|your)|join to type|use type)\b/i.test(body)) {
         run.finding('CONFUSING', '/practice running', 'practice text still tells the visitor to type', shot);
       }
       if (/Arjun|Mei|Daniel|Sam/.test(body)) {
