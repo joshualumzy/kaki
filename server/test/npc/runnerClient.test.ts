@@ -84,7 +84,6 @@ describe('the AI runner HTTP client', () => {
       participantIdentity: 'Ada',
       seat: 'chef',
       text: 'The till is short.',
-      source: 'speech' as const,
       clientLineId: 'same-id',
     };
     const ok = () => new Response(JSON.stringify({ ok: true }), { status: 200 });
@@ -118,7 +117,6 @@ describe('the AI runner HTTP client', () => {
       participantIdentity: 'Ada',
       seat: 'chef',
       text: 'The till is short.',
-      source: 'speech' as const,
       clientLineId: 'same-id',
     };
     const fetchMock = vi

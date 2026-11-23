@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { publicUrlIsHttps, tokenMatches } from '../access';
+import { accountUserId, publicUrlIsHttps, tokenMatches } from '../access';
 import { cookieValue, sendJson } from '../http';
 import { PRACTICE_COOKIE, type RouteCall } from '../routeCall';
 import { MeetingBusyError, PracticeFullError } from '../../meeting/registry';
@@ -30,11 +30,16 @@ export async function handlePractice(call: RouteCall): Promise<void> {
     return;
   }
 
+  const ownerUserId = accountUserId(call.principal);
   const raw = cookieValue(request, PRACTICE_COOKIE);
   const parsed = raw === undefined ? undefined : parsePracticeCookie(raw);
   if (parsed !== undefined) {
     const existing = registry.findPractice(parsed.meetingId);
-    if (existing !== undefined) {
+    // A practice that belongs to another account must never be handed to this one, even on the
+    // same browser: its minutes would land in the wrong history.
+    const row = ownerUserId === undefined ? undefined : await context.meetings?.get(parsed.meetingId);
+    const ownedByThisAccount = ownerUserId === undefined || row?.ownerUserId === ownerUserId;
+    if (existing !== undefined && ownedByThisAccount) {
       if (existing.session.phase() !== 'ended') {
         const expected = existing.session.practiceStartToken();
         // A cookie that names this practice with a different capability is an attempt on another
@@ -42,7 +47,7 @@ export async function handlePractice(call: RouteCall): Promise<void> {
         if (expected === undefined || tokenMatches(parsed.capability, expected)) {
           const capability = expected ?? parsed.capability;
           response.setHeader('set-cookie', practiceCookie(existing.id, capability));
-          sendJson(response, 200, { meetingId: existing.id });
+          sendJson(response, 200, { meetingId: existing.id, signedIn: ownerUserId !== undefined });
           return;
         }
         sendJson(response, 403, {
@@ -57,7 +62,11 @@ export async function handlePractice(call: RouteCall): Promise<void> {
 
   let meetingId: string;
   try {
-    const instance = await registry.createPractice();
+    const instance = await registry.createPractice(
+      ownerUserId === undefined
+        ? {}
+        : { ownerUserId, title: 'Nanyang Kopi (sample workspace)' },
+    );
     meetingId = instance.id;
     const capability = randomUUID();
     instance.session.beginPractice({ token: capability });
@@ -73,5 +82,5 @@ export async function handlePractice(call: RouteCall): Promise<void> {
     }
     throw error;
   }
-  sendJson(response, 200, { meetingId });
+  sendJson(response, 200, { meetingId, signedIn: ownerUserId !== undefined });
 }

@@ -5,6 +5,13 @@ import { NpcConversation, type NpcPorts } from '../../src/npc/conversation';
 import type { Utterance } from '../../src/npc/director';
 import type { GuestReaderInput, GuestReading } from '../../src/npc/guestReader';
 
+/** Say one line as the guest, through the same speech path the recogniser uses. */
+function speak(conversation: { humanSpeech(talking: boolean): void; humanText(text: string): string | undefined }, text: string): void {
+  conversation.humanSpeech(true);
+  conversation.humanSpeech(false);
+  conversation.humanText(text);
+}
+
 const scenario: Scenario = {
   id: 'checkpoint-four',
   organisation: 'Test Kitchen',
@@ -172,7 +179,19 @@ const flush = async (): Promise<void> => { await vi.advanceTimersByTimeAsync(0);
 
 async function say(h: ReturnType<typeof harness>, text: string, value?: GuestReading): Promise<void> {
   if (value !== undefined) h.readings.push(value);
-  h.conversation.humanTyped(text);
+  speak(h.conversation, text);
+  for (let i = 0; i < 20; i += 1) await flush();
+}
+
+/** Speak over a line that is already playing: the voice starts, settles, then the words are recognised. */
+async function sayOver(h: ReturnType<typeof harness>, text: string, value: GuestReading): Promise<void> {
+  h.readings.push(value);
+  h.conversation.humanSpeech(true);
+  // Keep talking past the barge-in window, as a person cutting in does, so the AI line really stops.
+  await vi.advanceTimersByTimeAsync(1_500);
+  await flush();
+  h.conversation.humanText(text);
+  h.conversation.humanSpeech(false);
   for (let i = 0; i < 20; i += 1) await flush();
 }
 
@@ -245,7 +264,7 @@ describe('checkpoint 4: reading, readiness and the card transaction', () => {
     expect(firstConfirm?.finished).toBe(false);
 
     // The guest speaks over the confirmation before it is fully heard.
-    await say(h, 'Yes.', reading({ kind: 'agree' }));
+    await sayOver(h, 'Yes.', reading({ kind: 'agree' }));
     expect(h.settle).not.toHaveBeenCalled();
     for (let i = 0; i < 40 && h.playing.filter((entry) => entry.text.includes("So it's")).length < 2; i += 1) {
       await vi.advanceTimersByTimeAsync(100);

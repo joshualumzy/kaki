@@ -47,6 +47,7 @@ export function MeetingPanel({
   sharedAudience = 'screen',
   practice = false,
   real = false,
+  signedIn = false,
   onNewPractice,
   onWingmanBadgeChange,
 }: {
@@ -59,6 +60,8 @@ export function MeetingPanel({
   practice?: boolean;
   /** A real meeting's End lives in the room bar only, and an empty agenda has nothing to advance. */
   real?: boolean;
+  /** True when this browser belongs to a signed-in account, so a practice can keep its minutes. */
+  signedIn?: boolean;
   /** Asks the practice page for a fresh practice meeting once this one is over. */
   onNewPractice?: () => void;
   /** Reports the quiet Wingman note count so the room can show it on the Wingman button. */
@@ -349,6 +352,14 @@ export function MeetingPanel({
                 ? '🎉 Kaki Host · Meeting Concluded'
                 : '📝 Kaki Host · Meeting Minutes Draft'}
           </p>
+          {practice && !signedIn ? (
+            <div className="kd-practice-minutes">
+              <p>Minutes are on the sample wiki</p>
+              <p>
+                <a href="/signin?next=/practice">Sign in to keep your meetings</a>
+              </p>
+            </div>
+          ) : null}
           <p style={{ marginBottom: 10 }}>
             {minutesPublished
               ? 'Full meeting notes (agenda items, action items, open questions, and transcript) and your team deliverables are live:'

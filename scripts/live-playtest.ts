@@ -359,8 +359,8 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks: PlaytestHo
     return waitForVisitorTurn(index);
   }
 
-  async function evaluateInterrupt(index: number, typedAt: number, robotLineBefore: number, wasSpeaking: boolean): Promise<void> {
-    // Measure the speaking state from the moment the line was typed, while the transcript catches up in parallel.
+  async function evaluateInterrupt(index: number, spokenAt: number, robotLineBefore: number, wasSpeaking: boolean): Promise<void> {
+    // Measure the speaking state from the moment the line was spoken, while the transcript catches up in parallel.
     const endedAt = (async (): Promise<number | undefined> => {
       const end = Math.min(Date.now() + 4_000, globalDeadline);
       while (Date.now() < end) {
@@ -369,26 +369,26 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks: PlaytestHo
       }
       return undefined;
     })();
-    const landed = await waitFor(`Topic ${index + 1} typed line after interrupt`, () =>
+    const landed = await waitFor(`Topic ${index + 1} spoken line after interrupt`, () =>
       transcript.slice(robotLineBefore).some((line) => line.agendaIndex === index && isRobotSpeaker(line.speaker)), 15_000, false);
     const ended = await endedAt;
     const robotAt = lastRobotLineIndex(index);
     const nextLine = await waitFor(`Topic ${index + 1} AI line after interrupt`, () =>
       robotAt >= 0 && transcript.slice(robotAt + 1).some((line) => !isRobotSpeaker(line.speaker)), 20_000, false);
     const duplicates = robotAt < 0 ? [] : duplicatedAiLines(transcript.filter((line) => line.agendaIndex === index));
-    const within = ended !== undefined && ended - typedAt <= 4_000;
+    const within = ended !== undefined && ended - spokenAt <= 4_000;
     const ok = wasSpeaking && landed && within && nextLine && duplicates.length === 0;
     const detail = !wasSpeaking
-      ? 'No AI colleague was speaking when the line was typed'
+      ? 'No AI colleague was speaking when the line was spoken'
       : !landed
         ? 'The interrupted line never reached the transcript'
         : !within
-          ? 'The speaking state did not end within 4 s of the typed line'
+          ? 'The speaking state did not end within 4 s of the spoken line'
           : !nextLine
             ? 'No AI line followed the interrupted line in the transcript'
             : duplicates.length > 0
               ? `AI line repeated word for word afterwards: ${duplicates.join(' / ')}`
-              : `Speaking ended ${(((ended ?? typedAt) - typedAt) / 1000).toFixed(1)}s after the typed line; the next AI line followed it`;
+              : `Speaking ended ${(((ended ?? spokenAt) - spokenAt) / 1000).toFixed(1)}s after the spoken line; the next AI line followed it`;
     await check(`Topic ${index + 1} interrupt yields`, ok, detail);
   }
 
@@ -458,16 +458,16 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks: PlaytestHo
     if (hooks?.behaviour === 'interrupter' && interruptArmed.delete(index)) {
       const robotLineBefore = transcript.length;
       const stillSpeaking = await waitFor(`Topic ${index + 1} AI still speaking`, () => aiSpeaking(), 15_000, false);
-      const typed = await sayLine(text);
-      if (!typed.ok) return false;
+      const spoken = await sayLine(text);
+      if (!spoken.ok) return false;
       lastVisitorLine = text;
       interruptedTopics.add(index);
-      await evaluateInterrupt(index, typed.at, robotLineBefore, stillSpeaking);
+      await evaluateInterrupt(index, spoken.at, robotLineBefore, stillSpeaking);
       return true;
     }
-    const typed = await sayLine(text);
-    if (typed.ok) lastVisitorLine = text;
-    return typed.ok;
+    const spoken = await sayLine(text);
+    if (spoken.ok) lastVisitorLine = text;
+    return spoken.ok;
   }
 
   const LOCK_OFFER_PHRASE = /shall (?:we|i) lock in what you/i;
@@ -684,7 +684,7 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks: PlaytestHo
     return page.locator('.kd-state').filter({ hasText: 'speaking' }).count().then((count) => count > 0).catch(() => false);
   }
 
-  function quietBeforeTyping(index: number): Promise<boolean> {
+  function quietBeforeSpeaking(index: number): Promise<boolean> {
     return waitFor(`Topic ${index + 1} AI quiet`, async () =>
       Date.now() - lastAiLineAt >= 3_000 && !await aiSpeaking(), 30_000, false);
   }
@@ -747,7 +747,7 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks: PlaytestHo
     if (outcome.reply === null) { markFresh(); return; }
     const cap = outcome.kind === 'confirm' || outcome.kind === 'accept-offer' ? 6 : 4;
     if (robotLineCount(index) >= cap) { markFresh(); return; }
-    if (!await quietBeforeTyping(index)) return;
+    if (!await quietBeforeSpeaking(index)) return;
     const last = fresh.at(-1)!;
     const previous = fresh.at(-2);
     const asked = previous !== undefined && previous.speaker === last.speaker ? `${previous.text} ${last.text}` : last.text;
@@ -926,9 +926,9 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks: PlaytestHo
       const before = transcript.length;
       if (i === 1) {
         if (!await waitForOpeningTurn(i)) continue;
-        notes.push(`${stamp()} Topic ${i + 1}: the Table topic chip needs a visitor line on this topic, so typed a short non-decision line first.`);
+        notes.push(`${stamp()} Topic ${i + 1}: the Table topic chip needs a visitor line on this topic, so spoke a short non-decision line first.`);
         await speak('Before I call it, what is the practical catch for the team?', 'Ask a practical question before making a decision.');
-        await waitFor(`Topic ${i + 1} typed line in transcript`, () =>
+        await waitFor(`Topic ${i + 1} spoken line in transcript`, () =>
           transcript.slice(before).some((line) => line.agendaIndex === i && isRobotSpeaker(line.speaker)), 15_000);
         // The starter button only appears when the room is idle, and colleagues may keep talking for 50+ s after the
         // visitor's question, so wait for the visitor's turn again before looking for it.
@@ -941,7 +941,7 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks: PlaytestHo
           const idea = page.locator('.kd-starter-chip').filter({ hasText: /table it for now/i }).first();
           const visible = await waitFor(`Topic ${i + 1} table topic idea`, () => idea.isVisible(), 8_000);
           if (visible) {
-            if (await quietBeforeTyping(i)) {
+            if (await quietBeforeSpeaking(i)) {
               for (const line of transcript) {
                 if (line.agendaIndex === i && !isRobotSpeaker(line.speaker)) reacted.add(lineKey(line));
               }
@@ -976,7 +976,7 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks: PlaytestHo
             return firstAt >= 0 && transcript.slice(firstAt + 1).some((line) =>
               line.agendaIndex === i && !isRobotSpeaker(line.speaker));
           }, 60_000, false);
-          if (replied && await quietBeforeTyping(i)) {
+          if (replied && await quietBeforeSpeaking(i)) {
             if (await speak('', 'Actually, scrap that — reverse your last call completely and choose a clearly different option, starting the line with "Actually, scrap that —".')) {
               flipFlopFinal.set(i, lastVisitorLine);
             }
@@ -986,7 +986,7 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks: PlaytestHo
         }
       }
 
-      await waitFor(`Topic ${i + 1} typed line in transcript`, () =>
+      await waitFor(`Topic ${i + 1} spoken line in transcript`, () =>
         transcript.slice(before).some((line) => line.agendaIndex === i && isRobotSpeaker(line.speaker)), 15_000);
 
       const settleEnd = Math.min(Date.now() + 90_000, globalDeadline);

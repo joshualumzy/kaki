@@ -16,7 +16,7 @@ Kaki (Singlish for "buddy" or "one of us") helps a small team run a meeting and 
 - Start a meeting now or schedule it for later, describe it to Tell Kaki for a drafted agenda, or take the agenda from the calendar. Invite people by link or QR code, and guests join by link without an account.
 - Many meetings can run at once. Each has its own notes, transcript and cards, and an open-meeting cap returns a plain busy message.
 - Every person has their own seat and a private wingman that answers "what did I miss?" from the meeting first, then the workspace records with sources and dates. Guests get answers from the meeting only.
-- A to-do card can be done for you: the owner presses Do it for me (tool), reviews the draft and approves it. At End, Send the notes posts to chat or emails the people who joined. Every post Kaki makes is signed "Posted by Kaki for <name>, approved in <meeting title>".
+- A to-do card can be done for you: the owner presses Do it for me (tool), reviews the draft and approves it. At End, the minutes card publishes the one record to the team wiki. Every post Kaki makes is signed "Posted by Kaki for <name>, approved in <meeting title>".
 - After the meeting, the workspace keeps the minutes and to-dos, with Copy, Download and a tick for each to-do.
 - A practice meeting with AI colleagues still runs at `/practice` and `/demo`, with the stage above the dock on narrow screens.
 
@@ -80,9 +80,9 @@ Sign in with Google to open your workspace. The account menu lists your personal
 | Mailpit inbox | [Port 8084](http://kaki.southeastasia.cloudapp.azure.com:8084) | No login |
 | Radicale calendar | [Port 5232](http://kaki.southeastasia.cloudapp.azure.com:5232) | `demo` / `demo` |
 
-In a real meeting, each person has their own seat under their own name (two people called Sam show as "Sam" and "Sam (2)") and no AI colleagues join. The room can go off the record, and anyone can leave and rejoin. The owner or an admin can end the meeting for everyone. In a practice meeting, the AI colleagues take the other seats and the visitor can speak or type.
+In a real meeting, each person has their own seat under their own name (two people called Sam show as "Sam" and "Sam (2)") and no AI colleagues join. The room can go off the record, and anyone can leave and rejoin. The owner or an admin can end the meeting for everyone. In a practice meeting, the AI colleagues take the other seats and the visitor speaks. A signed-in visitor's practice keeps its minutes and to-dos in their own sample history; a signed-out visitor reads the minutes on the sample wiki and is invited to sign in to keep future meetings.
 
-The VM switches itself off after 60 minutes with nobody connected, or after 2 hours with nobody speaking, typing or clicking (a forgotten open tab). A meeting cut off this way is saved and comes back when the VM wakes. The waking page is in `wake/` and the switch-off check in `deploy/idle/`. You can also run Kaki locally with `npm start` (see [Run locally](#run-locally)).
+The VM switches itself off after 60 minutes with nobody connected, or after 2 hours with nobody speaking or clicking (a forgotten open tab). A meeting cut off this way is saved and comes back when the VM wakes. The waking page is in `wake/` and the switch-off check in `deploy/idle/`. You can also run Kaki locally with `npm start` (see [Run locally](#run-locally)).
 
 ```bash
 npm run cloud:status   # Check the VM and the live HTTPS health endpoint
@@ -137,7 +137,7 @@ Company records sit in the same Postgres database, so a question can match a rec
 | --- | --- | --- |
 | Kaki Host | Runs the agenda clock, keeps the meeting record, finds open questions and follow-ups, dispatches work to the right role and triggers the closing summary. | `server/src/host/` |
 | Kaki Wingman | A private helper for one person. Answers "what did I miss?" and other questions from the meeting first and the workspace second (with sources and dates), notes a to-do given to them, flags a direct question they must answer, and surfaces a record that answers or contradicts the current discussion. Guests get meeting-only answers. | `server/src/wingman/` |
-| Kaki Action | Drafts a concrete issue, post, email, wiki page or calendar event after a person presses Do it for me or claims the task, then runs it once they approve. At End it offers to send the notes to chat or email, and it drafts the minutes for a person to approve before the wiki write. | `server/src/action/` |
+| Kaki Action | Drafts a concrete issue, post, email, wiki page or calendar event after a person presses Do it for me or claims the task, then runs it once they approve. At End it drafts the minutes for a person to approve before the wiki write. | `server/src/action/` |
 | NPC Director and runner | The runner joins every room as the silent listener for speech recognition. In a practice meeting it also plays the AI colleagues (NPCs in the code) over LiveKit. One Director speaks for every AI colleague, one at a time. The runner uses Azure Speech, voice-activity detection and barge-in (stops talking when someone talks over it). | `server/src/npc/` |
 
 Here is the path of one follow-up in a real meeting. Someone says, "I'll email the supplier." The notetaker proposes a follow-up from that transcript line and keeps the evidence (`server/src/host/notetakerTasks.ts`). The owner dispatches it to that person's seat from the shared task list (`server/src/host/autoDispatch.ts`). The task store publishes the card only to their seat (`server/src/meeting/tasks.ts`), and the dock shows it privately (`web/src/meeting/room/ActiveRoleCards.tsx`). The owner presses Do it for me (email), edits the draft and presses Approve. The action runner checks the draft against its source and runs it (`server/src/action/runner.ts`, `server/src/action/draftGrounding.ts`). Mailpit receives the email (`server/src/action/email.ts`).
@@ -152,7 +152,7 @@ Real meetings have no AI colleagues. Any number of people join, each with their 
 
 Each person's private Wingman answers "what did I miss?" and other questions from the meeting first and workspace records second, with a source and date. A guest gets answers from the meeting only.
 
-Follow-ups are to-do cards. The owner can press Do it for me (tool), review the draft and approve it, and the card syncs back. At End, Send the notes posts the minutes and to-dos to chat or emails the people who joined. The workspace keeps a history of each meeting with its minutes and to-dos, and a person can tick a to-do done, copy the notes or download them.
+Follow-ups are to-do cards. The owner can press Do it for me (tool), review the draft and approve it, and the card syncs back. At End, the minutes and to-dos are kept in the workspace and the minutes card publishes them to the team wiki once a person approves. The workspace keeps a history of each meeting with its minutes and to-dos, and a person can tick a to-do done, copy the notes or download them.
 
 Questions and follow-ups are proposed only from transcript lines, and a second model pass judges whether the meaning matches. A doubtful case is left unresolved.
 
@@ -191,7 +191,7 @@ Screen map:
 - The stage shows each person's LiveKit tile, who is speaking, live captions and reaction badges. In a practice meeting, AI colleagues appear as animated orbs. `web/src/meeting/room/MeetingGrid.tsx`, `web/src/meeting/room/CaptionedTile.tsx`, `web/src/meeting/room/Orb.tsx`, `web/src/meeting/room/stageModel.ts`
 - A briefing covers the practice stage until the visitor presses Start. The AI colleagues stay silent before that. `web/src/meeting/room/StartPrompt.tsx`
 - The dock carries the role card, the agenda clock, the transcript, the task board, the private Wingman panel and any private task card. `web/src/meeting/room/Dock.tsx`, `web/src/meeting/room/RoleCard.tsx`, `web/src/meeting/room/WingmanPanel.tsx`, `web/src/meeting/room/ActiveRoleCards.tsx`, `web/src/meeting/room/MeetingPanel.tsx`
-- The real meeting bar has microphone and camera controls, Type, Off the record, Invite, People and Leave, plus End for everyone (owner or admin). An off-the-record banner shows while the room is off the record. `web/src/meeting/room/RealMeetingBar.tsx`, `web/src/meeting/room/RealRoomOverlays.tsx`
+- The real meeting bar has microphone and camera controls, Off the record, Invite, People and Leave, plus End for everyone (owner or admin). An off-the-record banner shows while the room is off the record. `web/src/meeting/room/RealMeetingBar.tsx`, `web/src/meeting/room/RealRoomOverlays.tsx`
 - Microphone and speaker controls show a live level. A phone can tap to start playback when the browser blocks it. `web/src/meeting/room/MediaPreview.tsx`, `web/src/meeting/room/AudioUnlock.tsx`
 - Narrow screens put the stage above the dock and keep the meeting controls at the bottom. `web/src/meeting/room/demo.css`
 - One hook holds the WebSocket connection, the event window, the task list and the send function. `web/src/kaki/useKaki.ts`
@@ -255,7 +255,7 @@ Screen map:
 - The task store is the only code that changes task state. It enforces `SUGGESTED`, `DISPATCHED`, `CLAIMED`, `DRAFT_READY`, `RUNNING`, `COMPLETED`, `FAILED` and `SYNCED`, and only the assignee can approve. `server/src/meeting/tasks.ts`
 - Kaki Action drafts the artifact for an accepted task, either after Do it for me or when the assignee claims it, and checks the draft against its source before it runs. `server/src/action/runner.ts`, `server/src/action/draft.ts`, `server/src/action/draftGrounding.ts`
 - Five connectors write to Gitea issues, Mattermost posts, Mailpit email, Wiki.js pages (through its GraphQL API) and Radicale calendar events. Each post or email ends with "Posted by Kaki for <name>, approved in <meeting title>". `server/src/action/footer.ts` `server/src/action/gitea.ts`, `server/src/action/mattermost.ts`, `server/src/action/email.ts`, `server/src/action/wiki.ts`, `server/src/action/calendar.ts`
-- On the closing signal, Kaki builds Markdown minutes from the record, tasks and transcript, including any off-the-record span, assigns the card to a person in the room, and writes to Wiki.js only after that person approves. It also offers Send the notes to a Mattermost channel or by email to the people who joined. `server/src/action/wiki.ts`
+- On the closing signal, Kaki builds Markdown minutes from the record, tasks and transcript, including any off-the-record span, assigns the card to a person in the room, and writes to Wiki.js only after that person approves. Wiki minutes are the one record of the meeting. `server/src/action/wiki.ts`
 - Kaki keeps its own copy of the minutes and to-dos with the meeting row, so the workspace history can show them and tick to-dos done. `server/src/meeting/registry.ts`, `server/src/http/routes/workspaces.ts`
 - The knowledge indexer reads Wiki.js, Gitea, Mattermost, Mailpit and Postgres, chunks the records and writes 1024-dimension `bge-m3` embeddings. `server/src/wingman/knowledge/indexer.ts`, `server/src/wingman/knowledge/cli.ts`
 
@@ -265,7 +265,7 @@ Screen map:
 | --- | --- | --- |
 | Components and typed props | `MeetingGrid`, `CaptionedTile`, `RoleCard`, `Dock` in `web/src/meeting/room/` | Stage tiles and dock cards take explicit props, so the same card renders for an owner, a participant or a practice visitor. |
 | Side effects with `useEffect` | `web/src/kaki/useKaki.ts`, `web/src/meeting/room/Meeting.tsx` | The WebSocket reconnects and the LiveKit connection and rejoin flow start and stop with the page. |
-| Refs with `useRef` | `web/src/kaki/useKaki.ts`, `web/src/kaki/ScenarioContext.tsx` | Socket handles, pending typed lines and load ordering must survive renders without causing another render. |
+| Refs with `useRef` | `web/src/kaki/useKaki.ts`, `web/src/kaki/ScenarioContext.tsx` | Socket handles, meeting identity and load ordering must survive renders without causing another render. |
 | Custom hooks | `useKaki` (`web/src/kaki/useKaki.ts`), `useScenario` and `useRefreshScenario` (`web/src/kaki/ScenarioContext.tsx`), `useMe` (`web/src/auth/useMe.ts`) | Each hook packages one piece of shared behaviour: live events, the active scenario and the sign-in check. |
 | Context with `createContext` | `web/src/kaki/ScenarioContext.tsx` | Every page reads the same scenario without passing it through each component. |
 | Routing with React Router 7 | `web/src/App.tsx`, `useNavigate` in `LandingPage`, `JoinPage`, `LoginPage` and `SetupPage`, `useSearchParams` in `JoinPage`, `SignInPage`, `LoginPage` and `ParticipantJoinPage` | The routes cover the landing, sign-in, new-meeting, workspace, join and meeting flows, and the invite code travels in the URL. |

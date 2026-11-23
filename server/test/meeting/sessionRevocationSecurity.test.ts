@@ -618,7 +618,9 @@ describe('security round 3', () => {
 
     const again = await signInAsHost(app, seatHost);
 
-    expect((await get(app, '/api/auth/me', seatHost)).status).toBe(401);
+    const oldMe = await get(app, '/api/auth/me', seatHost);
+    expect(oldMe.status).toBe(200);
+    expect(await oldMe.json()).toEqual({ authEnabled: true, kind: null });
     expect(await closeWithin(screen.closed)).toBe(4001);
 
     const body = (await (await get(app, '/api/scenario', again)).json()) as Scenario;

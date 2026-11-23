@@ -5,6 +5,7 @@ import { ensureMeetingsSchema } from '../auth/schema';
 import type { MeetingPersistence } from '../persist/persistence';
 import type { MeetingInstance } from './instance';
 import { agendaFromStored } from './agenda';
+import { SAMPLE_WORKSPACE_ID } from '../workspace/constants';
 import type { AgendaItem, ArchivedMeetingTodo, MeetingMinutesArchive, MeetingRow, MeetingStatus } from './types';
 
 /** A registry refusal the HTTP layer turns into a 503 with this exact message. */
@@ -28,6 +29,8 @@ export class PracticeFullError extends Error {
 /** The `meetings` rows this server can load and list. */
 export interface MeetingStore {
   create(input: {
+    /** A caller-chosen id, so a practice meeting's row matches its instance; defaults to a fresh id. */
+    id?: string;
     workspaceId: string;
     ownerUserId: string;
     title: string;
@@ -67,8 +70,12 @@ export interface MeetingRegistry {
   }): Promise<MeetingRow>;
   /** The loaded instance, or one rebuilt from its row; undefined when no such meeting exists. */
   get(id: string): Promise<MeetingInstance | undefined>;
-  /** Open one fresh, memory-only practice meeting for a visitor. */
-  createPractice(): Promise<MeetingInstance>;
+  /**
+   * Open one fresh practice meeting for a visitor. A signed-in visitor gets a meeting row in the
+   * sample workspace owned by them, so their minutes can be kept in their own history; a signed-out
+   * visitor stays memory-only.
+   */
+  createPractice(options?: { ownerUserId?: string; title?: string }): Promise<MeetingInstance>;
   /** The loaded practice meeting with this id, or undefined when it is not a practice one. */
   findPractice(id: string): MeetingInstance | undefined;
   list(workspaceId: string): Promise<MeetingRow[]>;
@@ -95,8 +102,8 @@ interface MeetingRegistryDeps {
   store: MeetingStore;
   /** Build an instance from its row; persistence is already loaded for it. */
   buildInstance(row: MeetingRow, persistence: MeetingPersistence | undefined): Promise<MeetingInstance>;
-  /** Build a fresh, memory-only practice instance with this registry id. */
-  buildPracticeInstance(id: string): Promise<MeetingInstance>;
+  /** Build a fresh practice instance with this registry id; a signed-in visitor's row is already created. */
+  buildPracticeInstance(id: string, ownerUserId?: string): Promise<MeetingInstance>;
   /** Load the meeting's saved state; absent means memory only. */
   persistenceFor?(id: string): Promise<MeetingPersistence | undefined>;
   /** The id of the meeting whose saved state holds this code; absent means loaded meetings only. */
@@ -349,7 +356,7 @@ export function createMeetingRegistry(deps: MeetingRegistryDeps): MeetingRegistr
       return (await isLive(savedId)) ? savedId : undefined;
     },
 
-    async createPractice() {
+    async createPractice(options = {}) {
       if (closed) throw new Error('the meeting registry is closed');
       const practiceOpen = practiceCount() + practiceCreating;
       if (practiceOpen >= maxPractice) {
@@ -362,7 +369,17 @@ export function createMeetingRegistry(deps: MeetingRegistryDeps): MeetingRegistr
       }
       practiceCreating += 1;
       try {
-        const instance = await deps.buildPracticeInstance(newMeetingId());
+        const id = newMeetingId();
+        if (options.ownerUserId !== undefined) {
+          // The row shares the instance id, so the minutes writer can save straight to it.
+          await deps.store.create({
+            id,
+            workspaceId: SAMPLE_WORKSPACE_ID,
+            ownerUserId: options.ownerUserId,
+            title: options.title?.trim() || 'Practice meeting',
+          });
+        }
+        const instance = await deps.buildPracticeInstance(id, options.ownerUserId);
         loaded.set(instance.id, instance);
         deps.onOpened?.(openMeeting(instance));
         deps.onWorkspaceOpened?.(instance.workspaceId);
@@ -488,14 +505,14 @@ export function createPostgresMeetingStore(pool: Pool): MeetingStore {
   });
 
   return {
-    async create({ workspaceId, ownerUserId, title, status = 'open', scheduledFor, agenda = [] }) {
+    async create({ id, workspaceId, ownerUserId, title, status = 'open', scheduledFor, agenda = [] }) {
       await ensureMeetingsSchema(pool);
       const result = await pool.query(
         `insert into meetings (id, workspace_id, owner_user_id, title, kind, status, scheduled_for, agenda)
          values ($1, $2, $3, $4, 'real', $5, $6, $7::jsonb)
          returning id, workspace_id, owner_user_id, title, kind, status, scheduled_for, agenda, created_at, ended_at,
                    minutes_text, minutes_todos, minutes_archived_at`,
-        [newMeetingId(), workspaceId, ownerUserId, title, status, scheduledFor ?? null, JSON.stringify(agenda)],
+        [id ?? newMeetingId(), workspaceId, ownerUserId, title, status, scheduledFor ?? null, JSON.stringify(agenda)],
       );
       return row(result.rows[0]);
     },
@@ -567,9 +584,9 @@ export function createMemoryMeetingStore(): MeetingStore & { rows: Map<string, M
   const rows = new Map<string, MeetingRow>();
   return {
     rows,
-    async create({ workspaceId, ownerUserId, title, status = 'open', scheduledFor, agenda = [] }) {
+    async create({ id, workspaceId, ownerUserId, title, status = 'open', scheduledFor, agenda = [] }) {
       const meeting: MeetingRow = {
-        id: newMeetingId(),
+        id: id ?? newMeetingId(),
         workspaceId,
         ownerUserId,
         title,

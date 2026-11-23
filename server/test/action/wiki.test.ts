@@ -46,6 +46,10 @@ function setup(
     activeScenario?: Scenario;
     seats?: Array<{ name: string; seat: string }>;
     offTheRecordSpans?: Array<{ from: string; to: string }>;
+    archiveMinutes?: (input: {
+      minutes: string;
+      todos: Array<{ id: string; title: string; owner: string; status: string }>;
+    }) => Promise<void>;
   } = {},
 ): TaskStore & { hub: Hub } {
   const scenario = context.scenario ?? testScenario;
@@ -56,6 +60,7 @@ function setup(
     tasks,
     activeScenario: () => context.activeScenario ?? scenario,
     draftOnly,
+    ...(context.archiveMinutes === undefined ? {} : { archiveMinutes: context.archiveMinutes }),
     ...(context.seats === undefined
       ? {}
       : {
@@ -292,6 +297,28 @@ describe('wiki action module', () => {
     });
     expect(fetchImpl).not.toHaveBeenCalled();
     expect(llm.calls).toHaveLength(0);
+  });
+
+  it('keeps Kaki\'s own copy of the minutes and to-dos before any tool is involved', async () => {
+    const archives: Array<{ minutes: string; todos: Array<{ id: string; title: string; owner: string; status: string }> }> = [];
+    const tasks = setup(
+      { llm: createFakeLlm(() => reply), wiki: settings, fetchImpl: wikiFetch(), minutesDelayMs: 10, today: () => '2026-11-03' },
+      false,
+      {
+        seats: [{ name: 'Bao', seat: 'cashier' }],
+        archiveMinutes: async (input) => {
+          archives.push(input);
+        },
+      },
+    );
+    const todo = tasks.suggest({ title: 'Fix the oven', context: 'Before lunch.', suggestedAssignee: 'chef' });
+    publishClosing(tasks.hub);
+
+    await waitFor(() => (archives.length === 1 ? true : undefined), "Kaki's minutes copy");
+    expect(archives[0]?.minutes).toContain('Meeting Minutes');
+    expect(archives[0]?.todos).toEqual([
+      { id: todo.id, title: 'Fix the oven', owner: 'Chef', status: 'SUGGESTED' },
+    ]);
   });
 
   it('marks each off-the-record span in the meeting local time, not UTC', () => {

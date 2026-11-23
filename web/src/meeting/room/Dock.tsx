@@ -22,6 +22,7 @@ export function Dock({
   sharedAudience = 'screen',
   practice = false,
   real = false,
+  signedIn = false,
   onNewPractice,
   onWingmanBadgeChange,
 }: {
@@ -34,6 +35,8 @@ export function Dock({
   practice?: boolean;
   /** A real meeting has no pack briefing and shows each person's own name, never a role label. */
   real?: boolean;
+  /** True when this browser belongs to a signed-in account, so a practice can keep its minutes. */
+  signedIn?: boolean;
   /** Asks the practice page for a fresh practice meeting once this one is over. */
   onNewPractice?: () => void;
   /** Reports the quiet Wingman note count for the room's Wingman badge. */
@@ -96,6 +99,7 @@ export function Dock({
             sharedAudience={sharedAudience}
             practice={practice}
             real={real}
+            signedIn={signedIn}
             {...(onNewPractice === undefined ? {} : { onNewPractice })}
             {...(onWingmanBadgeChange === undefined ? {} : { onWingmanBadgeChange })}
           />

@@ -190,7 +190,7 @@ describe('GET /idle', () => {
       body: JSON.stringify({
         seat: 'chef',
         text: 'The prep list is ready',
-        source: 'speech',
+        
         clientLineId: 'line-1',
         meetingId: 'm1',
         participantIdentity: 'Ada',

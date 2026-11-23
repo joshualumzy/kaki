@@ -49,7 +49,7 @@ Sign-in mode refuses the dev routes. Approved posts are signed "Posted by Kaki f
 
 1. **Join.** The visitor picks a name, a seat and whether to use the microphone. Kaki selects a crisp 2-item agenda (`KAKI_AGENDA_ITEMS`, default `2`, each item with its scenario minutes, 5 in Kopitiam) tailored to that role.
 2. **Briefing.** The stage shows a two-step briefing (`web/src/meeting/room/StartPrompt.tsx`): the visitor's role and today's calls, then
-   how to play. The AI attendees are in the room but silent, and anything the visitor says or types is ignored. The role card and situation
+   how to play. The AI attendees are in the room but silent, and anything the visitor says is ignored. The role card and situation
    are also in the unified Kaki Wingman dock on the right.
 3. **Start.** The practice page first gets this visitor's own meeting from `POST /api/practice`, then pressing the button posts that meeting's `/api/meetings/<id>/meeting/start`. The server prepares the cast and marks the meeting started; only then does Sam,
    the facilitator-seat AI attendee, speak the welcome, which names the visitor's role and responsibility, the first agenda item, and hands
@@ -74,7 +74,7 @@ Sign-in mode refuses the dev routes. Approved posts are signed "Posted by Kaki f
 | LiveKit wiring, who is in the room, the start gate | `server/src/npc/runner.ts`, `main.ts` |
 | Join form, start prompt, stage, captions, meeting controls | `web/src/meeting/room/` |
 
-Data topics (`shared/src/demo.ts`): `kaki.npc-state` (what the AI attendees are doing) and `kaki.control` (typed text, "typing", Stop, Resume and Lock). Start is a server call.
+Data topics (`shared/src/demo.ts`): `kaki.npc-state` (what the AI attendees are doing) and `kaki.control` (a legacy Start message the runner logs and ignores). Start is a server call.
 
 ## How interruption works
 
@@ -82,8 +82,7 @@ The browser publishes the microphone with echo cancellation, so that track carri
 it; when the visitor starts talking the conversation aborts the turn (model, synthesis and sound) and clears LiveKit's buffer. While an AI
 attendee speaks the detector is stricter: it measures how loud the AI's echo is in the microphone (the AI's own playback is recorded in
 `PlaybackReference`) and requires the visitor to be `NPC_VAD_LEAK_MARGIN` times louder. Recognised text is only accepted if it is not a
-near-copy of what the AI just said. If a cut-in turns out to hold no words, the AI carries on after 0.4 s. Typing sets a short guard so a key
-press is not mistaken for a cut-in.
+near-copy of what the AI just said. If a cut-in turns out to hold no words, the AI carries on after 0.4 s.
 
 ## Reading the NPC log (`npm run npc`)
 

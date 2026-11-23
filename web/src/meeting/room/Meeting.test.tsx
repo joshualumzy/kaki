@@ -47,13 +47,15 @@ vi.mock('@livekit/components-react', () => ({
 }));
 
 vi.mock('./JoinForm', () => ({
-  JoinForm: ({ roles, onJoin, error, errorAction }: {
+  JoinForm: ({ roles, onJoin, error, errorAction, meetingTitle }: {
     roles: Array<{ id: string; label: string }>;
+    meetingTitle: string;
     error?: string;
     errorAction?: ReactNode;
     onJoin(name: string, role: string, media: { microphone: boolean; camera: boolean }): void;
   }) => (
     <>
+      <output data-testid="join-title">{meetingTitle}</output>
       <output data-testid="join-roles">{roles.map((role) => role.label).join(',')}</output>
       {error === undefined ? null : <p role="alert">{error}</p>}
       {errorAction}
@@ -222,6 +224,7 @@ describe('Meeting join', () => {
     }));
     vi.stubGlobal('fetch', fetchMock);
     render(<Meeting practiceMeetingId="practice-1" />);
+    expect(screen.getByTestId('join-title').textContent).toBe('Nanyang Kopi (sample workspace)');
     fireEvent.click(screen.getByRole('button', { name: 'Join now' }));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());

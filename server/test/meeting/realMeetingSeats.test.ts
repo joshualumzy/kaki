@@ -122,7 +122,7 @@ function postSpeechLine(
   return request(base, `/api/meetings/${meetingId}/runner/human-line`, {
     method: 'POST',
     token: SERVICE_TOKEN,
-    body: { meetingId, source: 'speech', ...line },
+    body: { meetingId, ...line },
   });
 }
 

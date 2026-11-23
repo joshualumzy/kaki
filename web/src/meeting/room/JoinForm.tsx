@@ -77,13 +77,12 @@ export function JoinForm({ meetingTitle, roles, agenda, busy = false, error, ask
           value={media}
           onChange={setMedia}
           onProblem={setProblem}
-          typingHint="Microphone off: turn it on in the meeting to speak"
         />
 
         <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', minWidth: 0 }}>
           <div className="kd-live">
             <span className="kd-dot" />
-            Live meeting
+            Practice meeting
           </div>
           <h1 className="kd-title">Join meeting</h1>
           <p className="kd-sub">{meetingTitle}</p>

@@ -53,6 +53,8 @@ describe('JoinForm', () => {
   it('shows the meeting and offers exactly the roles it was given', () => {
     const { role } = setup();
     expect(screen.getByText('Launch readiness')).toBeTruthy();
+    expect(screen.getByText('Practice meeting')).toBeTruthy();
+    expect(screen.queryByText('Live meeting')).toBeNull();
     expect([...role.options].map((option) => option.text)).toEqual(['Producer', 'Marketing Lead']);
   });
 
@@ -121,6 +123,15 @@ describe('JoinForm', () => {
     expect(button.textContent).toBe('Join with mic off');
     fireEvent.click(button);
     expect(onJoin).toHaveBeenCalledWith('Josh', 'operations_director', { microphone: false, camera: false });
+  });
+
+  it('never mentions typing: the microphone off hint only asks for the mic', () => {
+    const { container } = (() => {
+      const view = render(<JoinForm meetingTitle="Launch readiness" roles={roles} onJoin={vi.fn()} />);
+      return { container: view.container };
+    })();
+    expect(screen.getByText('Microphone off: turn it on to speak')).toBeTruthy();
+    expect(container.textContent).not.toMatch(/\btype\b/i);
   });
 
   it('has no code box until a code is needed or came with the link', () => {

@@ -3,7 +3,6 @@ import { MEDIA_BLOCKED_PROBLEM } from '../../net/plainFailure';
 import { useLocalParticipant, useRoomContext } from '@livekit/components-react';
 import { Avatar } from '../../ui';
 import { QrCode } from '../MeetingOverlays';
-import { newClientLineId } from './stageModel';
 import { useRealRoom } from './realRoom';
 import { distinctDisplayNames } from './people';
 
@@ -21,8 +20,6 @@ export function RealMeetingBar({
   const livekitRoom = useRoomContext();
   const { localParticipant, isMicrophoneEnabled, isCameraEnabled } = useLocalParticipant();
   const meeting = useRealRoom();
-  const [typeOpen, setTypeOpen] = useState(false);
-  const [typed, setTyped] = useState('');
   const [inviteOpen, setInviteOpen] = useState(false);
   const [peopleOpen, setPeopleOpen] = useState(false);
   const [confirmEnd, setConfirmEnd] = useState(false);
@@ -62,23 +59,6 @@ export function RealMeetingBar({
       console.error('kaki web: the microphone or camera change failed', error);
       setProblem(MEDIA_BLOCKED_PROBLEM);
     }
-  }
-
-  function submitTyped(): void {
-    const text = typed.trim();
-    if (text === '') return;
-    const sent = send({
-      type: 'HUMAN_LINE',
-      text,
-      source: 'typed',
-      clientLineId: newClientLineId(),
-    });
-    if (sent) {
-      setTyped('');
-      setProblem(undefined);
-      return;
-    }
-    setProblem("Couldn't send your line. Check your connection and try again.");
   }
 
   async function copyInvite(): Promise<void> {
@@ -129,16 +109,6 @@ export function RealMeetingBar({
             <button
               type="button"
               className="kd-bar-btn"
-              data-on={typeOpen}
-              aria-expanded={typeOpen}
-              disabled={waiting}
-              onClick={() => setTypeOpen((open) => !open)}
-            >
-              Type
-            </button>
-            <button
-              type="button"
-              className="kd-bar-btn"
               data-on={offTheRecord}
               aria-pressed={offTheRecord}
               disabled={waiting}
@@ -182,27 +152,6 @@ export function RealMeetingBar({
           </button>
         ) : null}
       </div>
-
-      {typeOpen && !ended ? (
-        <form
-          className="kd-real-type"
-          onSubmit={(event) => {
-            event.preventDefault();
-            submitTyped();
-          }}
-        >
-          <input
-            aria-label="Type to the meeting"
-            value={typed}
-            autoFocus
-            onChange={(event) => setTyped(event.target.value)}
-            placeholder="Type to speak, press Enter"
-          />
-          <button type="submit" className="kd-bar-btn" data-on disabled={typed.trim() === ''}>
-            Send
-          </button>
-        </form>
-      ) : null}
 
       {inviteOpen && !ended ? (
         <div className="kd-real-pop" role="dialog" aria-label="Invite people">

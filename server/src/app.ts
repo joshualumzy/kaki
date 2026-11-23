@@ -587,7 +587,7 @@ export async function createApp({
     });
   }
 
-  async function buildPracticeInstance(id: string): Promise<MeetingInstance> {
+  async function buildPracticeInstance(id: string, ownerUserId?: string): Promise<MeetingInstance> {
     // A practice is memory-only: it has no meetings row and is gone after a restart, so the next
     // POST /api/practice simply creates a fresh one.
     const built = practiceModules?.() ?? {
@@ -631,6 +631,17 @@ export async function createApp({
       speechRecognition,
       idle,
       runnerPresence: runnerControl.presence,
+      ...(ownerUserId === undefined
+        ? {}
+        : {
+            // A signed-in visitor's practice keeps its minutes and to-dos in their own sample history.
+            onEnded: async (endedAt: string) => {
+              await meetings.markEnded?.(id, endedAt);
+            },
+            onMinutes: async (archive) => {
+              await meetings.saveMinutes?.(id, archive);
+            },
+          }),
     });
   }
 

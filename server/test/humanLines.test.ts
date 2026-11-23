@@ -150,11 +150,11 @@ function serviceSocket(port: number, stt: 'server' | 'browser' = 'server'): Prom
 }
 
 function humanLine(text: string, clientLineId: string, extra: Record<string, unknown> = {}): string {
-  return JSON.stringify({ type: 'HUMAN_LINE', text, source: 'typed', clientLineId, ...extra });
+  return JSON.stringify({ type: 'HUMAN_LINE', text, clientLineId, ...extra });
 }
 
 describe('human-only meetings record people\'s lines', () => {
-  it('writes speech and typed lines with the admitted person\'s name, sets the seat as role metadata, feeds the notetaker, and dedupes', async () => {
+  it('writes speech lines with the admitted person\'s name, sets the seat as role metadata, feeds the notetaker, and dedupes', async () => {
     const { port, llm } = await humanOnlyMeeting();
     const screen = await connect(port, 'screen');
     const operations_director = await connect(port, 'operations_director');
@@ -168,7 +168,7 @@ describe('human-only meetings record people\'s lines', () => {
       JSON.stringify({
         type: 'HUMAN_LINE',
         text: 'The laptop campers bought one kopi each.',
-        source: 'speech',
+        
         clientLineId: 'line-2',
         speaker: 'Sam',
       }),
@@ -337,7 +337,7 @@ describe('a practice room matches speech by the name identity its token issues',
         participantIdentity: 'Alice',
         seat: 'operations_director',
         text,
-        source: 'speech',
+        
         clientLineId: 'practice-speech',
       }),
     });
@@ -387,36 +387,25 @@ describe('speech recording needs the runner when recognition is server-side', ()
 });
 
 describe('human lines are bounded, rate limited and deduped per seat', () => {
-  it('refuses typed and speech lines beyond their caps with a clear reason', async () => {
+  it('refuses a speech line beyond its cap with a clear reason', async () => {
     const { port } = await humanOnlyMeeting();
     const operations_director = await connect(port, 'operations_director');
     if (!operations_director.ok) throw new Error('operations_director socket did not open');
     sockets.push(operations_director.ws);
 
-    operations_director.ws.send(humanLine('x'.repeat(501), 'too-long-typed'));
-    const typed = await waitFor(
-      () => operations_director.messages.find((event) => event.type === 'COMMAND_REJECTED'),
-      'the long typed line refusal',
-    );
-    expect(typed).toMatchObject({ payload: { commandType: 'HUMAN_LINE', reason: expect.stringMatching(/too long/i) } });
-
     operations_director.ws.send(
       JSON.stringify({
         type: 'HUMAN_LINE',
         text: 'y'.repeat(2_001),
-        source: 'speech',
+        
         clientLineId: 'too-long-speech',
       }),
     );
-    await waitFor(
-      () =>
-        operations_director.messages.filter(
-          (event) => event.type === 'COMMAND_REJECTED' && /too long/i.test(event.payload.reason),
-        ).length >= 2
-          ? true
-          : undefined,
+    const refusal = await waitFor(
+      () => operations_director.messages.find((event) => event.type === 'COMMAND_REJECTED'),
       'the long speech line refusal',
     );
+    expect(refusal).toMatchObject({ payload: { commandType: 'HUMAN_LINE', reason: expect.stringMatching(/too long/i) } });
   });
 
   it('refuses a burst from one seat while another seat keeps its own dedupe memory', async () => {
@@ -697,7 +686,7 @@ describe('human-line security with sign-in on', () => {
       participantIdentity: 'Ada',
       seat: 'chef',
       text: 'This was recognised by the server.',
-      source: 'speech',
+      
       clientLineId: 'service-line',
     };
     const accepted = await fetch(`http://127.0.0.1:${port}/api/runner/human-line`, {

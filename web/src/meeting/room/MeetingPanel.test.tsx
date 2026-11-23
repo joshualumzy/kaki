@@ -998,6 +998,45 @@ describe('MeetingPanel', () => {
   });
 });
 
+describe('practice minutes and sign-in', () => {
+  const ended: KakiEvent = {
+    type: 'MEETING_RECORD_UPDATED',
+    audience: { kind: 'all' },
+    payload: {
+      agendaIndex: 0,
+      openQuestions: [],
+      elapsedSeconds: 30,
+      speakerTalkSeconds: {},
+      ended: true,
+    },
+  };
+
+  function renderPractice(signedIn: boolean): void {
+    mocks.useKaki.mockReturnValue(withSpeech({
+      events: [ended],
+      tasks: new Map(),
+      connected: true,
+      rejection: null,
+      send: vi.fn(),
+    }));
+    render(<MeetingPanel viewer={{ name: 'Visitor', seatName: 'Visitor' }} practice signedIn={signedIn} />);
+  }
+
+  it('tells a signed-out visitor the minutes are on the sample wiki and to sign in to keep them', () => {
+    renderPractice(false);
+    expect(screen.getByText('Minutes are on the sample wiki')).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Sign in to keep your meetings' }).getAttribute('href')).toBe(
+      '/signin?next=/practice',
+    );
+  });
+
+  it('does not tell a signed-in visitor to sign in: their minutes are kept in their own history', () => {
+    renderPractice(true);
+    expect(screen.queryByText('Minutes are on the sample wiki')).toBeNull();
+    expect(screen.queryByText('Sign in to keep your meetings')).toBeNull();
+  });
+});
+
 describe('the host briefing', () => {
   const packStory = "It's 7 AM on opening day and the shutters are about to go up.";
   const packDecision = 'Do we open on time with the old till?';

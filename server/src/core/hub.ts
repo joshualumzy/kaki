@@ -421,7 +421,7 @@ export function createHub(
       return;
     }
 
-    // A typed line held during a reconnect still counts: the person typed it.
+    // A line held during a reconnect still counts: the person spoke it.
     if (personSockets.has(socket)) options.onPersonAction?.();
 
     if (runnerSockets.has(socket)) {

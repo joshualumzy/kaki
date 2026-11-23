@@ -125,6 +125,21 @@ describe('registry practice instances', () => {
     expect(built.registry.findPractice(first.id)).toBe(first);
   });
 
+  it('gives a signed-in visitor a row in the sample workspace owned by them', async () => {
+    const built = build();
+    registries.push(built);
+    await built.registry.createPractice({ ownerUserId: 'user-1', title: 'Practice · Opening day' });
+
+    const id = built.builtIds[0]!;
+    expect(built.store.rows.get(id)).toMatchObject({
+      id,
+      workspaceId: 'sample-nanyang-kopi',
+      ownerUserId: 'user-1',
+      title: 'Practice · Opening day',
+      status: 'open',
+    });
+  });
+
   it('never reports a real meeting as a practice one', async () => {
     const built = build();
     registries.push(built);

@@ -474,7 +474,9 @@ describe('one access layer', () => {
     const seatHost = cookieFrom(joined);
 
     // The join replaces the host session rather than leaving the old token usable beside the new one.
-    expect((await get(app, '/api/auth/me', host)).status).toBe(401);
+    const oldMe = await get(app, '/api/auth/me', host);
+    expect(oldMe.status).toBe(200);
+    expect(await oldMe.json()).toEqual({ authEnabled: true, kind: null });
 
     const me = await get(app, '/api/auth/me', seatHost);
     expect(me.status).toBe(200);

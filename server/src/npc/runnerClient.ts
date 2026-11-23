@@ -20,7 +20,6 @@ interface RunnerClient {
     participantIdentity: string;
     seat: string;
     text: string;
-    source: 'speech' | 'typed';
     clientLineId: string;
     speechStartedAt?: string;
     speechEndedAt?: string;

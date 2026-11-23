@@ -29,14 +29,14 @@ steps) to `.live-logs/clickthrough/<journey>/`.
 
 | Journey | What it covers |
 | --- | --- |
-| a | The full path: landing, sign-in page, workspace and a wrong tool token, a start-now meeting, a guest joining by link, typing, Off the record, leave and rejoin, ending, history, a phone-size new-meeting page. |
+| a | The full path: landing, sign-in page, workspace and a wrong tool token, a start-now meeting, a guest joining by link, speaking, Off the record, leave and rejoin, ending, history, a phone-size new-meeting page. |
 | b | A scheduled meeting: a guest waits in the lobby until the owner starts. |
-| c | The sample workspace: pick it, open a meeting, type a to-do, dispatch it and press its button. |
-| d | Practice meeting at `/practice` and `/demo`: join, start, type, leave, return. |
+| c | The sample workspace: pick it, open a meeting, speak a to-do, dispatch it and press its button. |
+| d | Practice meeting at `/practice` and `/demo`: join, start, speak, leave, return. |
 | e | Wrong turns: refresh in the room, back button, unknown or ended meeting links, guest and other-workspace pages. |
 | f | Wingman in the sample workspace: what I missed, and workspace records for the owner and for a guest (meeting-only). |
-| g | Ending a meeting and the send-notes cards. |
-| h | Several people typing and the People list, including after a refresh. |
+| g | Ending a meeting and publishing its minutes card. |
+| h | Several people speaking and the People list, including after a refresh. |
 | i | The owner leaves and rejoins while a guest stays; ending and the minutes. |
 | j | Two meetings at once in separate workspaces stay apart. |
 
@@ -57,7 +57,7 @@ model judge each topic against the answer key `scenarios/kopitiam/eval/answer-ke
 
 ## 3. Real people
 
-Friends and classmates played the practice meeting on their own devices, by voice and by typing. We watched each
+Friends and classmates played the practice meeting on their own devices, by voice. We watched each
 session, noted where people got stuck or where an AI colleague said something odd, and turned those notes into
 GitHub issues (for example #55 and #62). The robot playtests above were then extended so the same problem would be
 caught automatically next time.

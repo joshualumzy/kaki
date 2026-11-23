@@ -309,8 +309,6 @@ export function MeetingGrid({
         {!offTheRecord && speechNotice !== undefined && (
           <div role="alert" className="kd-banner" data-tone="error">
             {speechNotice.text}
-            {/* A real meeting keeps its Type button in the bottom bar; practice is speech only. */}
-            {real ? ' You can also use Type below.' : null}
           </div>
         )}
         {!real && (scenario.npcs ?? []).length > 0 && !aiPresent && (

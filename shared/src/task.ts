@@ -7,7 +7,7 @@ import type { Scenario } from './scenarioTypes';
 export type ActionKind = 'gitea_issue' | 'mattermost_post' | 'email' | 'wiki_page' | 'calendar_event';
 
 /** Why the server created a task itself, when it is a meeting milestone rather than a follow-up. */
-export type TaskPurpose = 'meeting_minutes' | 'meeting_notes';
+export type TaskPurpose = 'meeting_minutes';
 
 /** A draft action the assignee must approve before anything is written. */
 export interface ActionDraft {
@@ -189,7 +189,7 @@ export function isActionKind(value: unknown): value is ActionKind {
 
 /** True when a value is a known task purpose. */
 export function isTaskPurpose(value: unknown): value is TaskPurpose {
-  return value === 'meeting_minutes' || value === 'meeting_notes';
+  return value === 'meeting_minutes';
 }
 
 /** True when a value is a complete action draft. */

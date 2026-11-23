@@ -113,6 +113,7 @@ function storedFromSession(session: Session): StoredJoin {
  */
 export default function Meeting({
   variant = 'practice',
+  signedIn = false,
   initialCode,
   meetingId,
   practiceMeetingId,
@@ -124,6 +125,8 @@ export default function Meeting({
   meetingId?: string;
   /** This visitor's own practice meeting, resolved from their cookie before the room mounts. */
   practiceMeetingId?: string;
+  /** True when the visitor is signed in, so their practice minutes can be kept in their history. */
+  signedIn?: boolean;
   /** Asks the practice page for a fresh practice meeting, without reloading the page. */
   onNewPractice?: () => void;
 }) {
@@ -530,7 +533,7 @@ export default function Meeting({
     if (practice) {
       return (
         <JoinForm
-          meetingTitle={scenario.meetingTitle}
+          meetingTitle="Nanyang Kopi (sample workspace)"
           roles={offersSeats ? roles : []}
           agenda={scenario.agenda}
           busy={busy}
@@ -659,6 +662,7 @@ export default function Meeting({
         started={!needsStart}
         practice={practice}
         real={real}
+        signedIn={signedIn}
         {...(onNewPractice === undefined ? {} : { onNewPractice })}
         onWingmanBadgeChange={setWingmanBadgeCount}
         viewer={{

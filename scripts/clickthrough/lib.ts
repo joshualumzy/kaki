@@ -2,6 +2,9 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
+// The fake speaker reads the LiveKit keys from the repo's .env, like the runner does.
+import '../../server/src/env';
+import { createFakeSpeaker } from '../../server/src/npc/fakeStt';
 
 export const BASE = 'http://localhost:5173';
 export const ROOT = process.cwd();
@@ -323,15 +326,34 @@ export async function inviteLink(page: Page): Promise<string> {
   return new URL(href, BASE).toString();
 }
 
-export async function sendTyped(page: Page, line: string): Promise<void> {
-  const box = page.getByLabel('Type to the meeting');
-  // The Type button toggles: pressing it while the box is open would close it again.
-  if (!(await box.isVisible().catch(() => false))) {
-    await page.getByRole('button', { name: 'Type', exact: true }).click();
-  }
-  await box.waitFor({ timeout: 10_000 });
-  await box.fill(line);
-  await box.press('Enter');
+let fakeSpeaker: ReturnType<typeof createFakeSpeaker> | undefined;
+
+/** The name this page joined with, remembered by the app for a reload. */
+async function joinedName(page: Page): Promise<string> {
+  const name = await page.evaluate(() => {
+    for (let index = 0; index < sessionStorage.length; index += 1) {
+      const key = sessionStorage.key(index);
+      if (key === null || (!key.startsWith('kaki.join.') && !key.startsWith('kaki.real.'))) continue;
+      try {
+        const value = JSON.parse(sessionStorage.getItem(key) ?? '{}') as { name?: unknown };
+        if (typeof value.name === 'string' && value.name.trim() !== '') return value.name.trim();
+      } catch {
+        // A malformed stored join is not this helper's problem; keep looking.
+      }
+    }
+    return undefined;
+  });
+  if (name === undefined) throw new Error('fake speech: this page has no remembered join name');
+  return name;
+}
+
+/**
+ * Make a person speak through the dev-only fake recogniser (`KAKI_FAKE_STT=1`). There is no text
+ * box in either mode any more, so a scripted visitor says its line as its own LiveKit identity.
+ */
+export async function speakLine(page: Page, line: string): Promise<void> {
+  fakeSpeaker ??= createFakeSpeaker();
+  await fakeSpeaker.say(await joinedName(page), line);
 }
 
 export async function joinAsGuest(page: Page, link: string, name: string): Promise<void> {

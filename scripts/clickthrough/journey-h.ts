@@ -7,7 +7,7 @@ import {
   joinAsGuest,
   launch,
   Run,
-  sendTyped,
+  speakLine,
   signedInPerson,
   stamp,
 } from './lib';
@@ -61,9 +61,9 @@ async function main(): Promise<void> {
     await step(run, g2.page, 'guest 2 joins', async () => { await joinAsGuest(g2.page, invite, twin); });
     const lines = { o: `Owner says alpha ${suffix}`, a: `First twin says bravo ${suffix}`, b: `Second twin says charlie ${suffix}` };
     await step(run, page, 'everyone types', async () => {
-      await sendTyped(page, lines.o);
-      await sendTyped(g1.page, lines.a);
-      await sendTyped(g2.page, lines.b);
+      await speakLine(page, lines.o);
+      await speakLine(g1.page, lines.a);
+      await speakLine(g2.page, lines.b);
       for (const p of [page, g1.page, g2.page]) {
         for (const l of Object.values(lines)) await p.getByText(l).first().waitFor({ state: 'attached', timeout: 25_000 });
       }
@@ -90,7 +90,7 @@ async function main(): Promise<void> {
         if (/You left|has ended|Join meeting/i.test(text) && !/Leave/.test(text)) run.finding('ERROR', `refresh ${label}`, 'lost seat', shot);
         await p.getByText(mine).first().waitFor({ state: 'attached', timeout: 25_000 });
         await p.getByText(other).first().waitFor({ state: 'attached', timeout: 25_000 });
-        await sendTyped(p, `After refresh ${label} ${suffix}`);
+        await speakLine(p, `After refresh ${label} ${suffix}`);
         await page.getByText(`After refresh ${label} ${suffix}`).first().waitFor({ state: 'attached', timeout: 25_000 });
         run.pass(`${label} refreshed, kept their seat, history and can still type (${shot}).`);
       });

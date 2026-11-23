@@ -5,7 +5,7 @@ import {
   enterOwnRoom,
   launch,
   Run,
-  sendTyped,
+  speakLine,
   signedInPerson,
   stamp,
 } from './lib';
@@ -88,10 +88,10 @@ async function main(): Promise<void> {
     const line = "I'll send the supplier the updated order by Friday.";
     await step(run, page, 'type the to-do line', async () => {
       if (!roomReady) return;
-      await sendTyped(page, line);
+      await speakLine(page, line);
       await page.getByText(line).first().waitFor({ timeout: 20_000 });
-      const shot = await run.shot(page, 'to-do-line-typed');
-      run.pass(`The to-do line can be typed into the meeting (${shot}).`);
+      const shot = await run.shot(page, 'to-do-line-spoken');
+      run.pass(`The to-do line can be spoken into the meeting (${shot}).`);
     });
 
     await step(run, page, 'dispatch the to-do and press its button', async () => {
@@ -105,7 +105,7 @@ async function main(): Promise<void> {
         run.finding(
           'SLOW',
           '/m/:id/room to-do card',
-          `no to-do card appeared within 90 s of typing the line (waited ${seconds} s)`,
+          `no to-do card appeared within 90 s of speaking the line (waited ${seconds} s)`,
           cardShot,
         );
         return;

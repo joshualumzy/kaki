@@ -254,7 +254,6 @@ function postHumanLine(line: {
   participantIdentity: string;
   seat: string;
   text: string;
-  source: 'speech' | 'typed';
   clientLineId: string;
   speechStartedAt?: string;
   speechEndedAt?: string;
@@ -293,8 +292,6 @@ const vad: Partial<VadOptions> = {
   leakCap: numberEnv('NPC_VAD_LEAK_CAP', DEFAULT_VAD_OPTIONS.leakCap),
 };
 
-/** Set once the meeting sync exists (it needs the runner); the resume backstop only fires mid-meeting. */
-let recheckMeeting: ((reason: string) => void) | undefined;
 // The room is the meeting's, so learn its identity before joining. A server that is not up yet is
 // fine: the service channel moves the runner to the right room once it can read the snapshot.
 const initialMeeting = await runnerClient.fetchMeetingState().catch((error: unknown) => {
@@ -326,7 +323,6 @@ const runner = await startNpcRunner({
   traceVad: process.env.NPC_DEBUG_VAD === '1',
   log,
   logError,
-  recheckMeetingState: (reason) => recheckMeeting?.(reason),
   // The app server watches the roster and pauses/resumes the meeting itself; the runner only notes
   // that the next person to arrive gets one welcome-back line.
   onRoomEmpty: () => {
@@ -412,7 +408,6 @@ const meetingSync = createMeetingSync({
     resetTaskMaps();
   },
 });
-recheckMeeting = (reason) => meetingSync.recheck(reason);
 
 interface ServiceEvent {
   kind?: string;

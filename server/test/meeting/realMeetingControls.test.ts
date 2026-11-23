@@ -868,7 +868,7 @@ describe('real meeting line replay', () => {
         const state = lastState(screen);
         return state?.type === 'MEETING_STATE' && state.payload.offTheRecord !== null ? state : undefined;
       }, 'the room to go off the record');
-      seat.ws.send(JSON.stringify({ type: 'HUMAN_LINE', text: 'secret', source: 'typed', clientLineId: 'id-secret' }));
+      seat.ws.send(JSON.stringify({ type: 'HUMAN_LINE', text: 'secret', clientLineId: 'id-secret' }));
       screen.ws.send(JSON.stringify({ type: 'SET_OFF_THE_RECORD', on: false }));
       await waitFor(() => {
         const state = lastState(screen);
@@ -877,7 +877,7 @@ describe('real meeting line replay', () => {
       for (let batch = 0; batch < 60; batch += 5) {
         clock += 1_100;
         for (let index = batch; index < batch + 5; index += 1) {
-          seat.ws.send(JSON.stringify({ type: 'HUMAN_LINE', text: `line ${index}`, source: 'typed', clientLineId: `id-${index}` }));
+          seat.ws.send(JSON.stringify({ type: 'HUMAN_LINE', text: `line ${index}`, clientLineId: `id-${index}` }));
         }
         await waitFor(() => (chunkTexts(screen).includes(`line ${batch + 4}`) ? true : undefined), `batch ${batch}`);
       }

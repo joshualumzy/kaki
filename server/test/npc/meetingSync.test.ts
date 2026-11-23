@@ -137,47 +137,6 @@ describe('meeting sync', () => {
     expect(changed).toEqual(['meeting-2']);
   });
 
-  it('re-reads the meeting state through the fence when a resume is expected', async () => {
-    const runner = fakeRunner('meeting-1');
-    const state = stateOf('meeting-1', true);
-    const fetchState = vi.fn(async () => state);
-    const sync = createMeetingSync({ runner, fetchState, log: () => undefined });
-
-    sync.recheck('the runner is paused locally and waiting for a resume');
-    await new Promise((resolve) => setTimeout(resolve, 20));
-
-    expect(fetchState).toHaveBeenCalledTimes(1);
-    expect(runner.reconcileMeeting).toHaveBeenCalledWith(state, { currentConnection: true });
-  });
-
-  it('discards a re-read answer that a reset superseded', async () => {
-    const runner = fakeRunner('meeting-1');
-    const stale = deferred<RunnerMeetingSnapshot>();
-    const sync = createMeetingSync({ runner, fetchState: () => stale.promise, log: () => undefined });
-
-    sync.recheck('the runner is paused locally and waiting for a resume');
-    sync.reset('meeting-2');
-    stale.resolve(stateOf('meeting-1', true));
-    await new Promise((resolve) => setTimeout(resolve, 20));
-
-    expect(runner.reconcileMeeting).not.toHaveBeenCalled();
-  });
-
-  it('does not stack re-reads while one is still in flight', async () => {
-    const runner = fakeRunner('meeting-1');
-    const pending = deferred<RunnerMeetingSnapshot>();
-    const fetchState = vi.fn(() => pending.promise);
-    const sync = createMeetingSync({ runner, fetchState, log: () => undefined });
-
-    sync.recheck('first');
-    sync.recheck('second');
-    expect(fetchState).toHaveBeenCalledTimes(1);
-
-    pending.resolve(stateOf('meeting-1', true));
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(runner.reconcileMeeting).toHaveBeenCalledTimes(1);
-  });
-
   it('prepares the exact snapshot it fetched for the attempt', async () => {
     const runner = fakeRunner('meeting-1');
     const state = stateOf('meeting-1', false);

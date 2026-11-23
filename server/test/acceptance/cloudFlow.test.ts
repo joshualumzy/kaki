@@ -188,7 +188,7 @@ for (const kind of ['memory', 'postgres'] as const) {
 
       // A seated guest's line goes straight to the server and is recorded with their setup seat name.
       guestSocket.ws.send(JSON.stringify({
-        type: 'HUMAN_LINE', text: 'The chiller is down.', source: 'typed', clientLineId: 'cloud-human-1',
+        type: 'HUMAN_LINE', text: 'The chiller is down.', clientLineId: 'cloud-human-1',
       }));
       const humanLine = await waitFor(
         () => guestSocket.messages.find(
@@ -285,7 +285,9 @@ for (const kind of ['memory', 'postgres'] as const) {
       const newHost = remember(cookie(relogin));
       const newView = parseScenario(await (await request('/api/scenario', 'GET', undefined, { cookie: newHost })).json());
       expect(newView.roles.find((role) => role.id === 'manager')?.card?.facts).toEqual(['manager secret']);
-      expect((await request('/api/auth/me', 'GET', undefined, { cookie: host })).status).toBe(401);
+      const oldHostMe = await request('/api/auth/me', 'GET', undefined, { cookie: host });
+      expect(oldHostMe.status).toBe(200);
+      expect(await oldHostMe.json()).toEqual({ authEnabled: true, kind: null });
 
       // The browser needs only lifecycle identity and status; runner details stay service-only.
       for (const credentials of [{}, { cookie: guest }, { cookie: phone }, { cookie: newHost }]) {

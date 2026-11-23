@@ -9,7 +9,6 @@ import {
   isPackFreeMeeting,
   joinSeatRoles,
   KAKI_LISTENER_IDENTITY,
-  MAX_TYPED_LENGTH,
   MEETING_ENDED_MESSAGE,
   meetingScenarioFromSetup,
   parseMeetingSetup,
@@ -822,9 +821,9 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
   const HUMAN_LINE_MEMORY_PER_SEAT = 200;
 
   /**
-   * The one writer for a person's finalized speech or typed line. The speaker is always resolved
-   * from the socket's current seat holder and the setup, never from the client payload. The line
-   * is published as an ordinary transcript chunk, so the screen, notetaker and minutes all see it.
+   * The one writer for a person's finalized speech line. The speaker is always resolved from the
+   * socket's current seat holder and the setup, never from the client payload. The line is
+   * published as an ordinary transcript chunk, so the screen, notetaker and minutes all see it.
    */
   interface HumanLineMemory {
     ids: Set<string>;
@@ -832,9 +831,9 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
   }
   const humanLineIds = new Map<string, HumanLineMemory>();
   /**
-   * A real meeting keeps its latest typed or spoken lines on the hub, so a person who refreshes or
-   * rejoins sees the recent conversation again instead of an empty transcript. Practice rooms and
-   * their AI runner hear lines live only.
+   * A real meeting keeps its latest spoken lines on the hub, so a person who refreshes or rejoins
+   * sees the recent conversation again instead of an empty transcript. Practice rooms and their AI
+   * runner hear lines live only.
    */
   const RETAINED_LINES = 50;
   const retainedLineKeys: string[] = [];
@@ -864,7 +863,6 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
   function writeHumanLine({
     seat,
     text,
-    source,
     clientLineId,
     meetingId,
     participantIdentity,
@@ -874,7 +872,6 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
   }: {
     seat: string;
     text: string;
-    source: 'speech' | 'typed';
     clientLineId: string;
     meetingId?: string;
     participantIdentity?: string;
@@ -909,9 +906,8 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
     }
     const cleaned = text.trim();
     if (cleaned === '') throw new CommandError('A line needs some words');
-    const cap = source === 'typed' ? MAX_TYPED_LENGTH : HUMAN_LINE_MAX_SPEECH_CHARS;
-    if (cleaned.length > cap) {
-      throw new CommandError(`That line is too long; keep it under ${cap} characters`);
+    if (cleaned.length > HUMAN_LINE_MAX_SPEECH_CHARS) {
+      throw new CommandError(`That line is too long; keep it under ${HUMAN_LINE_MAX_SPEECH_CHARS} characters`);
     }
     const key = seatKey(holder.seat);
     const seen = humanLineIds.get(key);
@@ -967,7 +963,7 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
     if (command.type !== 'HUMAN_LINE') return;
     const seat = seatForSender(sender);
     if (seat === undefined) throw new CommandError('Only a person seated in this meeting can add a line');
-    // A held line names the seat it was typed in. A socket that now writes as another seat must not
+    // A line names the seat it was spoken in. A socket that now writes as another seat must not
     // deliver it as that other person.
     if (command.seat !== undefined && seatKey(command.seat) !== seatKey(seat)) {
       throw new CommandError('That line belongs to a different seat');
@@ -975,7 +971,6 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
     writeHumanLine({
       seat,
       text: command.text,
-      source: command.source,
       clientLineId: command.clientLineId,
       ...(command.meetingId === undefined ? {} : { meetingId: command.meetingId }),
     });

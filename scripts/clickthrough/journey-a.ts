@@ -7,7 +7,7 @@ import {
   inviteLink,
   launch,
   Run,
-  sendTyped,
+  speakLine,
   signedInPerson,
   stamp,
   workspaces,
@@ -186,17 +186,17 @@ async function main(): Promise<void> {
 
     await step(run, ownerPage, 'owner types', async () => {
       if (!roomOpened) return;
-      await sendTyped(ownerPage, ownerLine);
+      await speakLine(ownerPage, ownerLine);
       await ownerPage.getByText(ownerLine).first().waitFor({ timeout: 15_000 });
-      const shot = await run.shot(ownerPage, 'owner-typed');
+      const shot = await run.shot(ownerPage, 'owner-spoken');
       run.pass(`Owner can type into the meeting and sees the line (${shot}).`);
     });
 
     await step(run, guestPage, 'guest types', async () => {
       if (!roomOpened) return;
-      await sendTyped(guestPage, guestLine);
+      await speakLine(guestPage, guestLine);
       await guestPage.getByText(guestLine).first().waitFor({ timeout: 15_000 });
-      const shot = await run.shot(guestPage, 'guest-typed');
+      const shot = await run.shot(guestPage, 'guest-spoken');
       run.pass(`Guest can type into the meeting and sees the line (${shot}).`);
     });
 
@@ -238,7 +238,7 @@ async function main(): Promise<void> {
 
     await step(run, ownerPage, 'closing line and end', async () => {
       if (!roomOpened) return;
-      await sendTyped(ownerPage, closingLine);
+      await speakLine(ownerPage, closingLine);
       await ownerPage.getByText(closingLine).first().waitFor({ timeout: 15_000 });
       await ownerPage.getByRole('button', { name: 'End for everyone' }).click();
       await ownerPage.getByText('End for everyone?').waitFor({ timeout: 10_000 });
@@ -264,14 +264,14 @@ async function main(): Promise<void> {
       const stillPreparing = /still being prepared/i.test(body);
       const closingKept = body.includes(closingLine);
       if (closingKept) {
-        run.pass(`The line typed just before End reaches the minutes (${shotMinutes}).`);
+        run.pass(`The line spoken just before End reaches the minutes (${shotMinutes}).`);
       } else {
         run.finding(
           'ERROR',
           '/workspaces/:id/meetings/:meetingId minutes',
           stillPreparing
             ? 'minutes still "being prepared" 5 s after End, so the closing line is not yet in the record'
-            : 'the line typed just before End is missing from the minutes',
+            : 'the line spoken just before End is missing from the minutes',
           shotMinutes,
         );
       }

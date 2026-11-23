@@ -57,7 +57,7 @@ export async function handleEmit(call: RouteCall): Promise<void> {
   return;
 }
 
-/** Accepts the runner's transcribed or typed human line and writes it through the server's one transcript writer. */
+/** Accepts the runner's transcribed human line and writes it through the server's one transcript writer. */
 export async function handleHumanLine(call: RouteCall): Promise<void> {
   const { request, response, context } = call;
   // The default server-side recogniser hears the person on the runner's echo-cancelled track.
@@ -70,7 +70,6 @@ export async function handleHumanLine(call: RouteCall): Promise<void> {
   const value = body.value as {
     seat?: unknown;
     text?: unknown;
-    source?: unknown;
     clientLineId?: unknown;
     meetingId?: unknown;
     participantIdentity?: unknown;
@@ -86,7 +85,6 @@ export async function handleHumanLine(call: RouteCall): Promise<void> {
     value.seat.trim() === '' ||
     typeof value.text !== 'string' ||
     value.text.trim() === '' ||
-    (value.source !== 'speech' && value.source !== 'typed') ||
     typeof value.clientLineId !== 'string' ||
     value.clientLineId.trim() === '' ||
     typeof value.meetingId !== 'string' ||
@@ -103,7 +101,7 @@ export async function handleHumanLine(call: RouteCall): Promise<void> {
   ) {
     sendJson(response, 400, {
       error:
-        'Body must be a human line with a meetingId, participantIdentity, seat, text, source and clientLineId',
+        'Body must be a speech human line with a meetingId, participantIdentity, seat, text and clientLineId',
     });
     return;
   }
@@ -118,7 +116,6 @@ export async function handleHumanLine(call: RouteCall): Promise<void> {
     context.writeHumanLine({
       seat: value.seat,
       text: value.text,
-      source: value.source,
       clientLineId: value.clientLineId,
       meetingId: value.meetingId,
       participantIdentity: value.participantIdentity,

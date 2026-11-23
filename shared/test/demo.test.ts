@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { itemMode, resolveAgendaPick, shuffleAgendaForRole, codeProblem, normalizeMeetingCode, aiCast, hostRole, seatProblem, humanSeatCapacity, humanSeatCount, MAX_TYPED_LENGTH, parseControlMessage, demoRoomName, humanAttendeeForRole, humanRoles, joinSeatRoles, isHumanParticipant, isKakiListener, KAKI_LISTENER_IDENTITY } from '../src/demo';
+import { itemMode, resolveAgendaPick, shuffleAgendaForRole, codeProblem, normalizeMeetingCode, aiCast, hostRole, seatProblem, humanSeatCapacity, humanSeatCount, parseControlMessage, demoRoomName, humanAttendeeForRole, humanRoles, joinSeatRoles, isHumanParticipant, isKakiListener, KAKI_LISTENER_IDENTITY } from '../src/demo';
 import type { Scenario } from '../src/scenarioTypes';
 import { testScenario } from './fixtures';
 
@@ -73,9 +73,7 @@ describe('demo meeting helpers', () => {
     expect(humanRoles(scenario).map((role) => role.id)).toEqual(['cashier']);
   });
 
-  it('reads control messages from the wire, and refuses anything else', () => {
-    expect(parseControlMessage({ kind: 'stop' })).toEqual({ kind: 'stop' });
-    expect(parseControlMessage({ kind: 'typing', extra: 1 })).toEqual({ kind: 'typing' });
+  it('reads only a Start control message from the wire, and refuses the removed ones', () => {
     expect(parseControlMessage({ kind: 'start' })).toEqual({ kind: 'start' });
     expect(parseControlMessage({ kind: 'start', requestId: 'req-1', session: 'visitor-1' })).toEqual({
       kind: 'start',
@@ -91,12 +89,18 @@ describe('demo meeting helpers', () => {
     expect(parseControlMessage({ kind: 'start', requestId: 1, session: 'visitor-1' })).toBeUndefined();
     expect(parseControlMessage({ kind: 'start', requestId: 'req-1', session: 1 })).toBeUndefined();
     expect(parseControlMessage({ kind: 'start', requestId: '   ', session: 'visitor-1' })).toBeUndefined();
-    expect(parseControlMessage({ kind: 'text', text: '  hello  ' })).toEqual({ kind: 'text', text: 'hello' });
-    expect(parseControlMessage({ kind: 'text', text: 'x'.repeat(MAX_TYPED_LENGTH + 50) })).toEqual({
-      kind: 'text',
-      text: 'x'.repeat(MAX_TYPED_LENGTH),
-    });
-    for (const bad of [null, 'stop', 3, {}, { kind: 'text' }, { kind: 'text', text: '   ' }, { kind: 'text', text: 5 }, { kind: 'jump' }]) {
+    for (const bad of [
+      null,
+      'start',
+      3,
+      {},
+      { kind: 'text', text: 'hello' },
+      { kind: 'typing' },
+      { kind: 'stop' },
+      { kind: 'resume' },
+      { kind: 'lock' },
+      { kind: 'jump' },
+    ]) {
       expect(parseControlMessage(bad)).toBeUndefined();
     }
   });

@@ -120,10 +120,10 @@ export function TeamJoinForm({
               : owner
                 ? media.microphone
                   ? 'Join the meeting room with mic'
-                  : 'Join the meeting room to type'
+                  : 'Join the meeting room with mic off'
                 : media.microphone
                   ? 'Join with mic'
-                  : 'Join to type'}
+                  : 'Join with mic off'}
           </button>
           <p className="kd-hint">
             Headphones work best. Tap the microphone to speak; the meeting starts when the owner starts it.

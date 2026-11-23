@@ -402,7 +402,9 @@ export function createAuth({
   async function handleMe(request: IncomingMessage, response: ServerResponse): Promise<void> {
     const session = await currentSession(request);
     if (session === undefined) {
-      sendJson(response, 401, { error: 'Not signed in', authEnabled: true });
+      // Signed out is a normal state, not an error: a page can ask who this browser is without
+      // earning a scary 401 in every signed-out visitor's console.
+      sendJson(response, 200, { authEnabled: true, kind: null });
       return;
     }
     // Host and participant sessions taken in a meeting still belong to the signed-in account:

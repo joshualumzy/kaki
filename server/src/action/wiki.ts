@@ -439,78 +439,6 @@ export function createWikiModule({
       let minutesPublished = false;
       let minutesTimer: ReturnType<typeof setTimeout> | undefined;
 
-      /**
-       * At End, offer the owner one card per connected destination that can carry the notes
-       * (the workspace chat channel and email to the people who signed in). Each card is an
-       * ordinary approved action: nothing goes until its owner approves it, and the Action runner
-       * appends the same "Posted by Kaki for <name>, approved in <meeting title>" footer.
-       */
-      const addNotesSendTasks = (scenario: Scenario, content: string, assignee: Role): void => {
-        if (context.meetingKind?.() !== 'real') return;
-        if (context.tools === undefined) return;
-        void (async () => {
-          let tools: WorkspaceTools | undefined;
-          try {
-            tools = await context.tools!();
-          } catch (error) {
-            console.error(
-              `kaki action-wiki: could not read this workspace's tools, so no notes send card was offered: ${errorMessage(error)}`,
-            );
-            return;
-          }
-          const holders = context.meetingDetails?.().holders ?? [];
-          const destinations: Array<{ kind: 'mattermost_post' | 'email'; title: string; target: string }> = [];
-          if (tools.mattermost !== undefined && tools.mattermost.channel.trim() !== '') {
-            const channel = tools.mattermost.channel.trim();
-            destinations.push({
-              kind: 'mattermost_post',
-              title: `Send the notes to #${channel}`,
-              target: `#${channel}`,
-            });
-          }
-          if (tools.email !== undefined) {
-            const addresses = [
-              ...new Set(
-                holders
-                  .map((holder) => holder.email?.trim().toLowerCase())
-                  .filter((email): email is string => email !== undefined && email !== ''),
-              ),
-            ];
-            if (addresses.length > 0) {
-              destinations.push({
-                kind: 'email',
-                title: 'Email the notes to the people who joined',
-                target: addresses.join(', '),
-              });
-            }
-          }
-          for (const destination of destinations) {
-            if (stopped) return;
-            const task = context.tasks.suggestWithPurpose(
-              {
-                title: destination.title,
-                context: `The minutes and to-do list for ${scenario.meetingTitle}, kept by Kaki with this meeting.`,
-                suggestedAssignee: assignee,
-                actionKind: destination.kind,
-              },
-              'meeting_notes',
-            );
-            context.tasks.transition(task.id, 'DISPATCHED', { assignee });
-            context.tasks.transition(task.id, 'CLAIMED', {
-              mode: 'ACTION_AGENT',
-              draft: {
-                target: destination.target,
-                subject: `${scenario.meetingTitle} — Meeting notes`,
-                body: content,
-              },
-            });
-            context.tasks.transition(task.id, 'DRAFT_READY');
-          }
-        })().catch((error: unknown) => {
-          console.error('kaki action-wiki: could not offer the send-the-notes cards', error);
-        });
-      };
-
       const scheduleMinutes = (): void => {
         if (minutesPublished) return;
         minutesPublished = true;
@@ -568,7 +496,6 @@ export function createWikiModule({
               draft: { target: 'Wiki: meeting notes', subject: title, body: content },
             });
             context.tasks.transition(minutesTask.id, 'DRAFT_READY');
-            addNotesSendTasks(scenario, content, assignee);
           } catch (error) {
             console.warn(`kaki action-wiki: could not draft the end-of-meeting minutes: ${errorMessage(error)}`);
             // The end-of-meeting card waits on this task: leave the failure visible on it, never

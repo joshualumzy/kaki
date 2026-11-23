@@ -5,6 +5,13 @@ import { NpcConversation, type ConversationOptions, type NpcPorts, type NpcUiSta
 import type { Utterance } from '../../src/npc/director';
 import type { GuestReaderInput, GuestReading } from '../../src/npc/guestReader';
 
+/** Say one line as the guest, through the same speech path the recogniser uses. */
+function speak(conversation: { humanSpeech(talking: boolean): void; humanText(text: string): string | undefined }, text: string): void {
+  conversation.humanSpeech(true);
+  conversation.humanSpeech(false);
+  conversation.humanText(text);
+}
+
 const CHECK_IN_NOTE = 'checks in with Visitor in one short, warm, spoken sentence';
 
 const scenario: Scenario = {
@@ -243,11 +250,11 @@ function harness(options: HarnessOptions = {}) {
 
   async function settleWith(decision: string, evidence = decision): Promise<void> {
     readings.push(readyReading(evidence));
-    conversation.humanTyped(decision);
+    speak(conversation, decision);
     await flushTimes(5);
     await finishPlaying();
     readings.push(reading({ kind: 'agree', answersOpenQuestion: true }));
-    conversation.humanTyped('Yes.');
+    speak(conversation, 'Yes.');
     await flushTimes(5);
   }
 
@@ -342,7 +349,7 @@ describe('default-path guarantees ported from the legacy tests', () => {
 
   describe('silence check-ins', () => {
     async function seedRoom(h: H): Promise<void> {
-      h.conversation.humanTyped('Hello team.');
+      speak(h.conversation, 'Hello team.');
       await h.flushTimes(5);
       const answer = await h.waitForCall(0);
       answer.push(`${h.expectedSpeaker(answer)}: What do we tell people at the counter?`);
@@ -384,7 +391,7 @@ describe('default-path guarantees ported from the legacy tests', () => {
       const checkIn = await h.waitForCall(1);
       expect(String(checkIn.messages.at(-1)?.content)).toContain(CHECK_IN_NOTE);
       const answerAt = h.calls.length;
-      h.conversation.humanTyped('Could a simple sign on some tables help?');
+      speak(h.conversation, 'Could a simple sign on some tables help?');
       await h.flushTimes(5);
       const next = await h.waitForCall(answerAt);
       expect(next.messages.some((message) => message.content.includes(CHECK_IN_NOTE))).toBe(false);
@@ -410,7 +417,7 @@ describe('default-path guarantees ported from the legacy tests', () => {
       expect(h.transcript).toContainEqual(['Sam', checkIn]);
       expect(h.transcript.filter(([, line]) => line === checkIn)).toHaveLength(1);
 
-      h.conversation.humanTyped('We could put a sign on the tables.');
+      speak(h.conversation, 'We could put a sign on the tables.');
       await h.flushTimes(5);
       const answer = await h.waitForCall(2);
       answer.push(`${h.expectedSpeaker(answer)}: A sign on the tables would help.`);
@@ -567,7 +574,7 @@ describe('default-path guarantees ported from the legacy tests', () => {
       expect(h.transcript.some(([, line]) => /the follow-up's on your screen/i.test(line))).toBe(false);
 
       h.readings.push(reading({ kind: 'answer', addressee: 'Bao', answersOpenQuestion: true }));
-      h.conversation.humanTyped('Bao, Mei covers the counter from nine.');
+      speak(h.conversation, 'Bao, Mei covers the counter from nine.');
       await h.flushTimes(5);
       const answer = await h.waitForCall(1);
       answer.push(`${h.expectedSpeaker(answer)}: Mei can cover it from nine.`);
@@ -615,23 +622,6 @@ describe('default-path guarantees ported from the legacy tests', () => {
       h.conversation.close();
     });
 
-    it('restores the review window when typing resumes a stopped meeting', async () => {
-      const h = harness({
-        optionOverrides: { reviewNudgeMs: 60_000, reviewWindowMs: 20 },
-      });
-      await h.settleWith('We will use the window bar from 8.');
-      h.addCard();
-      h.readings.push(reading({ kind: 'backchannel' }));
-      h.conversation.stop();
-      h.conversation.humanTyped('I will check the card.');
-      await h.flushTimes(5);
-      await vi.advanceTimersByTimeAsync(550);
-      await h.finishPlaying();
-      await vi.advanceTimersByTimeAsync(1_000);
-      await h.finishPlaying();
-      expect(h.agendaIndex(), h.logs.join('\n')).toBe(1);
-      h.conversation.close();
-    });
   });
 
   describe('the topic leaves only when the visitor task is synced', () => {
@@ -643,7 +633,7 @@ describe('default-path guarantees ported from the legacy tests', () => {
       expect(h.agendaIndex()).toBe(0);
       h.addCard();
       h.readings.push(reading({ kind: 'backchannel' }));
-      h.conversation.humanTyped('sure');
+      speak(h.conversation, 'sure');
       await h.flushTimes(5);
       await h.finishPlaying();
       await vi.advanceTimersByTimeAsync(10);
@@ -660,7 +650,7 @@ describe('default-path guarantees ported from the legacy tests', () => {
       const h = harness({ reader: () => reading({ kind: 'park' }) });
       h.conversation.agendaMoved('Delivery app commission squeeze');
       await h.flush();
-      h.conversation.humanTyped('Park it for now, we can come back to it.');
+      speak(h.conversation, 'Park it for now, we can come back to it.');
       await h.flushTimes(10);
       const answer = await h.waitForCall(0);
       answer.push(`${h.expectedSpeaker(answer)}: We can come back to it after the lunch rush.`);
@@ -682,14 +672,14 @@ describe('default-path guarantees ported from the legacy tests', () => {
           topicTurnBudget: 1, budgetSilenceMs: 20, topicTimeBudgetMs: 600_000, silencePromptMs: 600_000,
         },
       });
-      h.conversation.humanTyped('Use the window bar.');
+      speak(h.conversation, 'Use the window bar.');
       await h.flushTimes(5);
       await vi.advanceTimersByTimeAsync(510);
       await h.flushTimes(5);
       await h.finishPlaying();
       expect(h.transcript.filter(([, line]) => line.includes('How about we'))).toHaveLength(1);
 
-      h.conversation.humanTyped('Could we keep a seat for walk-ins?');
+      speak(h.conversation, 'Could we keep a seat for walk-ins?');
       await h.flushTimes(5);
       await vi.advanceTimersByTimeAsync(510);
       await h.flushTimes(5);
@@ -705,14 +695,14 @@ describe('default-path guarantees ported from the legacy tests', () => {
           topicTurnBudget: 1, budgetSilenceMs: 20, topicTimeBudgetMs: 600_000, silencePromptMs: 600_000,
         },
       });
-      h.conversation.humanTyped('Use the window bar.');
+      speak(h.conversation, 'Use the window bar.');
       await h.flushTimes(5);
       await vi.advanceTimersByTimeAsync(510);
       await h.flushTimes(5);
       await h.finishPlaying();
       expect(h.transcript.filter(([, line]) => line.includes('How about we'))).toHaveLength(1);
 
-      h.conversation.humanTyped('Could we wait?');
+      speak(h.conversation, 'Could we wait?');
       await h.flushTimes(5);
       await vi.advanceTimersByTimeAsync(510);
       await h.flushTimes(5);
@@ -724,7 +714,7 @@ describe('default-path guarantees ported from the legacy tests', () => {
 
     it('keeps Lock enabled while the model thinks after a visitor line', async () => {
       const h = harness({ reader: () => reading({ kind: 'answer' }) });
-      h.conversation.humanTyped('Use the window bar.');
+      speak(h.conversation, 'Use the window bar.');
       await h.flushTimes(5);
       expect(h.states.at(-1)).toMatchObject({ kind: 'thinking', canLock: true });
       h.conversation.lockDecision();
@@ -745,7 +735,7 @@ describe('default-path guarantees ported from the legacy tests', () => {
       h.conversation.agendaMoved('Service');
       await h.flush();
 
-      h.conversation.humanTyped('Actually, change the Prep plan.');
+      speak(h.conversation, 'Actually, change the Prep plan.');
       await h.flushTimes(5);
       const reopen = await h.waitForCallMatching((call) =>
         call.messages.some((message) => message.content.includes('Actually, change the Prep plan.')));
@@ -755,7 +745,7 @@ describe('default-path guarantees ported from the legacy tests', () => {
       await h.finishPlaying();
       expect(h.conversation.onCurrentAgenda('Prep')).toBe(true);
 
-      h.conversation.humanTyped('Use the revised plan.');
+      speak(h.conversation, 'Use the revised plan.');
       await h.flushTimes(5);
       h.conversation.lockDecision(undefined, { confirmed: true });
       await h.flushTimes(5);
@@ -768,7 +758,7 @@ describe('default-path guarantees ported from the legacy tests', () => {
   describe('reactions and ownership', () => {
     it('sends a reaction as the reply starts, once, before it finishes playing', async () => {
       const h = harness();
-      h.conversation.humanTyped('Can we get help?');
+      speak(h.conversation, 'Can we get help?');
       await h.flushTimes(5);
       const call = await h.waitForCall(0);
       call.push(`KAKI_CONTROL {"state":"open","reactions":[{"who":"Ada","emoji":"🙌"}]}\n${h.expectedSpeaker(call)}: It will cost $37.`);
@@ -786,12 +776,12 @@ describe('default-path guarantees ported from the legacy tests', () => {
 
     it('sends no reaction when the turn is aborted before any line plays', async () => {
       const h = harness();
-      h.conversation.humanTyped('Can we get help?');
+      speak(h.conversation, 'Can we get help?');
       await h.flushTimes(5);
       const call = await h.waitForCall(0);
       call.push('KAKI_CONTROL {"state":"open","reactions":[{"who":"Ada","emoji":"🙌"}]}\n');
       await h.flushTimes(2);
-      h.conversation.humanTyped('Never mind.');
+      speak(h.conversation, 'Never mind.');
       await h.flushTimes(5);
       expect(h.playing).toHaveLength(0);
       expect(h.onReaction).not.toHaveBeenCalled();
@@ -805,12 +795,12 @@ describe('default-path guarantees ported from the legacy tests', () => {
         reader: () => reading({ kind: 'question' }),
         optionOverrides: { reviewNudgeMs: 60_000, reviewWindowMs: 60_000 },
       });
-      h.conversation.humanTyped('We will use the window bar from 8.');
+      speak(h.conversation, 'We will use the window bar from 8.');
       await h.flushTimes(5);
       h.conversation.lockDecision(undefined, { confirmed: true });
       await h.flushTimes(5);
       h.addCard();
-      h.conversation.humanTyped('Anything else?');
+      speak(h.conversation, 'Anything else?');
       await h.flushTimes(5);
       const call = await h.waitForCallMatching((entry) =>
         entry.messages.some((message) => message.content.includes('Anything else?')));
@@ -829,7 +819,7 @@ describe('default-path guarantees ported from the legacy tests', () => {
         reader: () => reading({ kind: 'answer', addressee: 'Bao' }),
         optionOverrides: { reviewNudgeMs: 60_000, reviewWindowMs: 60_000 },
       });
-      h.conversation.humanTyped('What do we say?');
+      speak(h.conversation, 'What do we say?');
       await h.flushTimes(5);
       const call = await h.waitForCall(0);
       call.push(`${h.expectedSpeaker(call)}: Right, the price stays. I'll post the update to the team.`);
@@ -866,7 +856,7 @@ describe('default-path guarantees ported from the legacy tests', () => {
 
     it('stops talking the moment the person talks over it, and remembers only what was heard', async () => {
       const h = harness({ scenarioUsed: twoNpcScenario, optionOverrides: { bargeInMs: 0, askDelayMs: 600_000 } });
-      h.conversation.humanTyped('Give me the status.');
+      speak(h.conversation, 'Give me the status.');
       await h.flushTimes(5);
       const call = await h.waitForCall(0);
       call.push(`${h.expectedSpeaker(call)}: The build is red. We have a crash.`);
@@ -935,7 +925,7 @@ describe('default-path guarantees ported from the legacy tests', () => {
   describe('held replies and model failures', () => {
     it('carries on held lines when the person cuts in but says nothing, and answers words instead', async () => {
       const h = harness({ scenarioUsed: twoNpcScenario, optionOverrides: { bargeInMs: 0, askDelayMs: 600_000 } });
-      h.conversation.humanTyped('Hello team.');
+      speak(h.conversation, 'Hello team.');
       await h.flushTimes(5);
       const call = await h.waitForCall(0);
       call.push(`${h.expectedSpeaker(call)}: Morning. Ready when you are.`);
@@ -951,7 +941,7 @@ describe('default-path guarantees ported from the legacy tests', () => {
       expect(h.logs.some((line) => line.includes('cut-in had no words: carrying on held lines'))).toBe(true);
       await h.finishPlaying();
 
-      h.conversation.humanTyped('Actually, wait.');
+      speak(h.conversation, 'Actually, wait.');
       await h.flushTimes(5);
       expect(h.calls).toHaveLength(2);
       expect(h.calls[1]?.messages.at(-1)?.content).toContain('Actually, wait.');
@@ -964,7 +954,7 @@ describe('default-path guarantees ported from the legacy tests', () => {
         scenarioUsed: twoNpcScenario,
         optionOverrides: { silencePromptMs: 1_000, silenceNudgeLeadMs: 999, bargeInMs: 0 },
       });
-      h.conversation.humanTyped('Hello team.');
+      speak(h.conversation, 'Hello team.');
       await h.flushTimes(5);
       const seed = await h.waitForCall(0);
       seed.push(`${h.expectedSpeaker(seed)}: What do we tell people at the counter?`);
@@ -1008,7 +998,7 @@ describe('default-path guarantees ported from the legacy tests', () => {
           return utterance;
         },
       });
-      h.conversation.humanTyped('Hello team.');
+      speak(h.conversation, 'Hello team.');
       await h.flushTimes(5);
       const call = await h.waitForCall(0);
       call.push(`${h.expectedSpeaker(call)}: One line.`);
@@ -1029,7 +1019,7 @@ describe('default-path guarantees ported from the legacy tests', () => {
           return utterance;
         },
       });
-      h.conversation.humanTyped('Hello team.');
+      speak(h.conversation, 'Hello team.');
       await h.flushTimes(5);
       const call = await h.waitForCall(0);
       call.push(`${h.expectedSpeaker(call)}: First part. Second part.`);
@@ -1055,7 +1045,7 @@ describe('default-path guarantees ported from the legacy tests', () => {
           throw new Error('aborted');
         },
       });
-      h.conversation.humanTyped('Hello team.');
+      speak(h.conversation, 'Hello team.');
       await h.flushTimes(5);
       const call = await h.waitForCall(0);
       call.push(`${h.expectedSpeaker(call)}: One line.`);
@@ -1068,7 +1058,7 @@ describe('default-path guarantees ported from the legacy tests', () => {
 
     it('keeps the meeting moving after a reply dies mid-stream', async () => {
       const h = harness({ optionOverrides: { silencePromptMs: 1_000 } });
-      h.conversation.humanTyped('Hello team.');
+      speak(h.conversation, 'Hello team.');
       await h.flushTimes(5);
       const first = await h.waitForCall(0);
       first.push(`${h.expectedSpeaker(first)}: First part.`);
@@ -1086,7 +1076,7 @@ describe('default-path guarantees ported from the legacy tests', () => {
 
     it('keeps what was said before a model failure part-way through', async () => {
       const h = harness({ optionOverrides: { silencePromptMs: 1_000 } });
-      h.conversation.humanTyped('Hello team.');
+      speak(h.conversation, 'Hello team.');
       await h.flushTimes(5);
       const first = await h.waitForCall(0);
       first.push(`${h.expectedSpeaker(first)}: First part. Seco`);
@@ -1105,13 +1095,13 @@ describe('default-path guarantees ported from the legacy tests', () => {
 
     it('drops the failed-request recovery when the person says something new during the retry', async () => {
       const h = harness({ optionOverrides: { silencePromptMs: 1_000 } });
-      h.conversation.humanTyped('Can we move the launch to Friday?');
+      speak(h.conversation, 'Can we move the launch to Friday?');
       await h.flushTimes(5);
       const first = await h.waitForCall(0);
       first.fail(new Error('LLM request failed: timed out after 20000 ms'));
       await h.flushTimes(5);
       const retry = await h.waitForCall(1);
-      h.conversation.humanTyped('Actually, second question.');
+      speak(h.conversation, 'Actually, second question.');
       await h.flushTimes(5);
       expect(retry.signal.aborted).toBe(true);
       const call = await h.waitForCall(2);
@@ -1145,7 +1135,7 @@ describe('default-path guarantees ported from the legacy tests', () => {
       await h.flushTimes(5);
       await h.finishPlaying();
       await h.conversation.settled();
-      h.conversation.humanTyped('Hello, anyone still here?');
+      speak(h.conversation, 'Hello, anyone still here?');
       await vi.advanceTimersByTimeAsync(5_000);
       expect(h.calls).toHaveLength(0);
       h.conversation.close();
@@ -1155,7 +1145,7 @@ describe('default-path guarantees ported from the legacy tests', () => {
   describe('a hand-over between colleagues', () => {
     it('does not chain forever, and the person talking cancels it', async () => {
       const h = harness({ reader: () => reading({ kind: 'idea' }), optionOverrides: { bargeInMs: 0 } });
-      h.conversation.humanTyped('What is next?');
+      speak(h.conversation, 'What is next?');
       await h.flushTimes(5);
       const first = await h.waitForCall(0);
       first.push(`${h.expectedSpeaker(first)}: Bao, what is your call on the till?`);
@@ -1182,7 +1172,7 @@ describe('default-path guarantees ported from the legacy tests', () => {
       await h.flushTimes(5);
       expect(h.states.at(-1)).toMatchObject({ kind: 'idle', canLock: true });
       expect(h.logs.some((line) => line.includes('ERROR') && line.includes('HTTP 503'))).toBe(true);
-      await h.settleWith('We will use the window bar from 8.');
+      await h.settleWith('Move the queue outside until nine.');
       await h.flushTimes(5);
       expect(h.settleTopic).toHaveBeenCalledTimes(2);
       h.conversation.close();

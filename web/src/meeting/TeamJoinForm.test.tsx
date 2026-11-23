@@ -49,7 +49,7 @@ describe('TeamJoinForm', () => {
 
     fireEvent.change(screen.getByLabelText('Your name'), { target: { value: ' Josh ' } });
     fireEvent.change(screen.getByLabelText('Your seat'), { target: { value: 'marketing_lead' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Join to type' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Join with mic off' }));
 
     expect(onJoin).toHaveBeenCalledWith('Josh', 'marketing_lead', { microphone: false, camera: false }, 'ABCD');
   });
@@ -60,7 +60,7 @@ describe('TeamJoinForm', () => {
       <TeamJoinForm meetingTitle="Launch readiness" roles={roles} initialCode="ABCD" onJoin={onJoin} />,
     );
 
-    expect(screen.getByRole('button', { name: 'Join to type' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Join with mic off' })).toBeTruthy();
     expect(screen.getByLabelText('Microphone').getAttribute('aria-pressed')).toBe('false');
 
     fireEvent.click(screen.getByLabelText('Microphone'));
@@ -74,7 +74,7 @@ describe('TeamJoinForm', () => {
   it('gives the owner no code box', () => {
     render(<TeamJoinForm meetingTitle="Launch readiness" roles={roles} owner onJoin={vi.fn()} />);
     expect(screen.queryByLabelText('Meeting code')).toBeNull();
-    expect(screen.getByRole('button', { name: 'Join the meeting room to type' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Join the meeting room with mic off' })).toBeTruthy();
   });
 
   it('makes the owner voice join explicit after they tap the microphone', () => {

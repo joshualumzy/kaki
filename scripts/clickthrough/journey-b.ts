@@ -6,6 +6,7 @@ import {
   launch,
   Run,
   signedInPerson,
+  speakLine,
   stamp,
   tomorrow,
 } from './lib';
@@ -116,14 +117,11 @@ async function main(): Promise<void> {
 
     await step(run, guest.page, 'guest gets in after start', async () => {
       await guest.page.getByText(/Waiting for .* to start/).waitFor({ state: 'hidden', timeout: 40_000 });
-      await guest.page.getByRole('button', { name: 'Type', exact: true }).waitFor({ timeout: 15_000 });
-      await guest.page.getByRole('button', { name: 'Type', exact: true }).click();
-      const box = guest.page.getByLabel('Type to the meeting');
-      await box.fill(`Guest made it into the scheduled meeting ${suffix}`);
-      await box.press('Enter');
-      await guest.page.getByText(`Guest made it into the scheduled meeting ${suffix}`).first().waitFor({ timeout: 20_000 });
+      const line = `Guest made it into the scheduled meeting ${suffix}`;
+      await speakLine(guest.page, line);
+      await guest.page.getByText(line).first().waitFor({ timeout: 20_000 });
       const shot = await run.shot(guest.page, 'guest-in-after-start');
-      run.pass(`After the owner starts, the guest's waiting overlay goes away and the guest can type (${shot}).`);
+      run.pass(`After the owner starts, the guest's waiting overlay goes away and the guest can speak (${shot}).`);
     });
   } finally {
     run.save();

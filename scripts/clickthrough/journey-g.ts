@@ -4,7 +4,7 @@ import {
   enterOwnRoom,
   launch,
   Run,
-  sendTyped,
+  speakLine,
   signedInPerson,
   stamp,
 } from './lib';
@@ -34,13 +34,13 @@ async function main(): Promise<void> {
     const page = owner.page;
     let link = '';
     await step(run, page, 'meeting and lines', async () => {
-      link = await createMeeting(page, `Send notes ${suffix}`, { workspaceId: SAMPLE_ID });
+      link = await createMeeting(page, `Minutes ${suffix}`, { workspaceId: SAMPLE_ID });
       await enterOwnRoom(page, link);
       await page.getByRole('button', { name: 'Leave', exact: true }).waitFor({ timeout: 60_000 });
-      await sendTyped(page, `We agreed to move the launch to Friday (${suffix}).`);
-      await sendTyped(page, 'I will send the supplier the updated order by Friday.');
+      await speakLine(page, `We agreed to move the launch to Friday (${suffix}).`);
+      await speakLine(page, 'I will send the supplier the updated order by Friday.');
       await page.getByText('updated order by Friday').first().waitFor({ state: 'attached', timeout: 20_000 });
-      run.pass(`Owner is in a real meeting and typed two lines (${await run.shot(page, 'typed')}).`);
+      run.pass(`Owner is in a real meeting and spoke two lines (${await run.shot(page, 'spoken')}).`);
     });
     if (link === '') return;
 
@@ -51,18 +51,18 @@ async function main(): Promise<void> {
       run.pass(`Owner ended the meeting (${await run.shot(page, 'ended')}).`);
     });
 
-    await step(run, page, 'send-notes cards', async () => {
-      const card = page.locator('.kd-task-card', { hasText: /notes/i }).first();
+    await step(run, page, 'minutes card', async () => {
+      const card = page.locator('.kd-task-card', { hasText: /minutes/i }).first();
       const shown = await card.waitFor({ timeout: 90_000 }).then(() => true).catch(() => false);
       const shot = await run.shot(page, 'after-end-cards');
       if (!shown) {
-        run.finding('DEAD-END', '/m/:id/room after End', `no send-the-notes card on the ended screen: "${(await bodyText(page)).slice(0, 300)}"`, shot);
+        run.finding('DEAD-END', '/m/:id/room after End', `no meeting-minutes card on the ended screen: "${(await bodyText(page)).slice(0, 300)}"`, shot);
         return;
       }
-      run.pass(`A send-the-notes card is shown: "${(await card.innerText()).replace(/\s+/g, ' ').slice(0, 120)}" (${shot}).`);
+      run.pass(`A meeting-minutes card is shown: "${(await card.innerText()).replace(/\s+/g, ' ').slice(0, 120)}" (${shot}).`);
       const approve = page.getByRole('button', { name: /Approve/ }).first();
       if (!(await approve.waitFor({ timeout: 60_000 }).then(() => true).catch(() => false))) {
-        run.finding('DEAD-END', 'send-notes card', 'card has no Approve button', await run.shot(page, 'no-approve'));
+        run.finding('DEAD-END', 'minutes card', 'card has no Approve button', await run.shot(page, 'no-approve'));
         return;
       }
       await approve.click();
@@ -70,12 +70,12 @@ async function main(): Promise<void> {
       let answer = '';
       while (Date.now() < end) {
         const text = await bodyText(page);
-        const m = /[^.]*(draft-only|nothing was sent|not sent|Sent)[^.]*/i.exec(text);
+        const m = /[^.]*(draft-only|published|posted|nothing was sent|not sent|sent)[^.]*/i.exec(text);
         if (m !== null) { answer = m[0].trim(); break; }
         await page.waitForTimeout(2_000);
       }
       const after = await run.shot(page, 'after-approve');
-      if (answer === '') run.finding('DEAD-END', 'send-notes approve', 'after Approve nothing says sent or draft-only', after);
+      if (answer === '') run.finding('DEAD-END', 'minutes approve', 'after Approve nothing says published or draft-only', after);
       else run.pass(`Approving answered: "${answer.slice(0, 160)}" (${after}).`);
     });
   } finally {

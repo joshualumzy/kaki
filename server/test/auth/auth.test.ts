@@ -171,15 +171,16 @@ describe('auth', () => {
     expect(await me.json()).toEqual({ kind: 'host', authEnabled: true });
 
     const anonymous = await get('/api/auth/me');
-    expect(anonymous.status).toBe(401);
-    expect(await anonymous.json()).toEqual({ error: 'Not signed in', authEnabled: true });
+    expect(anonymous.status).toBe(200);
+    expect(await anonymous.json()).toEqual({ authEnabled: true, kind: null });
 
     const logout = await post('/api/auth/logout', {}, cookie);
     expect(logout.status).toBe(200);
     expect(logout.headers.get('set-cookie')).toContain('Max-Age=0');
 
     const afterLogout = await get('/api/auth/me', cookie);
-    expect(afterLogout.status).toBe(401);
+    expect(afterLogout.status).toBe(200);
+    expect(await afterLogout.json()).toEqual({ authEnabled: true, kind: null });
   });
 
   it('rate-limits five login failures per minute per address and email', async () => {
@@ -414,7 +415,8 @@ describe('auth', () => {
 
     const cookie = `kaki_session=${encodeURIComponent(token)}`;
     const me = await get('/api/auth/me', cookie);
-    expect(me.status).toBe(401);
+    expect(me.status).toBe(200);
+    expect(await me.json()).toEqual({ authEnabled: true, kind: null });
 
     const socket = await connect(port, 'screen', cookie);
     expect(socket.ok).toBe(false);

@@ -637,7 +637,7 @@ interface PrefetchedOpening {
   chunks: string[];
   done: boolean;
   failure?: unknown;
-  /** A typed first-sentence timeout, so the backup model is chosen without matching an error string. */
+  /** A first-sentence timeout with its own type, so the backup model is chosen without matching an error string. */
   failureKind?: 'firstSentenceTimeout';
   startedAt: number;
   wake?: () => void;
@@ -717,7 +717,7 @@ export class NpcConversation<Clip> {
   private pending: string[] = [];
   /** The guest ledger ids gathered since the last reply, so they can be treated as one guest turn. */
   private pendingGuestLineIds: string[] = [];
-  /**Lines the person has said (heard or typed) since they joined; the host asks them for their decision after a few. */
+  /** Lines the person has said since they joined; the host asks them for their decision after a few. */
   private humanLines = 0;
   /** Visitor words on this topic, retained for the task context and the lock safety net. */
   private decisionLines: string[] = [];
@@ -812,8 +812,6 @@ export class NpcConversation<Clip> {
   /** The agenda item the meeting is on now (the first until the host announces another). */
   private agendaItem: string | undefined;
   private humanTalking = false;
-  /** Whether the visitor's most recent accepted line was typed, so recovery never asks a typist to say it again. */
-  private lastHumanInputWasTyped = false;
   private recognizingSpeech = false;
   private recognizingTimer: ReturnType<typeof setTimeout> | undefined;
   private respondTimer: ReturnType<typeof setTimeout> | undefined;
@@ -958,43 +956,6 @@ export class NpcConversation<Clip> {
   /** True while the AI is thinking or speaking. */
   get busy(): boolean {
     return this.turn !== undefined;
-  }
-
-  /** The person typed something: it goes straight in, with no check that it is a voice and not an echo. */
-  humanTyped(text: string): void {
-    const typed = text.trim();
-    if (this.closed || this.concluded || typed.length === 0) return;
-    const wasPaused = this.paused;
-    this.paused = false;
-    if (wasPaused) this.restoreTopicTimers();
-    this.pausedCutOff = false;
-    this.pausedUtterances = undefined;
-    const abandonedScripted = this.pausedScripted;
-    this.pausedScripted = undefined;
-    abandonedScripted?.onDone?.(false);
-    this.ports.log?.(`typed "${typed}"`);
-    this.lastHumanInputWasTyped = true;
-    this.chain = 0;
-    this.bridgedStatementOnTurn = false;
-    this.recoveryCueSpoken = false;
-    this.askedGuestInRound = false;
-    this.lastSpoken = '';
-    this.lastTranscriptEmit = '';
-    if (this.turn !== undefined) this.emitCutTranscript(this.turn);
-    this.ports.emitTranscript(this.human?.transcriptName ?? 'Guest', typed, { human: true });
-    this.pending.push(typed);
-    this.noteHumanLine(typed);
-    this.noteDecisionLine(typed);
-    this.discardUnheardNudge();
-    this.cancelOpening('the guest typed during the opening');
-    this.cancelReplyRun('the guest typed');
-    this.pausedOpening = undefined;
-    this.pausedReply = undefined;
-    this.interrupt('the person typed something');
-    this.unanswered = false;
-    this.cutOff = false;
-    this.scheduleRespond();
-    this.ports.emitState(this.idleState());
   }
 
   /** The person pressed Stop/Pause: everyone goes quiet and timers are held until they press Resume (or type). */
@@ -1182,14 +1143,6 @@ export class NpcConversation<Clip> {
     }
   }
 
-  /** The person is pressing keys in the chat input: push back any active silence timer so nobody cuts in while they type. */
-  humanTyping(): void {
-    if (this.closed || this.concluded || this.paused) return;
-    if (this.silenceTimer !== undefined) {
-      this.scheduleSilencePrompt();
-    }
-  }
-
   /** Speech-to-text is currently transcribing a finished stretch of the person's microphone audio. */
   humanRecognizing(active: boolean): void {
     if (this.recognizingTimer !== undefined) {
@@ -1299,7 +1252,6 @@ export class NpcConversation<Clip> {
       this.scheduleRespond();
       return accepted;
     }
-    this.lastHumanInputWasTyped = false;
     // Recognised words over a line that is still playing, without a barge-in, are held: the AI line finishes
     // and is heard whole, then this line goes to the reader like any other. Only the voice-timing barge-in
     // (a held turn) makes it a real interruption. A turn the model is still writing, with nothing heard yet, is not
@@ -1759,7 +1711,7 @@ export class NpcConversation<Clip> {
     this.shadowLineEnded(planned.eventId, complete, { factIds: heardFactIds, sentencesHeard: spoken.length });
   }
 
-  /** A guest line is heard whole the moment it is typed or recognised; it never has a partial playback. */
+  /** A guest line is heard whole the moment it is recognised; it never has a partial playback. */
   private recordShadowGuestLine(text: string): string | undefined {
     const guest = this.human?.name;
     if (guest === undefined) return undefined;
@@ -4915,12 +4867,8 @@ export class NpcConversation<Clip> {
       return true;
     }
     const who = this.human?.name;
-    // A typist did not "say" anything and nothing more is coming, so ask them to send it again.
-    const line = this.lastHumanInputWasTyped
-      ? who === undefined
-        ? 'Sorry, I missed that one — could you send it again?'
-        : `Sorry, ${who}, I missed that one — could you send it again?`
-      : who === undefined
+    const line =
+      who === undefined
         ? 'Sorry, I lost you for a second there — could you say that again?'
         : `Sorry, ${who}, I lost you for a second there — could you say that again?`;
     this.recoveryCueSpoken = true;

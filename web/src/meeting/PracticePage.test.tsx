@@ -16,9 +16,10 @@ vi.mock('../kaki', () => ({
 }));
 
 vi.mock('./room/Meeting', () => ({
-  default: ({ practiceMeetingId, onNewPractice }: { practiceMeetingId?: string; onNewPractice?: () => void }) => (
+  default: ({ practiceMeetingId, signedIn, onNewPractice }: { practiceMeetingId?: string; signedIn?: boolean; onNewPractice?: () => void }) => (
     <div>
       <div data-testid="practice-room">{practiceMeetingId}</div>
+      <div data-testid="practice-signed-in">{signedIn === true ? 'signed-in' : 'signed-out'}</div>
       {onNewPractice === undefined ? null : (
         <button type="button" onClick={onNewPractice}>
           Start a new practice
@@ -59,6 +60,14 @@ describe('PracticePage', () => {
     expect(await screen.findByTestId('practice-room')).toHaveProperty('textContent', 'practice-1');
     expect(mocks.meetingId).toBe('practice-1');
     expect(fetchMock).toHaveBeenCalledWith('/api/practice', { method: 'POST' });
+  });
+
+  it('passes the sign-in state so a signed-in practice can keep its minutes', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => reply(200, { meetingId: 'practice-1', signedIn: true })));
+
+    render(<PracticePage />);
+
+    expect(await screen.findByTestId('practice-signed-in')).toHaveProperty('textContent', 'signed-in');
   });
 
   it('opens a fresh practice from the room once the old one has ended, without a page load', async () => {

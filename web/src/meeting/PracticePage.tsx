@@ -5,6 +5,8 @@ import Meeting from './room/Meeting';
 
 interface Resolved {
   meetingId: string;
+  /** A signed-in visitor's practice keeps its minutes in their own sample history. */
+  signedIn: boolean;
 }
 
 /**
@@ -38,7 +40,7 @@ export function PracticePage() {
         if (cancelled) return;
         const meetingId = typeof body.meetingId === 'string' ? body.meetingId.trim() : '';
         if (ok && meetingId !== '') {
-          setResolved({ meetingId });
+          setResolved({ meetingId, signedIn: body.signedIn === true });
           return;
         }
         setProblem(plainFailureMessage(status, body.message ?? body.error));
@@ -74,6 +76,7 @@ export function PracticePage() {
               key={resolved.meetingId}
               variant="practice"
               practiceMeetingId={resolved.meetingId}
+              signedIn={resolved.signedIn}
               onNewPractice={startNewPractice}
             />
           </ScenarioProvider>

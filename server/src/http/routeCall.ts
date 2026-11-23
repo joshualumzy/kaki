@@ -160,7 +160,6 @@ export interface RequestContext {
   writeHumanLine(input: {
     seat: string;
     text: string;
-    source: 'speech' | 'typed';
     clientLineId: string;
     meetingId?: string;
     participantIdentity?: string;

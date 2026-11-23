@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { MIC_BLOCKED_PROBLEM } from '../../net/plainFailure';
 import { Orb } from './Orb';
 
 /** Which devices the person chose to turn on before joining. */
@@ -12,20 +13,16 @@ interface MediaPreviewProps {
   onChange(next: MediaChoice): void;
   /** Called when the browser refuses a device, so the toggle can fall back to off and say why. */
   onProblem(message: string | undefined): void;
-  /** What typing does with the microphone off; the default stays neutral for a team meeting. */
-  typingHint?: string;
 }
 
 function describeFailure(kind: 'microphone' | 'camera', error: unknown): string {
   const name = error instanceof DOMException ? error.name : '';
   if (name === 'NotFoundError') {
-    return kind === 'microphone'
-      ? 'No microphone was found. You can join to type instead.'
-      : 'No camera was found.';
+    return kind === 'microphone' ? 'No microphone was found.' : 'No camera was found.';
   }
   if (name === 'NotAllowedError' || name === 'SecurityError') {
     return kind === 'microphone'
-      ? "Your microphone is blocked. Allow it in your browser's site settings, or join to type instead."
+      ? MIC_BLOCKED_PROBLEM
       : "Your camera is blocked. Allow it in your browser's site settings to use it.";
   }
   return `The ${kind} could not be started.`;
@@ -145,7 +142,6 @@ export function MediaPreview({
   onChange,
   onProblem,
   name = '',
-  typingHint = 'Microphone off: you will type your lines',
 }: MediaPreviewProps & { name?: string }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const turnOff = (kind: keyof MediaChoice) => (message: string) => {
@@ -195,7 +191,7 @@ export function MediaPreview({
         </button>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div className="kd-meter-text">
-            {value.microphone ? 'Say something to test your microphone' : typingHint}
+            {value.microphone ? 'Say something to test your microphone' : 'Microphone off: turn it on to speak'}
           </div>
           <div role="meter" aria-label="Microphone level" aria-valuemin={0} aria-valuemax={1} aria-valuenow={Number(level.toFixed(2))} className="kd-meter">
             {Array.from({ length: 24 }, (_, i) => (

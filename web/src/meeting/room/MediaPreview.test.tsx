@@ -1,6 +1,7 @@
 /** @vitest-environment jsdom */
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { MIC_BLOCKED_PROBLEM } from '../../net/plainFailure';
 import { MediaPreview } from './MediaPreview';
 
 afterEach(() => {
@@ -8,30 +9,24 @@ afterEach(() => {
   Reflect.deleteProperty(navigator, 'mediaDevices');
 });
 
-function renderPreview(typingHint?: string): void {
+function renderPreview(): void {
   render(
     <MediaPreview
       value={{ microphone: false, camera: false }}
       onChange={() => undefined}
       onProblem={() => undefined}
-      {...(typingHint === undefined ? {} : { typingHint })}
     />,
   );
 }
 
 describe('MediaPreview', () => {
-  it('uses neutral typing copy when the caller does not name an audience', () => {
+  it('tells a person with the microphone off to turn it on, with no typing', () => {
     renderPreview();
-    expect(screen.getByText('Microphone off: you will type your lines')).toBeTruthy();
-    expect(screen.queryByText(/AI attendees/)).toBeNull();
+    expect(screen.getByText('Microphone off: turn it on to speak')).toBeTruthy();
+    expect(screen.queryByText(/\btype\b/i)).toBeNull();
   });
 
-  it('keeps the practice hint when the practice form asks for it', () => {
-    renderPreview('Microphone off: turn it on in the meeting to speak');
-    expect(screen.getByText('Microphone off: turn it on in the meeting to speak')).toBeTruthy();
-  });
-
-  it('tells a person how to allow a blocked microphone, or join to type', async () => {
+  it('tells a person how to allow a blocked microphone', async () => {
     const onProblem = vi.fn();
     Object.defineProperty(navigator, 'mediaDevices', {
       configurable: true,
@@ -50,9 +45,7 @@ describe('MediaPreview', () => {
     );
 
     await waitFor(() =>
-      expect(onProblem).toHaveBeenCalledWith(
-        "Your microphone is blocked. Allow it in your browser's site settings, or join to type instead.",
-      ),
+      expect(onProblem).toHaveBeenCalledWith(MIC_BLOCKED_PROBLEM),
     );
   });
 

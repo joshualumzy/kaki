@@ -5,6 +5,13 @@ import type { Utterance } from '../../src/npc/director';
 import { readGuestLine, type GuestReaderInput, type GuestReading } from '../../src/npc/guestReader';
 import { testScenario } from '../fixtures/scenario';
 
+/** Say one line as the guest, through the same speech path the recogniser uses. */
+function speak(conversation: { humanSpeech(talking: boolean): void; humanText(text: string): string | undefined }, text: string): void {
+  conversation.humanSpeech(true);
+  conversation.humanSpeech(false);
+  conversation.humanText(text);
+}
+
 const scenario = {
   ...testScenario,
   npcs: [
@@ -150,8 +157,8 @@ function harness(
   /** The person says something and stops; the AI waits out the response delay and starts. */
   async function say(text: string): Promise<void> {
     conversation.humanSpeech(true);
-    conversation.humanText(text);
     conversation.humanSpeech(false);
+    conversation.humanText(text);
     await vi.advanceTimersByTimeAsync(900);
   }
   return { conversation, ports, calls, playing, states, transcript, transcriptOptions, transcriptUpdates, logs, flush, say };
@@ -351,10 +358,10 @@ describe('one-speaker replies to the guest', () => {
     expect(h.playing.some((entry) => !entry.finished)).toBe(true);
     const prefetched = await waitForCall(h, 1);
 
-    h.conversation.humanTyped('Wait, what about the till?');
+    speak(h.conversation, 'Wait, what about the till?');
     await h.flush();
     expect(prefetched.signal.aborted).toBe(true);
-    expect(h.logs).toContainEqual(expect.stringContaining('[reply] cancelled: the guest typed'));
+    expect(h.logs).toContainEqual(expect.stringContaining('[reply] cancelled: the guest spoke'));
     expect(h.transcript.some(([speaker]) => speaker === 'Bao')).toBe(false);
     h.conversation.close();
   });
@@ -843,7 +850,7 @@ describe('one-speaker replies to the guest', () => {
     expect(releaseGate).toBeDefined();
 
     // The guest corrects the call while the read-back is still being written.
-    h.conversation.humanTyped('No, signs only this morning.');
+    speak(h.conversation, 'No, signs only this morning.');
     await h.flush();
     releaseGate?.();
     await h.flush();
@@ -962,7 +969,7 @@ describe('one-speaker replies to the guest', () => {
     expect(h.transcript.some(([, text]) => text.includes("That's the call?"))).toBe(false);
 
     // The guest speaks again before the prepared read-back is heard; the new line's reader is still working.
-    h.conversation.humanTyped("Yes, that's the call — I'm on the counter from 8 to 10.");
+    speak(h.conversation, "Yes, that's the call — I'm on the counter from 8 to 10.");
     await h.flush();
     await vi.advanceTimersByTimeAsync(1000);
     for (let i = 0; i < 40 && releaseReader === undefined; i += 1) await h.flush();
@@ -995,14 +1002,14 @@ describe('one-speaker replies to the guest', () => {
     h.playing.at(-1)?.finish();
     await h.flush();
 
-    h.conversation.humanTyped('Old price only on the small cup.');
+    speak(h.conversation, 'Old price only on the small cup.');
     await h.flush();
     h.conversation.lockDecision(undefined, { confirmed: true });
     await h.flush();
     expect(settleTopic).toHaveBeenCalledTimes(1);
     expect(h.logs).toContainEqual(expect.stringContaining('could not create follow-up'));
 
-    h.conversation.humanTyped('Yes, old price still.');
+    speak(h.conversation, 'Yes, old price still.');
     await h.flush();
     expect(readerInputs.at(-1)?.openQuestion?.text).toBe('Josh, who covers the counter?');
     h.conversation.close();
@@ -1020,7 +1027,7 @@ describe('one-speaker replies to the guest', () => {
     await h.flush();
     expect(h.transcript).toContainEqual(['Bao', 'Josh, who covers the counter?']);
 
-    h.conversation.humanTyped('Old price only on the small cup.');
+    speak(h.conversation, 'Old price only on the small cup.');
     await h.flush();
     h.conversation.lockDecision(undefined, { confirmed: true });
     await h.flush();
@@ -1040,7 +1047,7 @@ describe('one-speaker replies to the guest', () => {
     h.conversation.setHuman({ name: 'Josh', role: 'chef' });
     h.ports.settleTopic = vi.fn().mockResolvedValue(undefined);
 
-    h.conversation.humanTyped('Old price only on the small cup.');
+    speak(h.conversation, 'Old price only on the small cup.');
     await h.flush();
     h.conversation.lockDecision(undefined, { confirmed: true });
     await h.flush();
@@ -1064,7 +1071,7 @@ describe('one-speaker replies to the guest', () => {
     const advanceAgenda = vi.fn();
     h.ports.advanceAgenda = advanceAgenda;
 
-    h.conversation.humanTyped('Old price only on the small cup.');
+    speak(h.conversation, 'Old price only on the small cup.');
     await h.flush();
     h.conversation.lockDecision(undefined, { confirmed: true });
     await h.flush();
@@ -1458,7 +1465,7 @@ describe('one-speaker replies to the guest', () => {
     await reply(h, 'KAKI_CONTROL {"state":"open","reopen":"Prep"}\nAda: Changing that means extra setup.');
     expect(h.conversation.onCurrentAgenda('Prep')).toBe(true);
 
-    h.conversation.humanTyped('Use the revised plan.');
+    speak(h.conversation, 'Use the revised plan.');
     await h.flush();
     h.conversation.lockDecision(undefined, { confirmed: true });
     await h.flush();
