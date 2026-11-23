@@ -46,6 +46,17 @@ export function createPostgresAccountDataDeletion(
       const client = await input.pool.connect();
       try {
         await client.query('begin');
+        // endOwnedBy ran before this transaction. A meeting created since then is still open and
+        // would otherwise be deleted without ending for the people in it, so roll back and retry.
+        const stillOpen = await client.query<{ id: string }>(
+          "select id from meetings where owner_user_id = $1 and status <> 'ended' limit 1",
+          [userId],
+        );
+        if ((stillOpen.rowCount ?? 0) > 0) {
+          throw new Error(
+            `meeting ${stillOpen.rows[0]?.id ?? 'unknown'} was created while the account was being deleted; try again`,
+          );
+        }
         const owned = await client.query<{ id: string }>(
           'select id from workspaces where created_by = $1',
           [userId],

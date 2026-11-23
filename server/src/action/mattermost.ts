@@ -4,6 +4,7 @@ import type { KakiModule } from '../core/modules';
 import type { WorkspaceTools } from '../workspace/tools';
 import { acceptedDecisionBlock, draftSourceText, memorySourceBlock, unsupportedDraftDetails } from './draftGrounding';
 import { DEFAULT_PROBE_TIMEOUT_MS, probeFailed, probeFetch, probeOk, responseProblem, type ToolProbeResult } from './probe';
+import { publicArtifactUrl } from './publicToolUrls';
 import { ActionError, createActionModule, plainReason, factsForTask } from './runner';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -16,6 +17,8 @@ export interface MattermostSettings {
   token: string;
   team: string;
   channel: string;
+  /** Where a browser opens a post; absent when `url` is already the browser's address. */
+  publicUrl?: string;
 }
 
 /** Options for the Mattermost action module; tests inject fakes here. */
@@ -221,7 +224,7 @@ export function createMattermostModule({
       await requireOk(post);
       const postId = idOf(await jsonOf(post), 'post');
 
-      return `${baseUrl(settings)}/${settings.team}/pl/${postId}`;
+      return publicArtifactUrl(`${baseUrl(settings)}/${settings.team}/pl/${postId}`, settings.publicUrl);
     },
   });
 }

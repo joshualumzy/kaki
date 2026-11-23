@@ -308,7 +308,8 @@ describe('one access layer', () => {
     try {
       const missing = await get(open, `/api/mattermost/open?url=${target}`);
       expect(missing.status).toBe(503);
-      expect(((await missing.json()) as { error: string }).error).toMatch(/MATTERMOST_PASSWORD/);
+      expect(missing.headers.get('content-type')).toContain('text/html');
+      expect(await missing.text()).toMatch(/MATTERMOST_PASSWORD/);
     } finally {
       await open.close();
     }

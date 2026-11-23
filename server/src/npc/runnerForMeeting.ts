@@ -644,7 +644,7 @@ const serviceChannel = createServiceChannel({
 serviceChannel.start();
 
 log(`speech recognition: Azure (${process.env.NPC_STT_LOCALE || 'en-SG'})`);
-log('ready: the listener is in the room; AI characters follow the meeting cast. Open /demo and talk.');
+log('ready: the listener is in the room; AI characters follow the meeting cast. Open /practice and talk.');
 
   let stopped = false;
   return {

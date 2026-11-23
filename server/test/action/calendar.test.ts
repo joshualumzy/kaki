@@ -99,6 +99,20 @@ describe('calendar action module', () => {
     expect(String(put?.[1]?.body)).toContain('Posted by Kaki for Ada\\, approved in Lunch service readiness.');
   });
 
+  it('links the saved event on the server-provided public calendar base', async () => {
+    const tasks = setup({
+      llm: createFakeLlm(() => reply),
+      calendar: { ...settings, viewBaseUrl: 'https://kaki.example.com' },
+      fetchImpl: calFetch(),
+    });
+    const task = startTask(tasks);
+    tasks.transition(task.id, 'CLAIMED', { mode: 'ACTION_AGENT' });
+    const ready = await waitForStatus(tasks, task.id, 'DRAFT_READY');
+    tasks.transition(ready.id, 'RUNNING');
+    const done = await waitForStatus(tasks, ready.id, 'COMPLETED');
+    expect(done.artifactUrl).toBe(`https://kaki.example.com/api/calendar/${task.id}`);
+  });
+
   it('fails with the calendar status when the save is refused', async () => {
     const tasks = setup({ llm: createFakeLlm(() => reply), calendar: settings, fetchImpl: calFetch(500) });
     const task = startTask(tasks);

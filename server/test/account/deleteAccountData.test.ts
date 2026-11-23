@@ -152,6 +152,8 @@ describe.skipIf(connectionString === undefined)('postgres account data deletion'
       adaInBenTeam,
       benOwnMeeting,
     ]) {
+      // The route ends every meeting it can before this transaction starts.
+      await meetings.markEnded!(meeting.id, new Date().toISOString());
       await state(meeting.id);
     }
     // Another visitor's practice history has no owner and no workspace row; it must survive.
@@ -242,6 +244,7 @@ describe.skipIf(connectionString === undefined)('postgres account data deletion'
       ownerUserId: ada.user.id,
       title: 'Rollback',
     });
+    await meetings.markEnded!(meeting.id, new Date().toISOString());
     await state(meeting.id);
     await tools.save(toolRecord(ada.personal.id, 'rollback'));
     await chunk(ada.personal.id, 'rollback');
@@ -287,5 +290,44 @@ describe.skipIf(connectionString === undefined)('postgres account data deletion'
     expect(await store.findUserById(ada.user.id)).toBeUndefined();
     expect(await meetings.get(meeting.id)).toBeUndefined();
     expect(await tools.list(ada.personal.id)).toEqual([]);
+  });
+
+  it('rolls back and asks for a retry when a meeting is created after endOwnedBy ran', async () => {
+    if (postgres === undefined) throw new Error('POSTGRES_URL is missing');
+    const ada = await account('Ada Race');
+    const earlier = await meetings.create({
+      workspaceId: ada.personal.id,
+      ownerUserId: ada.user.id,
+      title: 'Ended before deletion',
+    });
+    await meetings.markEnded!(earlier.id, new Date().toISOString());
+    // The meeting the owner created while the deletion was between endOwnedBy and its transaction.
+    const raced = await meetings.create({
+      workspaceId: ada.personal.id,
+      ownerUserId: ada.user.id,
+      title: 'Created during deletion',
+    });
+    await state(raced.id);
+    await tools.save(toolRecord(ada.personal.id, 'race'));
+    await chunk(ada.personal.id, 'race');
+
+    await expect(deletion.deleteAccountData(ada.user.id)).rejects.toThrow(/try again/);
+
+    expect(await store.findUserById(ada.user.id)).toBeDefined();
+    for (const hash of ada.sessionHashes) expect(await store.findSession(hash)).toBeDefined();
+    expect(await store.getWorkspace(ada.personal.id)).toBeDefined();
+    expect(await meetings.get(earlier.id)).toBeDefined();
+    expect(await meetings.get(raced.id)).toBeDefined();
+    expect(
+      (await postgres.pool.query('select id from meeting_state where id = $1', [raced.id])).rowCount,
+    ).toBe(1);
+    expect(await tools.list(ada.personal.id)).toHaveLength(1);
+    expect(
+      (
+        await postgres.pool.query('select 1 from knowledge_chunks where workspace_id = $1', [
+          ada.personal.id,
+        ])
+      ).rowCount,
+    ).toBe(1);
   });
 });

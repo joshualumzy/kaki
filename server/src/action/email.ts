@@ -8,6 +8,7 @@ import type { WorkspaceTools } from '../workspace/tools';
 import { draftString, parseDraftObject } from './draft';
 import { acceptedDecisionBlock, draftSourceText, memorySourceBlock, unsupportedDraftDetails } from './draftGrounding';
 import { DEFAULT_PROBE_TIMEOUT_MS, probeFailed, probeFetch, probeOk, responseProblem, type ToolProbeResult } from './probe';
+import { publicArtifactUrl } from './publicToolUrls';
 import { ActionError, createActionModule, plainReason, factsForTask } from './runner';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -20,6 +21,8 @@ export interface EmailSettings {
   smtpPort: number;
   from: string;
   mailpitUrl: string;
+  /** Where a browser opens the inbox; absent when `mailpitUrl` is already the browser's address. */
+  publicUrl?: string;
 }
 
 /** One message handed to the mail transport. */
@@ -338,7 +341,8 @@ export function createEmailModule({
         throw new ActionError(plainReason(error, 'the mail server'));
       }
 
-      return viewUrl(settings, messageId, signal);
+      const artifactUrl = await viewUrl(settings, messageId, signal);
+      return publicArtifactUrl(artifactUrl, settings.publicUrl);
     },
   });
 

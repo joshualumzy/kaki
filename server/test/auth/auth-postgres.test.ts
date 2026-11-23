@@ -229,6 +229,8 @@ describe.skipIf(connectionString === undefined)('postgres auth store', () => {
       ownerUserId: second.id,
       title: 'Second meeting',
     });
+    // The route ends the account's meetings before the deletion transaction starts.
+    await meetings.markEnded!(firstMeeting.id, new Date().toISOString());
     await tools.save(toolRecord(firstWorkspace));
     await tools.save(toolRecord(secondWorkspace));
     await postgres.pool.query('create table if not exists meeting_state (id text primary key)');

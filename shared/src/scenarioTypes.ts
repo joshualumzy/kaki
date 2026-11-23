@@ -197,6 +197,18 @@ interface NpcTension {
   about: string;
 }
 
+/**
+ * Where a browser opens each of the sample workspace's tools. The server builds this from its own
+ * settings once, so the join screen and every action result link use the same public addresses.
+ */
+export interface ToolPublicUrls {
+  wiki: string;
+  gitea: string;
+  mattermost: string;
+  email: string;
+  calendar: string;
+}
+
 /** The meeting Kaki is set in: organisation, roles, people and agenda. */
 export interface Scenario {
   id: string;
@@ -238,6 +250,11 @@ export interface Scenario {
    * meeting without one gets neutral, scenario-derived copy and no pack artwork.
    */
   practiceBriefing?: PracticeBriefing;
+  /**
+   * Public base URLs for the workspace's tools, added by the server for the sample workspace.
+   * A real workspace's tool links already use the addresses its owner saved, so it has none.
+   */
+  toolUrls?: ToolPublicUrls;
 }
 
 /** The story shown on the start prompt before a practice meeting: artwork, badge and intro line. */

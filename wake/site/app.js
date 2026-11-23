@@ -6,6 +6,8 @@ const STATUS_TIMEOUT_MS = 10000;
 const WAKE_TIMEOUT_MS = 15000;
 const TICK_MS = 250;
 const READY_PAUSE_MS = 1200;
+/** How long a running VM may keep an unhealthy app before the page says plainly it is in trouble. */
+const APP_START_LIMIT_MS = 90 * 1000;
 /** The most the cup may rise per tick, so a new wake step eases it up instead of jumping. */
 const MAX_RISE_PER_TICK = 0.012;
 /** Height of the cup's coffee shape in SVG units: moved down by this much, the cup is empty. */
@@ -42,6 +44,7 @@ let cupLevel = 0;
 let stage = null;
 let stageStartedAt = 0;
 let stageFloor = 0;
+let unhealthySince = 0;
 
 function showStatus(state, message, detail = '') {
   wakeBox.dataset.state = state;
@@ -133,6 +136,27 @@ function giveUp(reason) {
   retryButton.hidden = false;
 }
 
+/** The plain truth while the VM is on but Kaki's app has not answered. */
+function showStartingOrTrouble(detail = '') {
+  showStatus(
+    'waking',
+    'Kaki is starting or having trouble; try again in a minute',
+    detail,
+  );
+}
+
+/** Stop waiting on an unhealthy app and offer a retry, instead of spinning or claiming it is ready. */
+function trouble(detail = '') {
+  stopTimers();
+  elapsedText.hidden = true;
+  phase = 'failed';
+  healthy = false;
+  setBusy(false);
+  drawCup('failed');
+  showStatus('failed', 'Kaki is starting or having trouble; try again in a minute', detail);
+  retryButton.hidden = false;
+}
+
 function finish() {
   stopTimers();
   phase = 'idle';
@@ -157,11 +181,28 @@ async function poll() {
   if (phase !== 'waking') return;
   const result = await requestJson('/api/status', { method: 'GET' }, STATUS_TIMEOUT_MS);
   if (phase !== 'waking') return;
-  if (result.ok && result.data?.healthy === true) {
+  if (result.ok && (result.data?.state === 'ready' || result.data?.healthy === true)) {
+    unhealthySince = 0;
     finish();
     return;
   }
-  if (result.ok && result.data?.power === 'running') enterStage('startingUp');
+  // The VM is on but its app is not answering. Keep the cup moving for a short while, then say
+  // plainly that Kaki is having trouble and offer a retry, rather than waiting the whole wake limit.
+  if (
+    result.ok &&
+    (result.data?.state === 'unhealthy' ||
+      (result.data?.power === 'running' && result.data?.healthy !== true))
+  ) {
+    if (unhealthySince === 0) unhealthySince = Date.now();
+    showStartingOrTrouble('The server is on, but the Kaki app has not answered yet.');
+    if (Date.now() - unhealthySince >= APP_START_LIMIT_MS) {
+      trouble('The server is on, but the Kaki app has not answered yet.');
+      return;
+    }
+    schedulePoll(POLL_INTERVAL_MS);
+    return;
+  }
+  if (result.ok && result.data?.state === 'starting') enterStage('startingUp');
   schedulePoll(POLL_INTERVAL_MS);
 }
 
@@ -173,6 +214,7 @@ async function beginWake(target) {
   setBusy(true);
   retryButton.hidden = true;
   wakeStartedAt = Date.now();
+  unhealthySince = 0;
   cupLevel = 0;
   drawCup('waking');
   enterStage('switchingOn');
@@ -185,6 +227,11 @@ async function beginWake(target) {
     const reason = result.data?.error ?? (result.status === 0 ? 'Could not reach the wake service.' : '');
     giveUp(reason);
     return;
+  }
+  // The VM was already on when this wake arrived and its app is still unhealthy: the caller must
+  // not wait another app-start window before being offered a retry.
+  if (result.data?.started === false && result.data?.power === 'running') {
+    unhealthySince = Date.now() - APP_START_LIMIT_MS;
   }
   schedulePoll(0);
 }
@@ -203,7 +250,9 @@ function start(target) {
 async function checkStatus() {
   const result = await requestJson('/api/status', { method: 'GET' }, STATUS_TIMEOUT_MS);
   if (phase !== 'idle') return;
-  if (result.ok && result.data?.healthy === true) {
+  unhealthySince = 0;
+  if (result.ok && (result.data?.state === 'ready' || result.data?.healthy === true)) {
+    retryButton.hidden = true;
     healthy = true;
     cupLevel = 1;
     drawCup('ready');
@@ -212,8 +261,20 @@ async function checkStatus() {
   }
   healthy = false;
   cupLevel = 0;
+  if (result.ok && result.data?.state === 'unhealthy') {
+    drawCup('failed');
+    showStatus(
+      'failed',
+      'Kaki is starting or having trouble; try again in a minute',
+      "The server is on, but Kaki's app is not answering yet.",
+    );
+    retryButton.hidden = false;
+    return;
+  }
   drawCup('asleep');
-  if (result.ok) {
+  if (result.ok && result.data?.state === 'starting') {
+    showStatus('asleep', 'Kaki is starting — choosing an option will wait for it.');
+  } else if (result.ok) {
     showStatus('asleep', 'Kaki is asleep — it will start when you choose an option.');
   } else {
     const reason = result.data?.error ?? 'Could not reach the status service.';
@@ -240,8 +301,14 @@ inviteForm.addEventListener('submit', (event) => {
 });
 
 retryButton.addEventListener('click', () => {
-  if (destination === null) return;
-  beginWake(destination);
+  retryButton.hidden = true;
+  if (destination !== null) {
+    beginWake(destination);
+    return;
+  }
+  // No option was chosen yet: re-check whether the app is answering now.
+  drawCup('checking');
+  checkStatus();
 });
 
 // A restored page has stale timers, so start clean.
@@ -255,6 +322,7 @@ window.addEventListener('pageshow', (event) => {
   retryButton.hidden = true;
   elapsedText.hidden = true;
   cupLevel = 0;
+  unhealthySince = 0;
   drawCup('checking');
   checkStatus();
 });

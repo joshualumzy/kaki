@@ -184,6 +184,22 @@ describe('email action module', () => {
     expect(failed.draft).toBeUndefined();
   });
 
+  it('links the sent email on the server-provided public Mailpit base', async () => {
+    const tasks = setup({
+      llm: createFakeLlm(() => draftReply),
+      email: { ...settings, publicUrl: 'https://kaki.example.com:8084' },
+      sendMail: okSend(),
+      fetchImpl: okFetch(),
+    });
+    const task = startTask(tasks);
+    const ready = await claim(tasks, task);
+
+    tasks.transition(ready.id, 'RUNNING');
+    const completed = await waitForStatus(tasks, ready.id, 'COMPLETED');
+
+    expect(completed.artifactUrl).toBe('https://kaki.example.com:8084/view/message-123');
+  });
+
   it('sends the approved draft on run and links to the Mailpit view', async () => {
     const sendMail = okSend();
     const fetchImpl = okFetch();

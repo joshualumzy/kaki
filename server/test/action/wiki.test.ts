@@ -154,6 +154,20 @@ describe('wiki action module', () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
+  it('links the published page on the server-provided public wiki base', async () => {
+    const tasks = setup({
+      llm: createFakeLlm(() => reply),
+      wiki: { ...settings, publicUrl: 'https://kaki.example.com:8081' },
+      fetchImpl: wikiFetch(),
+      today: () => '2026-11-03',
+    });
+    const ready = await draftAndRun(tasks, 930);
+    const done = await waitForStatus(tasks, ready.id, 'COMPLETED');
+    expect(done.artifactUrl).toBe(
+      'https://kaki.example.com:8081/en/meetings/2026-11-03-launch-notes',
+    );
+  });
+
   it('publishes the approved page and links to it', async () => {
     const fetchImpl = wikiFetch();
     const tasks = setup({ llm: createFakeLlm(() => reply), wiki: settings, fetchImpl, today: () => '2026-11-03' });

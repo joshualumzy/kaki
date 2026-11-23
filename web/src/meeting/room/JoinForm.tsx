@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import type { AgendaItem, ScenarioRole } from '@kaki/shared';
-import { resolveArtifactUrl } from '../../ui';
+import type { AgendaItem, ScenarioRole, ToolPublicUrls } from '@kaki/shared';
+import { resolveArtifactUrl, toolLink } from '../../ui';
 import { MediaPreview, type MediaChoice } from './MediaPreview';
 import './demo.css';
 
@@ -23,6 +23,8 @@ interface JoinFormProps {
   errorAction?: ReactNode;
   /** A code from the page's link, to fill the box with. */
   initialCode?: string;
+  /** Where the browser opens the sample workspace's tools, built by the server. */
+  toolUrls?: ToolPublicUrls;
   /** `media`: which devices to join with. Without the microphone a person types to the AI attendees. */
   onJoin(name: string, roleId: string, media: MediaChoice, meetingCode?: string): void;
 }
@@ -44,7 +46,7 @@ function roleVisualMeta(role: ScenarioRole): { icon: string; tag: string } {
 }
 
 /** The screen before the meeting: a name and a role, then a microphone. */
-export function JoinForm({ meetingTitle, roles, agenda, busy = false, error, askCode = false, errorAction, initialCode = '', onJoin }: JoinFormProps) {
+export function JoinForm({ meetingTitle, roles, agenda, busy = false, error, askCode = false, errorAction, initialCode = '', toolUrls, onJoin }: JoinFormProps) {
   const [name, setName] = useState(DEFAULT_NAME);
   const [roleId, setRoleId] = useState(roles[0]?.id ?? '');
   const [media, setMedia] = useState<MediaChoice>({ microphone: false, camera: false });
@@ -197,19 +199,16 @@ export function JoinForm({ meetingTitle, roles, agenda, busy = false, error, ask
         </div>
       </form>
 
-      {(() => {
-        const host = typeof window !== 'undefined' && window.location.hostname ? window.location.hostname : 'localhost';
-        return (
-          <nav className="kd-join-systems" aria-label="Company systems">
-            <span className="kd-join-systems-label">Company systems (login: <code>demo</code> / <code>demo</code>):</span>
-            <a href={`http://${host}:8081/en/home`} target="_blank" rel="noreferrer">Wiki</a>
-            <a href={`http://${host}:8082/kopitiam/kopitiam-pos/issues`} target="_blank" rel="noreferrer">Gitea</a>
-            <a href={resolveArtifactUrl(`http://${host}:8083/kopitiam/channels/kopitiam-launch`, 'mattermost_post')} target="_blank" rel="noreferrer">Mattermost</a>
-            <a href={`http://${host}:8084`} target="_blank" rel="noreferrer">Mailpit</a>
-            <a href="/api/calendar/seed-sfa-inspection" target="_blank" rel="noreferrer">Calendar</a>
-          </nav>
-        );
-      })()}
+      {toolUrls === undefined ? null : (
+        <nav className="kd-join-systems" aria-label="Company systems">
+          <span className="kd-join-systems-label">Company systems (login: <code>demo</code> / <code>demo</code>):</span>
+          <a href={toolLink(toolUrls.wiki, '/en/home')} target="_blank" rel="noreferrer">Wiki</a>
+          <a href={toolLink(toolUrls.gitea, '/kopitiam/kopitiam-pos/issues')} target="_blank" rel="noreferrer">Gitea</a>
+          <a href={resolveArtifactUrl(toolLink(toolUrls.mattermost, '/kopitiam/channels/kopitiam-launch'), 'mattermost_post', toolUrls)} target="_blank" rel="noreferrer">Mattermost</a>
+          <a href={toolUrls.email} target="_blank" rel="noreferrer">Mailpit</a>
+          <a href={toolLink(toolUrls.calendar, '/api/calendar/seed-sfa-inspection')} target="_blank" rel="noreferrer">Calendar</a>
+        </nav>
+      )}
     </div>
   );
 }

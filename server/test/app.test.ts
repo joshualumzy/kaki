@@ -2,6 +2,7 @@ import { createServer, request as httpRequest } from 'node:http';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
 import { createApp } from '../src/app';
+import { publicToolUrls } from '../src/action/publicToolUrls';
 import { CommandError } from '../src/core/hub';
 import { loadScenario } from '../src/core/loadScenario';
 import { createTestApp, connectClient, portOf, settle, waitFor, waitForEvent, type TestClient } from './helpers';
@@ -154,7 +155,10 @@ describe('app', () => {
 
     const scenario = await fetch(`http://127.0.0.1:${port}/api/scenario`);
     expect(scenario.status).toBe(200);
-    expect(await scenario.json()).toEqual(testScenario);
+    expect(await scenario.json()).toEqual({
+      ...testScenario,
+      toolUrls: publicToolUrls(process.env, '127.0.0.1'),
+    });
   });
 
   it('accepts a valid dev event and delivers it', async () => {

@@ -547,6 +547,7 @@ export default function Meeting({
           error={offersSeats ? error : seatsError}
           askCode={needsCode}
           initialCode={linkCode}
+          toolUrls={scenario.toolUrls}
           onJoin={(name, roleId, media, code) => void join(name, roleId, media, code)}
         />
       );
