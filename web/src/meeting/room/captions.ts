@@ -150,24 +150,49 @@ export function captionFor(
 export interface TranscriptViewer {
   name: string;
   seatName: string | undefined;
+  /** The exact seat they hold, so a shared display name never makes another person's line "(you)". */
+  seat?: string;
 }
 
-/** How a speaker is shown in the transcript panel: the visitor sees their own name and role, and AI colleagues show their name and role. */
-export function speakerLabel(speaker: string, viewer: TranscriptViewer | undefined, scenario?: Scenario): string {
+/**
+ * How a speaker is shown in the transcript panel. When the line's seat is known, its name comes from
+ * the People list's disambiguated names (so two people called Sam read "Sam" and "Sam (2)"), and only
+ * the viewer's own seat says "(you)". Lines without a seat (AI speech and older feeds) keep the name
+ * match, and practice keeps its role and AI attendee labels.
+ */
+export function speakerLabel(
+  speaker: string,
+  viewer: TranscriptViewer | undefined,
+  scenario?: Scenario,
+  seat?: string,
+  seatNames?: ReadonlyMap<string, string>,
+): string {
   const cleanSpeaker = speakerName(speaker);
-  const isViewer =
-    viewer !== undefined &&
-    (cleanSpeaker.toLowerCase() === viewer.name.trim().toLowerCase() ||
-      (viewer.seatName !== undefined && cleanSpeaker.toLowerCase() === viewer.seatName.trim().toLowerCase()));
-  const baseName = isViewer ? `${viewer.name} (you)` : cleanSpeaker;
+  const lineSeat = seat?.trim().toLowerCase();
+  const seatName = lineSeat === undefined || lineSeat === '' ? undefined : seatNames?.get(lineSeat);
+  const viewerSeat = viewer?.seat?.trim().toLowerCase();
+  const bySeat = lineSeat !== undefined && lineSeat !== '' && viewerSeat !== undefined && viewerSeat !== '';
+  const isViewer = bySeat
+    ? lineSeat === viewerSeat
+    : viewer !== undefined &&
+      (cleanSpeaker.toLowerCase() === viewer.name.trim().toLowerCase() ||
+        (viewer.seatName !== undefined && cleanSpeaker.toLowerCase() === viewer.seatName.trim().toLowerCase()));
+  const baseName = isViewer ? `${seatName ?? viewer?.name ?? cleanSpeaker} (you)` : (seatName ?? cleanSpeaker);
   if (scenario === undefined) return baseName;
+  // A line's seat names its attendee exactly, so a renamed display name still finds its role.
   const wanted = cleanSpeaker.toLowerCase();
-  const attendee = scenario.attendees.find(
-    (candidate) =>
-      candidate.name.trim().toLowerCase() === wanted ||
-      candidate.displayName.trim().toLowerCase() === wanted ||
-      (isViewer && viewer.seatName !== undefined && candidate.name.trim().toLowerCase() === viewer.seatName.trim().toLowerCase()),
-  );
+  const attendee =
+    (lineSeat === undefined || lineSeat === ''
+      ? undefined
+      : scenario.attendees.find((candidate) => candidate.role.trim().toLowerCase() === lineSeat)) ??
+    scenario.attendees.find(
+      (candidate) =>
+        candidate.name.trim().toLowerCase() === wanted ||
+        candidate.displayName.trim().toLowerCase() === wanted ||
+        (isViewer &&
+          viewer?.seatName !== undefined &&
+          candidate.name.trim().toLowerCase() === viewer.seatName.trim().toLowerCase()),
+    );
   const roleObj = attendee === undefined ? undefined : scenario.roles.find((role) => role.id === attendee.role);
   // A plain seat's label is the person's own name, so showing both would read "Name · Name".
   if (roleObj === undefined || roleObj.label.trim().toLowerCase() === cleanSpeaker.toLowerCase()) {

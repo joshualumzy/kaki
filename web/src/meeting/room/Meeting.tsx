@@ -664,6 +664,7 @@ export default function Meeting({
         viewer={{
           name: session.name,
           seatName: scenario.attendees.find((attendee) => attendee.role === session.role)?.displayName,
+          seat: session.role,
         }}
       />
       <nav className="kd-panes" aria-label="Meeting or Kaki">

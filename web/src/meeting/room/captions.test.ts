@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { KakiEvent, Scenario } from '@kaki/shared';
 import { captionFor, TEXT_ONLY_NOTE, textOnlyNote, transcriptChunks, transcriptNameFor } from './captions';
+import { distinctDisplayNames } from './people';
 
 const scenario: Scenario = {
   id: 's',
@@ -191,5 +192,31 @@ describe('speakerLabel', () => {
       attendees: [{ name: 'Joyce', role: 'person_1', displayName: 'Joyce' }],
     };
     expect(speakerLabel('Joyce', undefined, real)).toBe('Joyce');
+  });
+
+  it('labels two same-named people by their seat with the People list names, and marks only the viewer', async () => {
+    const { speakerLabel } = await import('./captions');
+    const people = [
+      { name: 'sam', displayName: 'Sam', seat: 'person_a', photoUrl: null },
+      { name: 'sam', displayName: 'Sam', seat: 'person_b', photoUrl: null },
+    ];
+    // The People popover's own source, so the transcript cannot drift from "Sam" / "Sam (2)".
+    const seatNames = distinctDisplayNames(people);
+    const firstSam = { name: 'Sam', seatName: 'Sam', seat: 'person_a' };
+    const secondSam = { name: 'Sam', seatName: 'Sam', seat: 'person_b' };
+
+    expect(speakerLabel('Sam', firstSam, undefined, 'person_a', seatNames)).toBe('Sam (you)');
+    expect(speakerLabel('Sam', firstSam, undefined, 'person_b', seatNames)).toBe('Sam (2)');
+    expect(speakerLabel('Sam', secondSam, undefined, 'person_a', seatNames)).toBe('Sam');
+    expect(speakerLabel('Sam', secondSam, undefined, 'person_b', seatNames)).toBe('Sam (2) (you)');
+  });
+
+  it('keeps practice role and AI attendee labels when the line carries its role', async () => {
+    const { speakerLabel } = await import('./captions');
+    const viewer = { name: 'Joshua', seatName: 'Wei Ling', seat: 'operations_director' };
+    expect(speakerLabel('Wei Ling (Operations Director)', viewer, scenario, 'operations_director')).toBe(
+      'Joshua (you) · Operations Director',
+    );
+    expect(speakerLabel('Arjun (Lead)', viewer, scenario)).toBe('Arjun · Lead Programmer');
   });
 });
