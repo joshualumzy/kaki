@@ -447,29 +447,6 @@ export function isDuplicateAnnouncement(
 }
 
 /**
- * The settled follow-up card that already covers this topic, deliverable and owner, if there is one. A decision
- * has one follow-up per deliverable: the settlement card is that card, so a later notetaker suggestion of the same
- * kind for the same owner is the same follow-up however differently it words the decision. Identity here is the
- * settlement event (the marked card), the agenda item, the action kind and the owner; the decision's wording is
- * deliberately not compared.
- */
-export function settledFollowUpCard(
-  candidate: Pick<SuggestInput, 'actionKind' | 'agendaItemTitle' | 'suggestedAssignee'>,
-  existing: Task[],
-): Task | undefined {
-  if (candidate.actionKind === undefined || candidate.agendaItemTitle === undefined) return undefined;
-  return existing.find(
-    (task) =>
-      task.fromSettlement === true &&
-      task.status !== 'DISMISSED' &&
-      task.status !== 'SUPERSEDED' &&
-      task.agendaItemTitle === candidate.agendaItemTitle &&
-      task.suggestedAssignee === candidate.suggestedAssignee &&
-      task.actionKind === candidate.actionKind,
-  );
-}
-
-/**
  * True when a model-supplied duplicateOf target is the same work. The model makes that call by naming the id; only
  * clear conflicts refuse it: a card on another agenda item or for a different deliverable, or two grounded sources
  * that state different decisions. Wording is not compared, because the model may recognise a paraphrase the

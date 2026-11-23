@@ -1015,36 +1015,8 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks: PlaytestHo
         await reactToRoom(i, title, i === 1 ? undefined : decision, before);
         await delay(350);
       }
-      const settlementDetail = settled.has(title)
-        ? title
-        : agendaIndex !== i || closing
-          ? `${title} left before its settlement event`
-          : `No settlement event for ${title} after the read-back confirmation round`;
-      const hasFollowUpCard = [...tasks.values()].some((task) =>
-        task.fromSettlement === true &&
-        task.agendaItemTitle === title && task.status !== 'DISMISSED' && task.status !== 'SUPERSEDED');
-      if (settled.has(title)) {
-        await check(`Topic ${i + 1} settled`, true, settlementDetail);
-      } else if (hasFollowUpCard) {
-        // The card proves the product treated the topic as settled, so its settlement event was missed.
-        await check(`Topic ${i + 1} settled`, false, `${settlementDetail}; a follow-up card exists`);
-      } else {
-        // The product parked or closed the topic without a decision, so there was no settlement to check.
-        checks.push({
-          at: stamp(), name: `Topic ${i + 1} settled`, status: 'NOT EXERCISED',
-          detail: `${settlementDetail}; no follow-up card, so there was no settlement to check`,
-        });
-        console.log(`NOT EXERCISED Topic ${i + 1} settled: ${settlementDetail}; no follow-up card`);
-      }
       await checkPhoneLayout(`topic ${i + 1} settled`);
       await keepShot(`topic ${i + 1} settled`);
-      if (settled.has(title)) {
-        await check(`Topic ${i + 1} follow-up card`, await waitFor(`Topic ${i + 1} task card`, () =>
-          [...tasks.values()].some((task) => task.agendaItemTitle === title), 20_000),
-        `TASK_UPDATED with agendaItemTitle=${title}`);
-        await keepShot(`topic ${i + 1} card`);
-        await actOnRobotTasks();
-      }
 
       if (i === 0 && hooks?.behaviour === 'flip-flop') {
         const first = flipFlopFirst.get(0);
@@ -1113,6 +1085,36 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks: PlaytestHo
             await waitFor('Recovery agenda move', () => agendaIndex > i, 15_000);
           }
         }
+      }
+      // Finalise the settlement verdict after the drive loop: the product may settle the topic while the loop keeps
+      // answering the room, so the verdict must reflect the end state rather than the moment the confirm round ended.
+      const settlementDetail = settled.has(title)
+        ? title
+        : agendaIndex !== i || closing
+          ? `${title} left before its settlement event`
+          : `No settlement event for ${title} after the read-back confirmation round`;
+      const hasFollowUpCard = [...tasks.values()].some((task) =>
+        task.fromSettlement === true &&
+        task.agendaItemTitle === title && task.status !== 'DISMISSED' && task.status !== 'SUPERSEDED');
+      if (settled.has(title)) {
+        await check(`Topic ${i + 1} settled`, true, settlementDetail);
+      } else if (hasFollowUpCard) {
+        // The card proves the product treated the topic as settled, so its settlement event was missed.
+        await check(`Topic ${i + 1} settled`, false, `${settlementDetail}; a follow-up card exists`);
+      } else {
+        // The product parked or closed the topic without a decision, so there was no settlement to check.
+        checks.push({
+          at: stamp(), name: `Topic ${i + 1} settled`, status: 'NOT EXERCISED',
+          detail: `${settlementDetail}; no follow-up card, so there was no settlement to check`,
+        });
+        console.log(`NOT EXERCISED Topic ${i + 1} settled: ${settlementDetail}; no follow-up card`);
+      }
+      if (settled.has(title)) {
+        await check(`Topic ${i + 1} follow-up card`, await waitFor(`Topic ${i + 1} task card`, () =>
+          [...tasks.values()].some((task) => task.agendaItemTitle === title), 20_000),
+        `TASK_UPDATED with agendaItemTitle=${title}`);
+        await keepShot(`topic ${i + 1} card`);
+        await actOnRobotTasks();
       }
       // Read the new topic on screen, not the last caption of the one that just ended.
       if ((phoneMode || parsed.shots === true) && agendaIndex > i && i + 1 < count) {

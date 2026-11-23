@@ -226,6 +226,32 @@ describe('ConnectedStartPrompt', () => {
     expect(signal?.aborted).toBe(false);
   });
 
+  it('still aborts an abandoned Start request after unmount, without reporting it', async () => {
+    vi.useFakeTimers();
+    let signal: AbortSignal | undefined;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        (_url: string, init?: { signal?: AbortSignal }) =>
+          new Promise<never>((_resolve, reject) => {
+            signal = init?.signal;
+            init?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+          }),
+      ),
+    );
+    const onStarted = vi.fn();
+    const { unmount } = render(<ConnectedStartPrompt onStarted={onStarted} meetingId="mtg-1" />);
+    pressStart();
+    unmount();
+    expect(signal?.aborted).toBe(false);
+    await act(async () => {
+      vi.advanceTimersByTime(8000);
+      await Promise.resolve();
+    });
+    expect(signal?.aborted).toBe(true);
+    expect(onStarted).not.toHaveBeenCalled();
+  });
+
   it('ignores a late answer after unmount', async () => {
     let resolveFetch: ((value: { ok: boolean; status: number; json: () => Promise<{ started: boolean }> }) => void) | undefined;
     vi.stubGlobal('fetch', vi.fn(() => new Promise((resolve) => { resolveFetch = resolve; })));

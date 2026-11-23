@@ -1715,39 +1715,109 @@ describe('duplicate handling across batches', () => {
     ]);
   });
 
-  it('drops a later card when the topic already has an active card for that deliverable and owner', async () => {
+  it('keeps a different follow-up that shares the settlement card’s kind, owner and topic', async () => {
+    const pricingDecision =
+      'We will put the new pricing table on every counter from Monday, Mei owns the update, and we review the numbers at month end.';
+    const pricingAssignment = 'Mei, can you post the pricing table in the team channel today so everyone has it?';
+    const { tasks, notetaker } = setup(() =>
+      reply({
+        newTasks: [
+          candidate('Post the pricing table in the team channel', 'menu_store_lead', pricingAssignment, {
+            actionKind: 'mattermost_post',
+            decisionEvidence: pricingDecision,
+          }),
+        ],
+      }),
+    );
+    const settled = tasks.suggest({
+      title: 'Share the decision on the seat crunch',
+      context: 'Visitor decision: the booth rule.',
+      suggestedAssignee: 'menu_store_lead',
+      actionKind: 'mattermost_post',
+      agendaItemTitle: scenario.agenda[0]!.title,
+      decisionSource: seatingDecision,
+    });
+    tasks.markFromSettlement(settled.id);
+
+    notetaker.addChunk({ speaker: 'Feifei Li', text: seatingDecision });
+    notetaker.addChunk({ speaker: 'Feifei Li', text: pricingDecision });
+    notetaker.addChunk({ speaker: 'Mei', text: pricingAssignment });
+    await notetaker.run();
+
+    expect(tasks.list().map((task) => task.title).sort()).toEqual([
+      'Post the pricing table in the team channel',
+      'Share the decision on the seat crunch',
+    ]);
+  });
+
+  it('drops a restated follow-up the model names as the settlement card', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {
-      const assignment = 'Mei, can you post the seating decision in the team channel today so everyone has it?';
       const { tasks, notetaker } = setup(() =>
         reply({
           newTasks: [
-            candidate('Post the seating decision in the team channel', 'menu_store_lead', assignment, {
+            candidate('Post the seating decision in the team channel', 'menu_store_lead', seatingAssignment, {
               actionKind: 'mattermost_post',
               decisionEvidence: seatingDecision,
+              duplicateOf: tasks.list()[0]?.id,
             }),
           ],
         }),
       );
       const settled = tasks.suggest({
         title: 'Share the decision on the seat crunch',
-        context: 'Visitor decision: a two-hour limit.',
+        context: 'Visitor decision: the booth rule.',
         suggestedAssignee: 'menu_store_lead',
         actionKind: 'mattermost_post',
         agendaItemTitle: scenario.agenda[0]!.title,
-        decisionSource: 'Two hours, and a manager enforces it.',
+        decisionSource: seatingDecision,
       });
       tasks.markFromSettlement(settled.id);
 
       notetaker.addChunk({ speaker: 'Feifei Li', text: seatingDecision });
-      notetaker.addChunk({ speaker: 'Mei', text: assignment });
+      notetaker.addChunk({ speaker: 'Mei', text: seatingAssignment });
       await notetaker.run();
 
       expect(tasks.list()).toHaveLength(1);
       expect(tasks.list()[0]!.id).toBe(settled.id);
-      expect(warn).toHaveBeenCalledWith(expect.stringContaining('already covers mattermost_post on this topic'));
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining(`it duplicates ${settled.id}`));
     } finally {
       warn.mockRestore();
+    }
+  });
+
+  it('keeps a suggestion whose duplicateOf is unknown or names a card for a different decision', async () => {
+    const pricingDecision =
+      'We will put the new pricing table on every counter from Monday, Mei owns the update, and we review the numbers at month end.';
+    const pricingAssignment = 'Mei, can you post the pricing table in the team channel today so everyone has it?';
+    for (const namesSettlementCard of [false, true]) {
+      const { tasks, notetaker } = setup(() =>
+        reply({
+          newTasks: [
+            candidate('Post the pricing table in the team channel', 'menu_store_lead', pricingAssignment, {
+              actionKind: 'mattermost_post',
+              decisionEvidence: pricingDecision,
+              duplicateOf: namesSettlementCard ? tasks.list()[0]?.id : 'task-invented',
+            }),
+          ],
+        }),
+      );
+      const settled = tasks.suggest({
+        title: 'Share the decision on the seat crunch',
+        context: 'Visitor decision: the booth rule.',
+        suggestedAssignee: 'menu_store_lead',
+        actionKind: 'mattermost_post',
+        agendaItemTitle: scenario.agenda[0]!.title,
+        decisionSource: seatingDecision,
+      });
+      tasks.markFromSettlement(settled.id);
+
+      notetaker.addChunk({ speaker: 'Feifei Li', text: seatingDecision });
+      notetaker.addChunk({ speaker: 'Feifei Li', text: pricingDecision });
+      notetaker.addChunk({ speaker: 'Mei', text: pricingAssignment });
+      await notetaker.run();
+
+      expect(tasks.list()).toHaveLength(2);
     }
   });
 

@@ -335,7 +335,10 @@ export function systemPrompt(scenario: Scenario, lines: TranscriptLine[] = []): 
     '  unmatched quote is ignored rather than trusted.',
     '  If it is the same work as a task already suggested, even worded differently, set duplicateOf to that task id. A',
     '  different person asked to do the work, a different decision, or a different deliverable (tool/actionKind) is a',
-    '  separate task. However, if a speaker asks the assignee for TWO distinct follow-up deliverables across DIFFERENT',
+    '  separate task. A task marked "[settled follow-up card]" is the authoritative follow-up for its topic: when a new',
+    '  line asks for that same follow-up, set duplicateOf to that card id even if the new task is worded differently.',
+    '  A genuinely different follow-up for the same person, topic and tool is a new task with no duplicateOf.',
+    '  However, if a speaker asks the assignee for TWO distinct follow-up deliverables across DIFFERENT',
     '  tools/actionKinds in the same turn (for example, an email AND a wiki_page, or a gitea_issue AND a mattermost_post,',
     '  or a calendar_event), extract BOTH deliverables as separate entries in newTasks with their respective actionKinds',
     '  (up to 2 tasks per turn).',
@@ -381,7 +384,8 @@ export function userPrompt(
       : activeTasks.map(
           (task) =>
             `- ${task.id}: ${task.title} (owner: ${task.suggestedAssignee}) — ${task.context.slice(0, 160)}` +
-            (task.decisionSource === undefined ? '' : ` [accepted decision: "${task.decisionSource}"]`),
+            (task.decisionSource === undefined ? '' : ` [accepted decision: "${task.decisionSource}"]`) +
+            (task.fromSettlement === true ? ' [settled follow-up card]' : ''),
         )),
     '',
     'Earlier lines on this agenda item, oldest first. They are context only: do not list them as new questions or',

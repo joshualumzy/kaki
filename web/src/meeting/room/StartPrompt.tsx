@@ -224,7 +224,6 @@ export function ConnectedStartPrompt({
   const [phase, setPhase] = useState<'idle' | 'waiting' | 'failed'>('idle');
   const [error, setError] = useState<string | undefined>(undefined);
   const request = useRef<AbortController | undefined>(undefined);
-  const requestTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const mounted = useRef(true);
 
   useEffect(() => {
@@ -235,9 +234,8 @@ export function ConnectedStartPrompt({
       mounted.current = false;
       // Start is one server-owned command, not a cancellable query: the room can confirm it (MEETING_STARTED)
       // and unmount this prompt before the POST's answer arrives. Aborting then reports ERR_ABORTED for a start
-      // that actually happened, so let the request finish and ignore its answer.
-      if (requestTimer.current !== undefined) clearTimeout(requestTimer.current);
-      requestTimer.current = undefined;
+      // that actually happened, so let the request finish and ignore its answer. Its own deadline still fires,
+      // and the handlers stay silent because request.current is cleared.
       request.current = undefined;
     };
   }, []);
@@ -255,7 +253,6 @@ export function ConnectedStartPrompt({
     setError(undefined);
     setPhase('waiting');
     const timer = setTimeout(() => controller.abort(), START_TIMEOUT_MS);
-    requestTimer.current = timer;
     console.info('[kaki:start] browser asking the server to start the meeting');
     void fetch(meetingApiPath(meetingId, '/api/meeting/start'), { method: 'POST', signal: controller.signal })
       .then(async (response) => {
@@ -284,10 +281,7 @@ export function ConnectedStartPrompt({
         setPhase('failed');
         setError(message);
       })
-      .finally(() => {
-        clearTimeout(timer);
-        if (requestTimer.current === timer) requestTimer.current = undefined;
-      });
+      .finally(() => clearTimeout(timer));
   }, [scenario, onStarted, meetingId]);
 
   return (
