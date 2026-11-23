@@ -13,6 +13,7 @@ import { readJsonBody, sendJson } from '../http';
 import { createRoomToken, joinNameProblem, JoinError, livekitPublicUrl } from '../../services/livekit';
 import { SAMPLE_WORKSPACE_ID } from '../../workspace/constants';
 import { realPersonName, realSeatId } from '../../meeting/realMeeting';
+import { fakeSttEnabled } from '../../npc/fakeStt';
 
 /** The one message for a role id this meeting does not offer: name it and list the offered seats. */
 function notAHumanSeat(wanted: string, offered: ReadonlyArray<{ id: string; label: string }>): string {
@@ -577,6 +578,6 @@ export async function handleMeetingState(call: RouteCall): Promise<void> {
 /** Answers the health check. */
 export async function handleHealth(call: RouteCall): Promise<void> {
   const { response } = call;
-  sendJson(response, 200, { ok: true });
+  sendJson(response, 200, { ok: true, fakeSpeech: fakeSttEnabled() });
   return;
 }

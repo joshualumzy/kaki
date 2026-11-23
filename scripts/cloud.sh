@@ -9,6 +9,25 @@ RG="KAKI-BOT-RG"
 VM="kaki-vm"
 URL="https://kaki.southeastasia.cloudapp.azure.com"
 
+# shellcheck source=scripts/live-checks.sh
+. "$(dirname "$0")/live-checks.sh"
+
+# The deployment must never accept scripted speech. An unreadable health body fails too: a check
+# that cannot tell is not a pass.
+check_fake_speech() { # health-json
+  local code=0
+  health_reports_fake_speech "$1" || code=$?
+  if [ "$code" -eq 0 ]; then
+    echo ""
+    echo "FAIL  $URL/health reports fakeSpeech=true. KAKI_FAKE_STT must be off in a deployment." >&2
+    return 1
+  fi
+  if [ "$code" -eq 2 ]; then
+    return 1
+  fi
+  return 0
+}
+
 cmd="${1:-status}"
 
 case "$cmd" in
@@ -17,7 +36,9 @@ case "$cmd" in
     az vm start --resource-group "$RG" --name "$VM"
     echo -n "Waiting for $URL/health to come online"
     for _ in $(seq 1 60); do
-      if curl -fsS -m 3 "$URL/health" >/dev/null 2>&1; then
+      health_body="$(curl -fsS -m 3 "$URL/health" 2>/dev/null || true)"
+      if [ -n "$health_body" ]; then
+        check_fake_speech "$health_body" || exit 1
         echo " OK!"
         echo ""
         echo "Cloud demo is LIVE:"
@@ -43,8 +64,10 @@ case "$cmd" in
   status)
     state=$(az vm get-instance-view --resource-group "$RG" --name "$VM" --query "instanceView.statuses[?starts_with(code, 'PowerState/')].displayStatus | [0]" -o tsv 2>/dev/null || echo "unknown")
     echo "Azure VM ($VM): $state"
-    if curl -fsS -m 3 "$URL/health" >/dev/null 2>&1; then
+    health_body="$(curl -fsS -m 3 "$URL/health" 2>/dev/null || true)"
+    if [ -n "$health_body" ]; then
       echo "Website ($URL): ONLINE"
+      check_fake_speech "$health_body" || exit 1
     else
       echo "Website ($URL): OFFLINE (run 'npm run cloud:up' to start)"
     fi

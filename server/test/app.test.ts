@@ -169,7 +169,7 @@ describe('app', () => {
   it('serves the health check and the active scenario', async () => {
     const health = await fetch(`http://127.0.0.1:${port}/health`);
     expect(health.status).toBe(200);
-    expect(await health.json()).toEqual({ ok: true });
+    expect(await health.json()).toEqual({ ok: true, fakeSpeech: false });
 
     const scenario = await fetch(url('/api/scenario'));
     expect(scenario.status).toBe(200);
@@ -177,6 +177,18 @@ describe('app', () => {
       ...testScenario,
       toolUrls: publicToolUrls(process.env, '127.0.0.1'),
     });
+  });
+
+  it('tells the health check whether scripted speech is on', async () => {
+    const previous = process.env.KAKI_FAKE_STT;
+    process.env.KAKI_FAKE_STT = '1';
+    try {
+      const health = await fetch(`http://127.0.0.1:${port}/health`);
+      expect(await health.json()).toEqual({ ok: true, fakeSpeech: true });
+    } finally {
+      if (previous === undefined) delete process.env.KAKI_FAKE_STT;
+      else process.env.KAKI_FAKE_STT = previous;
+    }
   });
 
   it('accepts a valid dev event and delivers it', async () => {

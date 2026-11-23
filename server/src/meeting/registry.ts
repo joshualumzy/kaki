@@ -34,6 +34,7 @@ export interface MeetingStore {
     workspaceId: string;
     ownerUserId: string;
     title: string;
+    kind?: 'real' | 'practice';
     status?: MeetingStatus;
     scheduledFor?: string;
     agenda?: AgendaItem[];
@@ -43,9 +44,10 @@ export interface MeetingStore {
   /** Every meeting row this account owns, whatever its status. */
   listByOwner?(ownerUserId: string): Promise<MeetingRow[]>;
   /**
-   * Delete every meeting that sits in one of the given workspaces (with its saved state and seat
-   * claims), and hand the rows the account owns in workspaces that stay to that workspace by
-   * clearing their owner. Run inside `client` when it is given.
+   * Delete every meeting that sits in one of the given workspaces and every practice meeting the
+   * account owns (each with its saved state and seat claims). Hand the real meetings the account
+   * owns in workspaces that stay to that workspace by clearing their owner. Run inside `client`
+   * when it is given.
    */
   deleteByOwner?(
     ownerUserId: string,
@@ -410,6 +412,7 @@ export function createMeetingRegistry(deps: MeetingRegistryDeps): MeetingRegistr
               workspaceId: SAMPLE_WORKSPACE_ID,
               ownerUserId: options.ownerUserId,
               title: options.title?.trim() || 'Practice meeting',
+              kind: 'practice',
             });
           } catch (error) {
             // The instance never reached the registry, so nothing else will dispose it.
@@ -590,7 +593,7 @@ export function createPostgresMeetingStore(pool: Pool): MeetingStore {
     workspaceId: record.workspace_id,
     ownerUserId: record.owner_user_id,
     title: record.title,
-    kind: 'real',
+    kind: record.kind === 'practice' ? 'practice' : 'real',
     status:
       record.status === 'scheduled' || record.status === 'ended' ? record.status : 'open',
     scheduledFor: record.scheduled_for === null ? null : new Date(record.scheduled_for).toISOString(),
@@ -612,7 +615,7 @@ export function createPostgresMeetingStore(pool: Pool): MeetingStore {
   });
 
   return {
-    async create({ id, workspaceId, ownerUserId, title, status = 'open', scheduledFor, agenda = [] }) {
+    async create({ id, workspaceId, ownerUserId, title, kind = 'real', status = 'open', scheduledFor, agenda = [] }) {
       await ensureMeetingsSchema(pool);
       const client = await pool.connect();
       try {
@@ -628,10 +631,10 @@ export function createPostgresMeetingStore(pool: Pool): MeetingStore {
         }
         const result = await client.query(
           `insert into meetings (id, workspace_id, owner_user_id, title, kind, status, scheduled_for, agenda)
-           values ($1, $2, $3, $4, 'real', $5, $6, $7::jsonb)
+           values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
            returning id, workspace_id, owner_user_id, title, kind, status, scheduled_for, agenda, created_at, ended_at,
                      minutes_text, minutes_todos, minutes_archived_at`,
-          [id ?? newMeetingId(), workspaceId, ownerUserId, title, status, scheduledFor ?? null, JSON.stringify(agenda)],
+          [id ?? newMeetingId(), workspaceId, ownerUserId, title, kind, status, scheduledFor ?? null, JSON.stringify(agenda)],
         );
         await client.query('commit');
         return row(result.rows[0]);
@@ -715,11 +718,14 @@ export function createPostgresMeetingStore(pool: Pool): MeetingStore {
     async deleteByOwner(ownerUserId, workspaceIds, transaction) {
       const run = async (db: Pool | PoolClient): Promise<void> => {
         const deleted = await db.query<{ id: string }>(
-          `delete from meetings where workspace_id = any($1::text[]) returning id`,
-          [[...workspaceIds]],
+          `delete from meetings
+            where workspace_id = any($1::text[])
+               or (owner_user_id = $2 and kind = 'practice')
+            returning id`,
+          [[...workspaceIds], ownerUserId],
         );
-        // A meeting the account owned in a workspace that stays belongs to that workspace: keep
-        // the row and its minutes, and hand it over by clearing the owner.
+        // A real meeting the account owned in a workspace that stays belongs to that workspace:
+        // keep the row and its minutes, and hand it over by clearing the owner.
         await db.query('update meetings set owner_user_id = null where owner_user_id = $1', [
           ownerUserId,
         ]);
@@ -754,13 +760,13 @@ export function createMemoryMeetingStore(): MeetingStore & { rows: Map<string, M
   const rows = new Map<string, MeetingRow>();
   return {
     rows,
-    async create({ id, workspaceId, ownerUserId, title, status = 'open', scheduledFor, agenda = [] }) {
+    async create({ id, workspaceId, ownerUserId, title, kind = 'real', status = 'open', scheduledFor, agenda = [] }) {
       const meeting: MeetingRow = {
         id: id ?? newMeetingId(),
         workspaceId,
         ownerUserId,
         title,
-        kind: 'real',
+        kind,
         status,
         scheduledFor: scheduledFor ?? null,
         agenda: [...agenda],
@@ -813,10 +819,13 @@ export function createMemoryMeetingStore(): MeetingStore & { rows: Map<string, M
     async deleteByOwner(ownerUserId, workspaceIds, _client) {
       const wanted = new Set(workspaceIds);
       for (const [id, meeting] of rows) {
-        if (wanted.has(meeting.workspaceId)) {
+        if (
+          wanted.has(meeting.workspaceId) ||
+          (meeting.ownerUserId === ownerUserId && meeting.kind === 'practice')
+        ) {
           rows.delete(id);
         } else if (meeting.ownerUserId === ownerUserId) {
-          // The workspace stays, so the meeting and its minutes stay with it.
+          // The workspace stays, so the real meeting and its minutes stay with it.
           rows.set(id, { ...meeting, ownerUserId: null });
         }
       }

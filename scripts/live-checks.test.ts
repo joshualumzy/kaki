@@ -202,6 +202,22 @@ describe('kaki_api_port', () => {
   });
 });
 
+describe('deployed health', () => {
+  function outcome(body: string): string {
+    return run('health_reports_fake_speech "$@" 2>/dev/null; echo "code:$?"', [body]).trim();
+  }
+
+  it('spots scripted speech being on', () => {
+    expect(outcome('{"ok":true,"fakeSpeech":true}')).toBe('code:0');
+    expect(outcome('{"ok": true, "fakeSpeech": true}')).toBe('code:0');
+  });
+
+  it('passes a normal deployment and refuses a body it cannot read', () => {
+    expect(outcome('{"ok":true,"fakeSpeech":false}')).toBe('code:1');
+    expect(outcome('{"ok":true}')).toBe('code:2');
+  });
+});
+
 describe('key_is_set', () => {
   it('checks the shell, then each file in order', () => {
     const root = tempEnv('TEST_ONE=\n');

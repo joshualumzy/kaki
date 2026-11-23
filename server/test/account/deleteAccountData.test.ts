@@ -238,6 +238,57 @@ describe.skipIf(connectionString === undefined)('postgres account data deletion'
     );
   });
 
+  it("deletes the account's own practice meetings with their state and claims", async () => {
+    if (postgres === undefined) throw new Error('POSTGRES_URL is missing');
+    const ada = await account('Ada Practice');
+    const ben = await account('Ben Practice');
+    const adaPractice = await meetings.create({
+      workspaceId: SAMPLE_WORKSPACE_ID,
+      ownerUserId: ada.user.id,
+      title: 'Ada practice',
+      kind: 'practice',
+    });
+    const benPractice = await meetings.create({
+      workspaceId: SAMPLE_WORKSPACE_ID,
+      ownerUserId: ben.user.id,
+      title: 'Ben practice',
+      kind: 'practice',
+    });
+    // A real meeting in the shared sample workspace is not the account's own practice: it stays.
+    const adaSampleReal = await meetings.create({
+      workspaceId: SAMPLE_WORKSPACE_ID,
+      ownerUserId: ada.user.id,
+      title: 'Ada real in sample',
+    });
+    for (const meeting of [adaPractice, benPractice, adaSampleReal]) {
+      await meetings.markEnded!(meeting.id, new Date().toISOString());
+      await state(meeting.id);
+    }
+    await claim(adaPractice.id, ada.sessionHashes[1]!);
+    await claim(benPractice.id, ben.sessionHashes[1]!);
+    await claim(adaSampleReal.id, ada.sessionHashes[1]!);
+
+    await deletion.deleteAccountData(ada.user.id);
+
+    expect(await meetings.get(adaPractice.id)).toBeUndefined();
+    expect(await meetings.get(benPractice.id)).toMatchObject({ ownerUserId: ben.user.id });
+    expect(await meetings.get(adaSampleReal.id)).toMatchObject({ ownerUserId: null });
+
+    const states = await postgres.pool.query<{ id: string }>('select id from meeting_state');
+    const stateIds = new Set(states.rows.map((row) => row.id));
+    expect(stateIds.has(adaPractice.id)).toBe(false);
+    expect(stateIds.has(benPractice.id)).toBe(true);
+    expect(stateIds.has(adaSampleReal.id)).toBe(true);
+    // The deleted account's own claim goes with their sessions; the other person's stays.
+    const claims = await postgres.pool.query<{ meeting_id: string }>(
+      'select meeting_id from seat_claims',
+    );
+    const claimIds = claims.rows.map((row) => row.meeting_id);
+    expect(claimIds).not.toContain(adaPractice.id);
+    expect(claimIds).not.toContain(adaSampleReal.id);
+    expect(claimIds).toContain(benPractice.id);
+  });
+
   it('rolls everything back when a delete fails midway, and a retry finishes the job', async () => {
     if (postgres === undefined) throw new Error('POSTGRES_URL is missing');
     const ada = await account('Ada Rollback');

@@ -297,6 +297,35 @@ describe('delete account', () => {
     expect(await meetings.get(meetingId)).toBeDefined();
   });
 
+  it("deletes the account's own practice meetings and keeps other people's", async () => {
+    const ada = await signIn('Ada Lovelace', 'ada@example.test');
+    const ben = await signIn('Ben Bitdiddle', 'ben@example.test');
+    const adaPractice = await app.registry.createPractice({
+      ownerUserId: ada.user.id,
+      title: 'Ada practice',
+    });
+    const benPractice = await app.registry.createPractice({
+      ownerUserId: ben.user.id,
+      title: 'Ben practice',
+    });
+    await meetings.saveMinutes!(adaPractice.id, {
+      minutes: 'Ada said this in her own practice.',
+      todos: [
+        { id: 'todo-1', title: 'Ada own to-do', owner: 'Ada', status: 'DRAFT_READY', done: false },
+      ],
+    });
+
+    expect((await deleteAccount(ada.cookie, { confirm: 'DELETE' })).status).toBe(200);
+
+    // The deleted account's practice meeting carries their own words with it.
+    expect(await meetings.get(adaPractice.id)).toBeUndefined();
+    // Another person's practice meeting and the sample workspace itself stay untouched.
+    expect(await meetings.get(benPractice.id)).toBeDefined();
+    const workspaces = await request('GET', '/api/workspaces', { cookie: ben.cookie });
+    const body = (await workspaces.json()) as Array<{ id: string }>;
+    expect(body.some((workspace) => workspace.id === SAMPLE_WORKSPACE_ID)).toBe(true);
+  });
+
   it("leaves the sample workspace and another visitor's practice meeting alone", async () => {
     const ada = await signIn('Ada Lovelace', 'ada@example.test');
     const ben = await signIn('Ben Bitdiddle', 'ben@example.test');

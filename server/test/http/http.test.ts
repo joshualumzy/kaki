@@ -1,7 +1,14 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { Readable } from 'node:stream';
 import { describe, expect, it } from 'vitest';
-import { cookieValue, readBody, readJsonBody, sendJson } from '../../src/http/http';
+import {
+  cookieValue,
+  readBody,
+  readJsonBody,
+  sendJson,
+  sendMattermostRefusal,
+} from '../../src/http/http';
+import { SAMPLE_WORKSPACE } from '../../src/workspace/sample';
 
 function requestWith(body: string, headers: Record<string, string> = {}): IncomingMessage {
   const stream = Readable.from(body === '' ? [] : [Buffer.from(body)]) as unknown as IncomingMessage;
@@ -49,6 +56,38 @@ describe('sendJson', () => {
     sendJson(target.response, 500, { error: 'late' });
     expect(target.status()).toBeUndefined();
     expect(target.body()).toBe('');
+  });
+});
+
+describe('sendMattermostRefusal', () => {
+  function refusal(referer: string, host = 'kaki.test'): string {
+    const target = fakeResponse();
+    sendMattermostRefusal(requestWith('', { referer, host }), target.response, 404, 'Not here');
+    return target.body();
+  }
+
+  it('links back to a normal same-site path and query', () => {
+    expect(refusal('http://kaki.test/workspaces/w1?tab=meetings')).toContain(
+      'href="/workspaces/w1?tab=meetings"',
+    );
+  });
+
+  it('falls back to the front page for a protocol-relative path', () => {
+    const body = refusal('http://kaki.test//evil.example/x');
+    expect(body).toContain('href="/"');
+    expect(body).not.toContain('//evil.example');
+  });
+
+  it('falls back to the front page for a backslash path', () => {
+    expect(refusal('http://kaki.test/\\evil.example')).toContain('href="/"');
+  });
+
+  it('falls back to the front page for a referer on another host', () => {
+    expect(refusal('http://evil.example/workspaces')).toContain('href="/"');
+  });
+
+  it('names the sample workspace from its definition', () => {
+    expect(refusal('http://kaki.test/')).toContain(SAMPLE_WORKSPACE.name);
   });
 });
 

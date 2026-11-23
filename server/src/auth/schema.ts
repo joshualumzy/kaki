@@ -152,9 +152,13 @@ export async function ensureMeetingsSchema(pool: Pool): Promise<void> {
     begin
       if not exists (
         select 1 from pg_constraint
-         where conrelid = 'meetings'::regclass and conname = 'meetings_kind_check'
+         where conrelid = 'meetings'::regclass
+           and conname = 'meetings_kind_check'
+           and pg_get_constraintdef(oid) like '%practice%'
       ) then
-        alter table meetings add constraint meetings_kind_check check (kind in ('real'));
+        alter table meetings drop constraint if exists meetings_kind_check;
+        alter table meetings add constraint meetings_kind_check
+          check (kind in ('real', 'practice'));
       end if;
       if not exists (
         select 1 from pg_constraint
@@ -162,6 +166,27 @@ export async function ensureMeetingsSchema(pool: Pool): Promise<void> {
       ) then
         alter table meetings add constraint meetings_status_check
           check (status in ('scheduled', 'open', 'ended'));
+      end if;
+    end $$;
+  `);
+  // A practice meeting saved before its row carried a kind is still the account's own words:
+  // mark it as practice so deleting the account removes it instead of handing it to the sample
+  // workspace. The state table is created later in some paths, so skip until it has the column.
+  await pool.query(`
+    do $$
+    begin
+      if exists (
+        select 1 from information_schema.columns
+         where table_schema = current_schema()
+           and table_name = 'meeting_state'
+           and column_name = 'kind'
+      ) then
+        update meetings m
+           set kind = 'practice'
+         where m.kind = 'real'
+           and exists (
+             select 1 from meeting_state s where s.id = m.id and s.kind = 'practice'
+           );
       end if;
     end $$;
   `);

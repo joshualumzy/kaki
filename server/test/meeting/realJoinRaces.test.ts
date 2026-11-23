@@ -27,6 +27,8 @@ interface Race {
   holdClaim(): { reached: Promise<void>; release(): void };
   /** Hold the second request after it resolves its principal, before it claims a seat. */
   holdSecondPrincipal(): { reached: Promise<void>; release(): void };
+  /** Say when a Start has captured the meeting identity it will wait on. */
+  holdStartIdentity(): { reached: Promise<void>; restore(): void };
   /** Reset the meeting just after the next seat claim succeeds. */
   resetAfterClaim(): void;
 }
@@ -111,6 +113,24 @@ async function setupRace(): Promise<Race> {
       reachingSecondPrincipal = reached.resolve;
       return { reached: reached.promise, release: wait.resolve };
     },
+    holdStartIdentity() {
+      const reached = deferred();
+      const original = app.session.generation.bind(app.session);
+      let armed = true;
+      app.session.generation = () => {
+        if (armed) {
+          armed = false;
+          reached.resolve();
+        }
+        return original();
+      };
+      return {
+        reached: reached.promise,
+        restore() {
+          app.session.generation = original;
+        },
+      };
+    },
     resetAfterClaim() {
       afterClaimReset = () => app.session.reset();
     },
@@ -165,8 +185,12 @@ describe('a real meeting joins and starts across a reset', () => {
     const claim = race.holdClaim();
     const joining = race.join();
     await claim.reached;
+    // Start captures the meeting identity before it queues behind the held join. Waiting for that
+    // read guarantees the reset happens while Start is waiting, not before it was even handled.
+    const identity = race.holdStartIdentity();
     const starting = race.start();
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await identity.reached;
+    identity.restore();
     race.app.session.reset();
     claim.release();
 

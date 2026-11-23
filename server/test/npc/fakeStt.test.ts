@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { KAKI_LISTENER_IDENTITY, parseFakeSpeechMessage } from '@kaki/shared';
-import { createFakeSpeaker, fakeSttFromEnv } from '../../src/npc/fakeStt';
+import { createFakeSpeaker, fakeSttEnabled, fakeSttFromEnv } from '../../src/npc/fakeStt';
 
 const livekit = vi.hoisted(() => ({
   rooms: {} as Record<string, Array<{ name: string; identity: string }>>,
@@ -31,6 +31,14 @@ describe('fakeSttFromEnv', () => {
 
   it('refuses to start in production', () => {
     expect(() => fakeSttFromEnv({ KAKI_FAKE_STT: '1', NODE_ENV: 'production' })).toThrow(/development and tests only/);
+  });
+});
+
+describe('fakeSttEnabled', () => {
+  it('reports the same answer as the runner, without throwing in production', () => {
+    expect(fakeSttEnabled({})).toBe(false);
+    expect(fakeSttEnabled({ KAKI_FAKE_STT: '1', NODE_ENV: 'development' })).toBe(true);
+    expect(fakeSttEnabled({ KAKI_FAKE_STT: '1', NODE_ENV: 'production' })).toBe(false);
   });
 });
 

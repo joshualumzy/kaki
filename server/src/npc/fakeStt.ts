@@ -15,6 +15,15 @@ export function fakeSttFromEnv(env: NodeJS.ProcessEnv = process.env): boolean {
   return true;
 }
 
+/** Whether scripted speech is on, for a status page that must not crash on a production misconfiguration. */
+export function fakeSttEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  try {
+    return fakeSttFromEnv(env);
+  } catch {
+    return false;
+  }
+}
+
 /** LiveKit's HTTP API lives at the same host as its WebSocket URL. */
 function livekitHttpUrl(url: string): string {
   return url.replace(/^ws(s?):\/\//, 'http$1://');

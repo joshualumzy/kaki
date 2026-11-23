@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { SAMPLE_WORKSPACE } from '../workspace/sample';
 
 /** A request body that parsed as JSON, or the status and error to answer with. */
 export type JsonBody = { ok: true; value: unknown } | { ok: false; status: number; error: string };
@@ -24,6 +25,14 @@ function escapeHtml(text: string): string {
   return text.replace(/[&<>"']/g, (char) => `&#${char.charCodeAt(0)};`);
 }
 
+/** A same-site path that cannot be read as a protocol-relative URL such as `//evil.example`. */
+function localPath(path: string): boolean {
+  if (path === '/') return true;
+  if (!path.startsWith('/')) return false;
+  const afterSlash = path[1];
+  return afterSlash !== undefined && afterSlash !== '/' && afterSlash !== '\\';
+}
+
 /** The page a person came from on this site, or the front page. */
 function backPath(request: IncomingMessage): string {
   const referer = request.headers.referer;
@@ -31,7 +40,10 @@ function backPath(request: IncomingMessage): string {
   if (typeof referer === 'string' && typeof host === 'string') {
     try {
       const url = new URL(referer);
-      if (url.host.toLowerCase() === host.toLowerCase()) return `${url.pathname}${url.search}`;
+      if (url.host.toLowerCase() === host.toLowerCase()) {
+        const path = `${url.pathname}${url.search}`;
+        if (localPath(path)) return path;
+      }
     } catch {
       // A malformed Referer is not a way back.
     }
@@ -84,7 +96,7 @@ export function sendMattermostRefusal(
   <p class="brand"><i></i>Kaki</p>
   <h1>This tool can't be opened here</h1>
   <p class="reason">${reason}</p>
-  <p>Mattermost is set up in the Nanyang Kopi sample workspace. Open that workspace to try the connected tools.</p>
+  <p>Mattermost is set up in the ${escapeHtml(SAMPLE_WORKSPACE.name)} workspace. Open that workspace to try the connected tools.</p>
   <a class="back" href="${back}">Back to the workspace</a>
 </main></body></html>`,
   );
