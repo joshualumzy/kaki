@@ -1,3 +1,4 @@
+/// <reference lib="dom" />
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';

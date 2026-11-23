@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   events: [] as unknown[],
   lifecycleStarted: undefined as boolean | undefined,
   onDisconnected: undefined as ((reason: unknown) => void) | undefined,
+  onMediaDeviceFailure: undefined as ((failure: unknown) => void) | undefined,
   auth: { status: 'ready', me: { authEnabled: false } } as unknown,
 }));
 
@@ -29,11 +30,14 @@ vi.mock('@livekit/components-react', () => ({
   LiveKitRoom: ({
     children,
     onDisconnected,
+    onMediaDeviceFailure,
   }: {
     children: ReactNode;
     onDisconnected?: (reason: unknown) => void;
+    onMediaDeviceFailure?: (failure: unknown) => void;
   }) => {
     mocks.onDisconnected = onDisconnected;
+    mocks.onMediaDeviceFailure = onMediaDeviceFailure;
     return <>{children}</>;
   },
   useRoomContext: () => ({
@@ -101,6 +105,7 @@ beforeEach(async () => {
   mocks.events = [];
   mocks.lifecycleStarted = undefined;
   mocks.onDisconnected = undefined;
+  mocks.onMediaDeviceFailure = undefined;
   mocks.auth = { status: 'ready', me: { authEnabled: false } };
   mocks.refreshScenario.mockReset();
   mocks.refreshScenario.mockImplementation(async () => mocks.useScenario());
@@ -219,6 +224,23 @@ describe('Meeting join', () => {
     expect(fetchMock.mock.calls[0]?.[0]).toBe('/api/meetings/practice-1/livekit/token');
     const init = fetchMock.mock.calls[0]?.[1];
     expect(JSON.parse(String(init?.body))).toMatchObject({ kind: 'practice' });
+  });
+
+  it('in a speech-only practice, a blocked microphone in the room does not offer typing', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ token: 'token', url: 'ws://localhost:7880', meetingCode: 'ABCD', started: false }),
+    })));
+    render(<Meeting practiceMeetingId="practice-1" />);
+    fireEvent.click(screen.getByRole('button', { name: 'Join now' }));
+    await waitFor(() => expect(mocks.onMediaDeviceFailure).toBeDefined());
+
+    act(() => mocks.onMediaDeviceFailure?.(new Error('denied')));
+
+    const alert = await screen.findByText(/microphone \(or camera\) is blocked/);
+    expect(alert.textContent).toContain('rejoin to speak');
+    expect(alert.textContent).not.toMatch(/\btype\b/i);
   });
 });
 

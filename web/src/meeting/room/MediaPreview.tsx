@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react';
-import { CAMERA_BLOCKED_PROBLEM, MIC_BLOCKED_PROBLEM } from '../../net/plainFailure';
 import { Orb } from './Orb';
 
 /** Which devices the person chose to turn on before joining. */
@@ -18,10 +17,12 @@ interface MediaPreviewProps {
 function describeFailure(kind: 'microphone' | 'camera', error: unknown): string {
   const name = error instanceof DOMException ? error.name : '';
   if (name === 'NotFoundError') {
-    return kind === 'microphone' ? 'No microphone was found.' : 'No camera was found.';
+    if (kind === 'camera') return 'No camera was found.';
+    return 'No microphone was found. Connect one to speak in the meeting.';
   }
   if (name === 'NotAllowedError' || name === 'SecurityError') {
-    return kind === 'microphone' ? MIC_BLOCKED_PROBLEM : CAMERA_BLOCKED_PROBLEM;
+    if (kind === 'camera') return "Your camera is blocked. Allow it in your browser's site settings to use it.";
+    return "Your microphone is blocked. Allow it in your browser's site settings to speak in the meeting.";
   }
   return `The ${kind} could not be started.`;
 }

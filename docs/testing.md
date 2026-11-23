@@ -32,7 +32,7 @@ steps) to `.live-logs/clickthrough/<journey>/`.
 | a | The full path: landing, sign-in page, workspace and a wrong tool token, a start-now meeting, a guest joining by link, speaking, Off the record, leave and rejoin, ending, history, a phone-size new-meeting page. |
 | b | A scheduled meeting: a guest waits in the lobby until the owner starts. |
 | c | The sample workspace: pick it, open a meeting, speak a to-do, dispatch it and press its button. |
-| d | Practice meeting at `/practice`: join, start, speak, leave, return. |
+| d | Practice meeting at `/practice`: join, start, check that it is speech only, speak, leave, return. |
 | e | Wrong turns: refresh in the room, back button, unknown or ended meeting links, guest and other-workspace pages. |
 | f | Wingman in the sample workspace: what I missed, and workspace records for the owner and for a guest (meeting-only). |
 | g | Ending a meeting and publishing its minutes card. |

@@ -51,6 +51,9 @@ export const CAMERA_BLOCKED_PROBLEM =
   "Your camera is blocked. Allow it in your browser's site settings to take part.";
 export const MEDIA_BLOCKED_PROBLEM =
   "Your microphone or camera is blocked. Allow it in your browser's site settings to take part.";
+/** The same problem in a practice meeting, which is speech only and has no Type to fall back on. */
+export const MEDIA_BLOCKED_PROBLEM_SPEECH_ONLY =
+  "Your microphone (or camera) is blocked. Click the lock icon in the address bar to allow it in your browser's site settings, then rejoin to speak.";
 
 /** A server refusal of a command, in words a person can act on. */
 export function plainRejection(reason: string): string {

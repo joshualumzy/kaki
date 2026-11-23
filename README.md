@@ -80,7 +80,7 @@ Sign in with Google to open your workspace. The account menu lists your personal
 | Mailpit inbox | [Port 8084](http://kaki.southeastasia.cloudapp.azure.com:8084) | No login |
 | Radicale calendar | [Port 5232](http://kaki.southeastasia.cloudapp.azure.com:5232) | `demo` / `demo` |
 
-In a real meeting, each person has their own seat under their own name (two people called Sam show as "Sam" and "Sam (2)") and no AI colleagues join. The room can go off the record, and anyone can leave and rejoin. The owner or an admin can end the meeting for everyone. In a practice meeting, the AI colleagues take the other seats and the visitor speaks. A signed-in visitor's practice keeps its minutes and to-dos in their own sample history; a signed-out visitor reads the minutes on the sample wiki and is invited to sign in to keep future meetings.
+In a real meeting, each person has their own seat under their own name (two people called Sam show as "Sam" and "Sam (2)") and no AI colleagues join. The room can go off the record, and anyone can leave and rejoin. The owner or an admin can end the meeting for everyone. In a practice meeting, the AI colleagues take the other seats and the visitor takes part by speaking. A signed-in visitor's practice keeps its minutes and to-dos in their own sample history; a signed-out visitor reads the minutes on the sample wiki and is invited to sign in to keep future meetings.
 
 The VM switches itself off after 60 minutes with nobody connected, or after 2 hours with nobody speaking or clicking (a forgotten open tab). A meeting cut off this way is saved and comes back when the VM wakes. The waking page is in `wake/` and the switch-off check in `deploy/idle/`. You can also run Kaki locally with `npm start` (see [Run locally](#run-locally)).
 
@@ -204,7 +204,7 @@ Screen map:
 
 ### Practise alone
 
-- `/practice` opens a meeting where AI colleagues fill the other seats. The visitor takes part by speaking, and the AI stops when interrupted. `web/src/meeting/room/Meeting.tsx`
+- `/practice` opens a meeting where AI colleagues fill the other seats. The visitor takes part by speaking (there is no typing in practice), and the AI stops when interrupted. `web/src/meeting/room/Meeting.tsx`, `web/src/meeting/room/MeetingGrid.tsx`
 
 ## Back-end features
 

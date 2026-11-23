@@ -92,11 +92,25 @@ async function main(): Promise<void> {
         const shot = await run.shot(page, `practice-spoken-${index + 1}`);
         run.pass(`Practice heard spoken line ${index + 1} (${shot}).`);
       }
+      // Practice is speech only: no type box, Send, Lock or Pause under the stage.
+      const shot = await run.shot(page, 'practice-running');
+      const leftovers: string[] = [];
+      if (await page.getByLabel('Type to the meeting').isVisible().catch(() => false)) leftovers.push('a type box');
+      for (const name of [/^Send$/, /Lock in my decision/, /^Pause$/]) {
+        if (await page.getByRole('button', { name }).isVisible().catch(() => false)) leftovers.push(`a ${name.source} button`);
+      }
+      if (leftovers.length > 0) {
+        run.finding('ERROR', '/practice running', `practice is meant to be speech only but shows ${leftovers.join(', ')}`, shot);
+      } else {
+        run.pass(`Practice is speech only: no type box, Send, Lock or Pause under the stage (${shot}).`);
+      }
       const body = (await page.locator('body').innerText()).replace(/\s+/g, ' ');
+      if (/\b(type (in|below|it|to|your)|join to type|use type)\b/i.test(body)) {
+        run.finding('CONFUSING', '/practice running', 'practice text still tells the visitor to type', shot);
+      }
       if (/Arjun|Mei|Daniel|Sam/.test(body)) {
         run.pass('Practice shows AI colleagues by name while it runs.');
       } else {
-        const shot = await run.shot(page, 'practice-no-names');
         run.finding('CONFUSING', '/practice running', 'no AI colleague name is visible in the practice meeting', shot);
       }
     });

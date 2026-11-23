@@ -217,7 +217,7 @@ async function main(): Promise<void> {
     await step(run, practice.page, 'practice join and start', async () => {
       await practice.page.locator('#join-name').fill(`Practice Drop ${suffix}`);
       await practice.page.getByRole('button', { name: /Join with mic/ }).click();
-      // Wait for the briefing itself, not the room controls.
+      // Wait for the briefing itself, then for the meeting to be marked started.
       const briefing = practice.page.getByRole('region', { name: 'Before the meeting starts' });
       await briefing.waitFor({ timeout: 60_000 });
       await practice.page.getByRole('button', { name: /Next: How to play/ }).click();
@@ -250,7 +250,7 @@ async function main(): Promise<void> {
         run.finding(
           'DEAD-END',
           'practice meeting after drop',
-          'the briefing covers the stage again after the network returns, so the meeting was reset and spoken lines are ignored until Start is pressed again',
+          'the briefing covers the stage again after the network returns, so the meeting was reset and what the visitor says is ignored until Start is pressed again',
           await run.shot(practice.page, 'practice-briefing-back'),
         );
       }

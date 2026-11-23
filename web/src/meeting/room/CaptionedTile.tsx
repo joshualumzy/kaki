@@ -76,7 +76,7 @@ export function CaptionedTile() {
       : !isAi && speechState === 'transcribing'
         ? '⏳ Transcribing…'
         : !isAi && speechState === 'failed'
-          ? '⚠️ Kaki could not hear that — please repeat or type it'
+          ? '⚠️ Kaki could not hear that — please say it again'
           : recognizedCaption;
   const thinking = isAi && npcState.kind === 'thinking';
   const state = speaking ? 'speaking' : thinking ? 'thinking' : 'idle';
