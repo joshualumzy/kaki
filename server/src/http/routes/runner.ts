@@ -76,6 +76,7 @@ export async function handleHumanLine(call: RouteCall): Promise<void> {
     participantIdentity?: unknown;
     speechStartedAt?: unknown;
     speechEndedAt?: unknown;
+    micLevel?: unknown;
     overlap?: unknown;
   };
   if (
@@ -99,6 +100,11 @@ export async function handleHumanLine(call: RouteCall): Promise<void> {
     (value.speechEndedAt !== undefined &&
       (typeof value.speechEndedAt !== 'string' ||
         !Number.isFinite(Date.parse(value.speechEndedAt)))) ||
+    (value.micLevel !== undefined &&
+      (typeof value.micLevel !== 'number' ||
+        !Number.isFinite(value.micLevel) ||
+        value.micLevel < 0 ||
+        value.micLevel > 1)) ||
     (value.overlap !== undefined && typeof value.overlap !== 'boolean')
   ) {
     sendJson(response, 400, {
@@ -124,6 +130,7 @@ export async function handleHumanLine(call: RouteCall): Promise<void> {
       participantIdentity: value.participantIdentity,
       ...(value.speechStartedAt === undefined ? {} : { speechStartedAt: value.speechStartedAt }),
       ...(value.speechEndedAt === undefined ? {} : { speechEndedAt: value.speechEndedAt }),
+      ...(value.micLevel === undefined ? {} : { micLevel: value.micLevel }),
       ...(value.overlap === undefined ? {} : { overlap: value.overlap }),
     });
   } catch (error) {

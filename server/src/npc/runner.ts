@@ -136,6 +136,8 @@ interface RunnerOptions {
     /** When the speech itself began and ended (ISO), so Kaki can order it by what was said when. */
     speechStartedAt?: string;
     speechEndedAt?: string;
+    /** RMS microphone level (0..1) over the recognised stretch, so a quieter copy of another seat's voice can be told apart. */
+    micLevel?: number;
     /** True when this person started speaking before the previous human line had finished. */
     overlap?: boolean;
   }): void;
@@ -438,6 +440,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     text: string;
     source: 'speech';
     clientLineId: string;
+    micLevel?: number;
   }
 
   // Recognition finishes in any order per person; the transcript must still read in speech order.
@@ -1231,6 +1234,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
       text: accepted,
       source: 'speech',
       clientLineId: randomUUID(),
+      ...(timing.micLevel === undefined ? {} : { micLevel: timing.micLevel }),
     });
   }
 

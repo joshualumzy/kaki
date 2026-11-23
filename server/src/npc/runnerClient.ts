@@ -24,6 +24,7 @@ interface RunnerClient {
     clientLineId: string;
     speechStartedAt?: string;
     speechEndedAt?: string;
+    micLevel?: number;
     overlap?: boolean;
   }): Promise<Response>;
   suggestTask(input: SuggestInput): Promise<Response>;
