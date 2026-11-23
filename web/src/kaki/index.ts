@@ -10,6 +10,7 @@ export {
   useKakiConnection,
   type KakiAudience,
   type KakiConnectionValue,
+  type KakiFeed,
 } from './connection';
 export { useKaki, type KakiRejection, type UseKakiResult } from './useKaki';
 export {

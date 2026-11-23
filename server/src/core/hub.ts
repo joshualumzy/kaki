@@ -9,15 +9,7 @@ import {
   type Scenario,
 } from '@kaki/shared';
 import type { Principal } from '../http/access';
-import {
-  audienceFor,
-  audienceFromValue,
-  audienceKey,
-  audienceLabel,
-  audiencesFor,
-  roleAudience,
-  type ClientAudience,
-} from './audience';
+import { audienceFor, audienceLabel, roleAudience, type ClientAudience } from './audience';
 import { PRACTICE_SCREEN_COMMANDS, rejectionFor, runnerMaySend } from './commandPermissions';
 import { projectedEvent, wantsEvent, wantsOwnerSeatNote, wantsPracticeEvent, wantsProjectedEvent } from './eventProjection';
 import {
@@ -178,16 +170,10 @@ export function createHub(
       seat?: string;
     }
   >();
-  /** The audiences one socket asks to follow: one channel, or a page's whole set. */
-  function requestedAudiences(url: URL): ClientAudience[] | undefined {
-    const single = audienceFor(activeScenario(), url);
-    if (single !== undefined) return [single];
-    return audiencesFor(activeScenario(), url);
-  }
   const verifyClient = (info: { req: IncomingMessage }, done: (ok: boolean, code?: number, message?: string) => void): void => {
     const url = new URL(info.req.url ?? '/ws', 'http://localhost');
-    const audiences = requestedAudiences(url);
-    if (audiences === undefined) {
+    const audience = audienceFor(activeScenario(), url);
+    if (audience === undefined) {
       if (options.closeUnknownRoleAfterUpgrade === true) { done(true); return; }
       done(false, 401, 'Unknown role');
       return;
@@ -197,46 +183,31 @@ export function createHub(
       return;
     }
     const generation = revocationGeneration;
-    void Promise.all(audiences.map((audience) => authorize(info.req, audience)))
-      .then((decisions) => {
-        const refused = decisions.find((decision) => !decision.ok);
-        if (refused !== undefined && !refused.ok) {
-          done(false, 401, refused.message);
-          return;
-        }
-        const accepted = decisions.filter((decision) => decision.ok);
-        let participant = false;
-        let runner = false;
-        let practice = false;
-        let seat: string | undefined;
-        let sessionTokenHash: string | undefined;
-        for (let index = 0; index < accepted.length; index += 1) {
-          const decision = accepted[index]!;
+    void authorize(info.req, audience)
+      .then((decision) => {
+        if (decision.ok) {
           const principal = decision.principal;
-          participant ||= decision.participant === true || principal?.kind === 'seat';
-          runner ||= decision.runner === true;
-          practice ||= principal?.kind === 'practice';
-          const audience = audiences[index]!;
-          seat ??=
-            audience.kind === 'role'
-              ? audience.role
-              : decision.seat ??
-                (principal?.kind === 'seat'
-                  ? principal.role
-                  : principal?.kind === 'host'
-                    ? principal.seat
-                    : undefined);
-          sessionTokenHash ??= decision.sessionTokenHash;
+          const seat =
+            decision.seat ??
+            (principal?.kind === 'seat'
+              ? principal.role
+              : principal?.kind === 'host'
+                ? principal.seat
+                : undefined);
+          pendingAuthorizations.set(info.req, {
+            generation,
+            participant: decision.participant === true || principal?.kind === 'seat',
+            runner: decision.runner === true,
+            practice: principal?.kind === 'practice',
+            ...(seat === undefined ? {} : { seat }),
+            ...(decision.sessionTokenHash === undefined
+              ? {}
+              : { sessionTokenHash: decision.sessionTokenHash }),
+          });
+          done(true);
+        } else {
+          done(false, 401, decision.message);
         }
-        pendingAuthorizations.set(info.req, {
-          generation,
-          participant,
-          runner,
-          practice,
-          ...(seat === undefined ? {} : { seat }),
-          ...(sessionTokenHash === undefined ? {} : { sessionTokenHash }),
-        });
-        done(true);
       })
       .catch((error: unknown) => {
         console.error('kaki hub: WebSocket authorization failed', error);
@@ -252,8 +223,7 @@ export function createHub(
   // ws re-emits the HTTP server's errors here; without a listener a port clash crashes the process
   // instead of letting listen() in createApp reject.
   wss.on('error', (error) => console.error('kaki hub: server error', error));
-  /** One socket may follow several audiences: a page multiplexes its parts over one connection. */
-  const clients = new Map<WebSocket, ClientAudience[]>();
+  const clients = new Map<WebSocket, ClientAudience>();
   const subscribers = new Set<(event: KakiEvent) => void>();
   const retained = new Map<string, KakiEvent>();
   const commandHandlers: CommandHandler[] = [];
@@ -327,46 +297,31 @@ export function createHub(
     }
   }
 
-  /** The event one audience may see, already projected for a screen or a participant. */
-  function eventForAudience(socket: WebSocket, audience: ClientAudience, event: KakiEvent): KakiEvent | undefined {
+  function sendRetained(socket: WebSocket, audience: ClientAudience): void {
     const seat = socketSeats.get(socket);
     const practiceScreen = practiceSockets.has(socket) && audience.kind === 'screen';
-    if (audience.kind === 'participant') {
-      if (!wantsProjectedEvent(event, seat)) return undefined;
-      return projectedEvent(event, seat, false);
-    }
-    if (practiceScreen) {
-      // A practice screen sees its meeting and its own seat's private notes, never another seat's.
-      if (!wantsPracticeEvent(event, seat)) return undefined;
-      return projectedEvent(event, seat, true);
-    }
-    if (wantsEvent(event, audience) || (audience.kind === 'screen' && wantsOwnerSeatNote(event, seat))) {
-      return event;
-    }
-    return undefined;
-  }
-
-  function sendRetained(socket: WebSocket, audiences: readonly ClientAudience[]): void {
-    const sent = new Set<string>();
     for (const event of retained.values()) {
-      for (const audience of audiences) {
-        const visible = eventForAudience(socket, audience, event);
-        if (visible === undefined) continue;
-        // Retained events are history: mark them so a runner can tell an old cue from a live one.
-        const message = JSON.stringify({ ...visible, replayed: true });
-        if (sent.has(message)) continue;
-        sent.add(message);
-        sendTo(socket, audience, message);
+      let visible: KakiEvent | undefined;
+      if (audience.kind === 'participant') {
+        if (!wantsProjectedEvent(event, seat)) continue;
+        visible = projectedEvent(event, seat, false);
+      } else if (practiceScreen) {
+        // A practice screen sees its meeting and its own seat's private notes, never another seat's.
+        if (!wantsPracticeEvent(event, seat)) continue;
+        visible = projectedEvent(event, seat, true);
+      } else {
+        if (!wantsEvent(event, audience) && !(audience.kind === 'screen' && wantsOwnerSeatNote(event, seat))) continue;
+        visible = event;
       }
+      if (visible === undefined) continue;
+      // Retained events are history: mark them so a runner can tell an old cue from a live one.
+      sendTo(socket, audience, JSON.stringify({ ...visible, replayed: true }));
     }
   }
 
   /** Check again after every await, before dispatch continues or a prepared mutation commits. */
   function callerStillAuthorized(socket: WebSocket, audience: ClientAudience): boolean {
-    const audiences = clients.get(socket);
-    return audiences !== undefined &&
-      audiences.some((candidate) => audienceKey(candidate) === audienceKey(audience)) &&
-      socket.readyState === WebSocket.OPEN &&
+    return clients.get(socket) === audience && socket.readyState === WebSocket.OPEN &&
       (!runnerSockets.has(socket) || runnerMayUseAudience(audience));
   }
 
@@ -389,14 +344,12 @@ export function createHub(
 
   async function handleClientMessage(
     socket: WebSocket,
-    audiences: readonly ClientAudience[],
+    audience: ClientAudience,
     data: RawData,
   ): Promise<void> {
     // Revocation removes the socket from the client set synchronously, while the close handshake
     // may still allow frames to arrive; those frames must carry no authority.
-    const registered = clients.get(socket);
-    if (registered === undefined) return;
-    let audience = audiences[0]!;
+    if (!clients.has(socket)) return;
     const seat = socketSeats.get(socket);
     let parsed: unknown;
     try {
@@ -408,26 +361,6 @@ export function createHub(
       }
       sendTo(socket, audience, JSON.stringify(rejectionFor(audience, 'unknown', 'Invalid JSON', seat)));
       return;
-    }
-
-    // A page socket follows several feeds, so each command names the feed it acts as. A command
-    // that names no registered feed is refused rather than guessed at.
-    if (
-      typeof parsed === 'object' &&
-      parsed !== null &&
-      (parsed as { type?: unknown }).type === 'MULTIPLEX_COMMAND'
-    ) {
-      const wrapper = parsed as { audience?: unknown; command?: unknown };
-      const target = audienceFromValue(activeScenario(), wrapper.audience);
-      if (
-        target === undefined ||
-        !registered.some((candidate) => audienceKey(candidate) === audienceKey(target))
-      ) {
-        sendTo(socket, audience, JSON.stringify(rejectionFor(audience, 'unknown', 'Unknown audience', seat)));
-        return;
-      }
-      audience = target;
-      parsed = wrapper.command;
     }
 
     if (personSockets.has(socket)) options.onPersonActivity?.();
@@ -535,19 +468,16 @@ export function createHub(
 
   wss.on('connection', (socket, request) => {
     const url = new URL(request.url ?? '/ws', 'http://localhost');
-    const audiences = requestedAudiences(url);
+    const audience = audienceFor(activeScenario(), url);
 
-    if (audiences === undefined) {
-      const missing = url.searchParams.get('role') === null &&
-        url.searchParams.get('audience') === null &&
-        url.searchParams.get('audiences') === null;
+    if (audience === undefined) {
+      const missing = url.searchParams.get('role') === null && url.searchParams.get('audience') === null;
       socket.close(1008, missing ? 'Missing role' : 'Unknown role');
       return;
     }
 
     const authorization = pendingAuthorizations.get(request);
-    const seatAudience = audiences.some((audience) => audience.kind === 'role');
-    const serviceAudience = audiences.some((audience) => audience.kind === 'service');
+    const seatAudience = audience.kind === 'role';
     if (
       authorization !== undefined &&
       authorization.generation !== revocationGeneration &&
@@ -568,35 +498,33 @@ export function createHub(
       return;
     }
 
-    clients.set(socket, audiences);
+    clients.set(socket, audience);
     if (authorization?.seat !== undefined) socketSeats.set(socket, authorization.seat);
-    if (serviceAudience) {
+    if (audience.kind === 'service') {
       serviceSockets.add(socket);
     } else if (authorization?.runner === true) runnerSockets.add(socket);
     else if (authorization?.practice === true) practiceSockets.add(socket);
-    else if (authorization?.participant === true || audiences.some((audience) => audience.kind === 'participant')) {
-      participantSockets.add(socket);
-    }
+    else if (authorization?.participant === true || audience.kind === 'participant') participantSockets.add(socket);
     if (authorization?.sessionTokenHash !== undefined) {
       socketSessions.set(socket, authorization.sessionTokenHash);
     }
     // The runner opens both the service channel and token-authorized role/screen sockets; neither
     // is a person, so only the rest affect the VM's people count.
-    if (!serviceAudience && authorization?.runner !== true) {
+    if (audience.kind !== 'service' && authorization?.runner !== true) {
       personSockets.add(socket);
       options.onPersonConnected?.();
     }
-    sendRetained(socket, audiences);
-    if (serviceAudience) notifyServicePresence();
+    sendRetained(socket, audience);
+    if (audience.kind === 'service') notifyServicePresence();
     socket.on('close', () => {
       forgetSocket(socket);
     });
     socket.on('error', (error) => {
-      console.error(`kaki hub: socket error for ${audienceLabel(audiences[0]!)}`, error);
+      console.error(`kaki hub: socket error for ${audienceLabel(audience)}`, error);
       forgetSocket(socket);
     });
     socket.on('message', (data) => {
-      void handleClientMessage(socket, audiences, data);
+      void handleClientMessage(socket, audience, data);
     });
   });
 
@@ -607,18 +535,24 @@ export function createHub(
     }
 
     const message = JSON.stringify(event);
-    for (const [socket, audiences] of clients) {
-      const sent = new Set<string>();
-      for (const audience of audiences) {
-        // A participant projection is the only shared feed a non-owner may use; a practice screen
-        // is read-only as a projection too.
-        const visible = eventForAudience(socket, audience, event);
-        if (visible === undefined) continue;
-        const text = visible === event ? message : JSON.stringify(visible);
-        // Several subscriptions on one page may see the same event; it goes out once.
-        if (sent.has(text)) continue;
-        sent.add(text);
-        sendTo(socket, audience, text);
+    for (const [socket, audience] of clients) {
+      const seat = socketSeats.get(socket);
+      const practiceScreen = practiceSockets.has(socket) && audience.kind === 'screen';
+      let visible: KakiEvent | undefined;
+      if (audience.kind === 'participant') {
+        // The participant projection is the only shared feed a non-owner may use.
+        if (!wantsProjectedEvent(event, seat)) continue;
+        visible = projectedEvent(event, seat, false);
+      } else if (practiceScreen) {
+        // A practice screen is a read-only projection: its own seat's private notes show, and
+        // another seat's task drafts stay private too.
+        if (!wantsPracticeEvent(event, seat)) continue;
+        visible = projectedEvent(event, seat, true);
+      } else if (wantsEvent(event, audience) || (audience.kind === 'screen' && wantsOwnerSeatNote(event, seat))) {
+        visible = event;
+      }
+      if (visible !== undefined) {
+        sendTo(socket, audience, visible === event ? message : JSON.stringify(visible));
       }
     }
 
@@ -695,22 +629,18 @@ export function createHub(
     },
     endRoleSessions(reason) {
       revocationGeneration += 1;
-      for (const [socket, audiences] of [...clients]) {
-        // A practice socket belongs to the meeting that granted it, whatever audiences it reads.
+      for (const [socket, audience] of [...clients]) {
+        // A practice socket belongs to the meeting that granted it, whatever audience it reads.
         if (practiceSockets.has(socket)) {
           revokeSocket(socket, 4001, reason);
           continue;
         }
-        if (audiences.some((audience) => audience.kind === 'service')) continue;
-        if (runnerSockets.has(socket)) continue;
-        const participant = participantSockets.has(socket) ||
-          audiences.some((audience) => audience.kind === 'participant');
+        if (audience.kind === 'service') continue;
         // A host's read-only lifecycle feed and screen survive a handoff; a participant's must not
         // follow the new meeting.
-        const followsHostFeed = audiences.some(
-          (audience) => audience.kind === 'screen' || audience.kind === 'lifecycle',
-        );
-        if (followsHostFeed && !participant) continue;
+        if (audience.kind === 'screen' && !participantSockets.has(socket)) continue;
+        if (runnerSockets.has(socket)) continue;
+        if (audience.kind === 'lifecycle' && !participantSockets.has(socket)) continue;
         const session = socketSessions.get(socket);
         if (session !== undefined) revokedSessions.add(session);
         revokeSocket(socket, 4001, reason);

@@ -8,9 +8,9 @@ import {
 } from '@kaki/shared';
 import { meetingApiPath, useMeetingScope } from './meetingScope';
 import {
+  audienceKey,
   useKakiConnection,
   useKakiLink,
-  wantsAudienceEvent,
   type KakiAudience,
 } from './connection';
 import { invalidateScenario, noteMeetingIdentity } from './scenarioRevision';
@@ -66,14 +66,14 @@ export interface UseKakiResult {
 /** Subscribe to the server for one audience and keep the task list up to date. */
 export function useKaki(audience: KakiAudience): UseKakiResult {
   const { meetingId: scopeMeetingId } = useMeetingScope();
-  // One page owns one socket: a page-level provider shares its link with every consumer here.
+  // A page-level provider keeps one socket per distinct feed and shares each with every consumer.
   // Outside such a page (a hook used on its own) the hook still opens exactly one link itself.
   const shared = useKakiConnection();
-  const own = useKakiLink(shared === null ? [audience] : undefined);
-  const link = shared?.link ?? own.link;
-  const connected = shared?.connected ?? own.connected;
-  const ended = shared?.ended ?? own.ended;
-  const pageSeat = shared?.seat;
+  const own = useKakiLink(shared === null ? audience : undefined);
+  const feed = shared?.feeds.get(audienceKey(audience));
+  const link = feed?.link ?? own.link;
+  const connected = feed?.connected ?? own.connected;
+  const ended = feed?.ended ?? own.ended;
   const audienceKind = audience.kind;
   const audienceRole = audience.kind === 'role' ? audience.role : undefined;
   const [events, setEvents] = useState<KakiEvent[]>([]);
@@ -108,7 +108,7 @@ export function useKaki(audience: KakiAudience): UseKakiResult {
     let closed = false;
 
     const unsubscribe = link.subscribe((parsed) => {
-        if (closed || !wantsAudienceEvent(parsed, audience, pageSeat)) return;
+        if (closed) return;
 
         if (parsed.type === 'TASK_UPDATED') {
           const task = parsed.payload.task;
@@ -270,15 +270,15 @@ export function useKaki(audience: KakiAudience): UseKakiResult {
       unsubscribe();
       unsubscribeOpen();
     };
-  }, [link, audienceKind, audienceRole, pageSeat, scopeMeetingId]);
+  }, [link, audienceKind, audienceRole, scopeMeetingId]);
 
   const send = useCallback((command: KakiCommand): boolean => {
-    if (link.send(command, audience)) return true;
+    if (link.send(command)) return true;
     setRejections((previous) =>
       [...previous, { commandType: command.type, reason: 'not connected' }].slice(-5),
     );
     return false;
-  }, [link, audienceKind, audienceRole]);
+  }, [link]);
 
   const askWingman = useCallback(
     (question: string): boolean => send({ type: 'ASK_WINGMAN', question }),

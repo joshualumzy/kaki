@@ -17,23 +17,29 @@ export type KakiAudience =
   | { kind: 'lifecycle' }
   | { kind: 'participant' };
 
-/** The shared wire a page's consumers talk through. One page owns one of these. */
+/** The shared wire a page's consumers talk through. Each link carries exactly one feed. */
 export interface KakiLink {
   /** Listen to every valid event on the connection; returns an unsubscribe function. */
   subscribe(listener: (event: KakiEvent) => void): () => void;
   /** Run a callback after each (re)connect, with the generation that socket belongs to. */
   onOpen(listener: (generation: number) => void): () => void;
-  /** Send a command as one of this link's audiences; false when it is not open or not subscribed. */
-  send(command: KakiCommand, audience: KakiAudience): boolean;
+  /** Send a command on this feed's socket; false when it is not open. */
+  send(command: KakiCommand): boolean;
   /** True when this socket generation is still the open one, so a late answer belongs to the present. */
   isCurrent(generation: number): boolean;
 }
 
-/** The connection state pages read alongside the link. */
-export interface KakiConnectionValue {
+/** One feed's live connection, as a consumer of that feed sees it. */
+export interface KakiFeed {
   link: KakiLink;
   connected: boolean;
   ended: string | undefined;
+}
+
+/** The connection state pages read alongside the links. */
+export interface KakiConnectionValue {
+  /** One link per distinct feed this page follows, keyed by `audienceKey`. */
+  feeds: ReadonlyMap<string, KakiFeed>;
   /** The seat this page holds, so a shared screen also sees only its own private seat notes. */
   seat: string;
 }
@@ -45,165 +51,189 @@ interface KakiLinkResult {
   ended: string | undefined;
 }
 
-/** How one audience is written on the wire, both in the page query and a command envelope. */
-function audienceToken(audience: KakiAudience): string {
-  return audience.kind === 'role' ? `role:${encodeURIComponent(audience.role)}` : audience.kind;
+interface FeedState {
+  connected: boolean;
+  ended: string | undefined;
 }
 
-/** The same value in the shape a command envelope carries. */
-function audienceValue(audience: KakiAudience): KakiAudience {
-  return audience.kind === 'role' ? { kind: 'role', role: audience.role } : { kind: audience.kind };
+/** A stable key for one audience, so a page's feeds compare and de-duplicate by value. */
+export function audienceKey(audience: KakiAudience): string {
+  return audience.kind === 'role' ? `role:${audience.role}` : audience.kind;
 }
 
-function sameAudience(left: KakiAudience, right: KakiAudience): boolean {
-  if (left.kind === 'role' || right.kind === 'role') {
-    return left.kind === 'role' && right.kind === 'role' && left.role === right.role;
-  }
-  return left.kind === right.kind;
+/** A link with no socket, so a hook call site stays unconditional when it has no feed. */
+const inertLink: KakiLink = {
+  subscribe: () => () => undefined,
+  onOpen: () => () => undefined,
+  send: () => false,
+  isCurrent: () => false,
+};
+
+/** How one audience is written on the wire. */
+function channelQuery(audience: KakiAudience): string {
+  // Roles and shared feeds travel on separate channels: a role id may be any word, including
+  // `participant`, so it can never be mistaken for the projection by its spelling.
+  return audience.kind === 'role'
+    ? `role=${encodeURIComponent(audience.role)}`
+    : `audience=${encodeURIComponent(audience.kind)}`;
 }
 
-/** True when an event belongs in a consumer's feed, even when one socket carries several feeds. */
-export function wantsAudienceEvent(
-  event: KakiEvent,
-  audience: KakiAudience,
-  seat?: string,
-): boolean {
-  if (audience.kind === 'lifecycle') {
-    return event.type === 'MEETING_STARTED' || event.type === 'MEETING_RESET' || event.type === 'MEETING_RESTORED';
-  }
-  if (audience.kind === 'role') {
-    return (
-      event.audience.kind === 'all' ||
-      (event.audience.kind === 'role' && event.audience.role === audience.role)
-    );
-  }
-  // A screen or participant socket is already the projection that feed needs. When it shares a
-  // socket with a role, it may also see that seat's private notes, but no other seat's.
-  if (event.audience.kind === 'role') {
-    return seat === undefined || event.audience.role === seat;
-  }
-  return event.audience.kind === 'all' || event.audience.kind === 'screen';
+interface FeedRuntime {
+  audience: KakiAudience;
+  key: string;
+  link: KakiLink;
+  listeners: Set<(event: KakiEvent) => void>;
+  openListeners: Set<(generation: number) => void>;
+  socket: WebSocket | undefined;
+  openSocket: WebSocket | undefined;
+  reconnectTimer: number | undefined;
+  attempts: number;
+  generation: number;
+  connected: boolean;
+  ended: string | undefined;
+  closed: boolean;
+  endedForGood: boolean;
+  publish(): void;
 }
 
 /**
- * One Kaki WebSocket, shared by every consumer on a page. A single audience keeps the older URL;
- * a page's set travels as `?audiences=` so the server can route several feeds over one connection.
- * Reconnect, backoff, the ended-meeting close and the failed-reconnect session check live here once.
+ * One socket per feed, with its own reconnect, backoff, ended-meeting close and failed-reconnect
+ * session check. A page shares each feed's runtime with every consumer of that feed.
  */
-export function useKakiLink(audiences: readonly KakiAudience[] | undefined): KakiLinkResult {
+function useKakiLinks(feeds: readonly KakiAudience[] | undefined): ReadonlyMap<string, KakiFeed> {
   const scenario = useScenario();
   const scenarioRef = useRef(scenario);
   scenarioRef.current = scenario;
   const { meetingId } = useMeetingScope();
-  const [connected, setConnected] = useState(false);
-  const [ended, setEnded] = useState<string | undefined>(undefined);
-  const eventListeners = useRef(new Set<(event: KakiEvent) => void>());
-  const openListeners = useRef(new Set<(generation: number) => void>());
-  const socketRef = useRef<WebSocket | undefined>(undefined);
-  const openSocketRef = useRef<WebSocket | undefined>(undefined);
-  const reconnectTimer = useRef<number | undefined>(undefined);
-  const attempts = useRef(0);
-  const generation = useRef(0);
-  const audiencesRef = useRef(audiences);
-  audiencesRef.current = audiences;
+  const [states, setStates] = useState<ReadonlyMap<string, FeedState>>(() => new Map());
+  const runtimes = useRef(new Map<string, FeedRuntime>());
+
+  const publish = useCallback((runtime: FeedRuntime): void => {
+    setStates((previous) => {
+      const current = previous.get(runtime.key);
+      if (current?.connected === runtime.connected && current?.ended === runtime.ended) {
+        return previous;
+      }
+      const next = new Map(previous);
+      next.set(runtime.key, { connected: runtime.connected, ended: runtime.ended });
+      return next;
+    });
+  }, []);
+
+  const keys = feeds === undefined ? [] : [...new Set(feeds.map(audienceKey))];
   /** A stable identity for the set, so a new array with the same feeds never reconnects. */
-  const wire = audiences === undefined ? undefined : JSON.stringify(audiences);
+  const wire = feeds === undefined ? undefined : JSON.stringify(keys);
 
-  const subscribe = useCallback((listener: (event: KakiEvent) => void): (() => void) => {
-    eventListeners.current.add(listener);
-    return () => {
-      eventListeners.current.delete(listener);
-    };
-  }, []);
-
-  const onOpen = useCallback((listener: (generation: number) => void): (() => void) => {
-    openListeners.current.add(listener);
-    return () => {
-      openListeners.current.delete(listener);
-    };
-  }, []);
-
-  const isCurrent = useCallback(
-    (asked: number): boolean =>
-      openSocketRef.current?.readyState === WebSocket.OPEN && generation.current === asked,
-    [],
-  );
-
-  const send = useCallback((command: KakiCommand, audience: KakiAudience): boolean => {
-    const socket = socketRef.current;
-    if (socket === undefined || socket.readyState !== WebSocket.OPEN) return false;
-    const active = audiencesRef.current;
-    if (active === undefined) return false;
-    let payload: unknown = command;
-    if (active.length > 1) {
-      if (!active.some((candidate) => sameAudience(candidate, audience))) return false;
-      payload = { type: 'MULTIPLEX_COMMAND', audience: audienceValue(audience), command };
+  if (feeds !== undefined) {
+    for (const audience of feeds) {
+      const key = audienceKey(audience);
+      const existing = runtimes.current.get(key);
+      if (existing === undefined) {
+        const runtime = {
+          audience,
+          key,
+          listeners: new Set<(event: KakiEvent) => void>(),
+          openListeners: new Set<(generation: number) => void>(),
+          socket: undefined,
+          openSocket: undefined,
+          reconnectTimer: undefined,
+          attempts: 0,
+          generation: 0,
+          connected: false,
+          ended: undefined,
+          closed: false,
+          endedForGood: false,
+          publish: () => publish(runtime),
+        } as FeedRuntime;
+        runtime.link = {
+          subscribe(listener) {
+            runtime.listeners.add(listener);
+            return () => {
+              runtime.listeners.delete(listener);
+            };
+          },
+          onOpen(listener) {
+            runtime.openListeners.add(listener);
+            return () => {
+              runtime.openListeners.delete(listener);
+            };
+          },
+          send(command) {
+            const socket = runtime.socket;
+            if (socket === undefined || socket.readyState !== WebSocket.OPEN) return false;
+            try {
+              socket.send(JSON.stringify(command));
+              return true;
+            } catch {
+              return false;
+            }
+          },
+          isCurrent(generation) {
+            return (
+              runtime.openSocket?.readyState === WebSocket.OPEN && runtime.generation === generation
+            );
+          },
+        };
+        runtimes.current.set(key, runtime);
+      } else {
+        existing.audience = audience;
+      }
     }
-    try {
-      socket.send(JSON.stringify(payload));
-      return true;
-    } catch {
-      return false;
-    }
-  }, []);
-
-  const link = useMemo<KakiLink>(
-    () => ({ subscribe, onOpen, send, isCurrent }),
-    [subscribe, onOpen, send, isCurrent],
-  );
+  }
 
   useEffect(() => {
     if (wire === undefined) return;
-    setConnected(false);
-    setEnded(undefined);
-    attempts.current = 0;
-    let closed = false;
-    let endedForGood = false;
-    let socket: WebSocket | undefined;
+    const activeKeys = JSON.parse(wire) as string[];
+    const active = new Set(activeKeys);
 
-    function query(): string {
+    for (const [key, runtime] of [...runtimes.current]) {
+      if (active.has(key)) continue;
+      stop(runtime);
+      runtimes.current.delete(key);
+    }
+
+    function query(audience: KakiAudience): string {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const meetingQuery =
         meetingId === undefined || meetingId === ''
           ? ''
           : `&meeting=${encodeURIComponent(meetingId)}`;
-      const list = audiencesRef.current;
-      if (list === undefined || list.length === 0) return '';
-      if (list.length === 1) {
-        const audience = list[0]!;
-        // Roles and shared feeds travel on separate channels: a role id may be any word, including
-        // `participant`, so it can never be mistaken for the projection by its spelling.
-        const channel =
-          audience.kind === 'role'
-            ? `role=${encodeURIComponent(audience.role)}`
-            : `audience=${encodeURIComponent(audience.kind)}`;
-        return `${protocol}//${window.location.host}/ws?${channel}${meetingQuery}`;
-      }
-      const params = new URLSearchParams();
-      for (const audience of list) params.append('audiences', audienceToken(audience));
-      return `${protocol}//${window.location.host}/ws?${params.toString()}${meetingQuery}`;
+      return `${protocol}//${window.location.host}/ws?${channelQuery(audience)}${meetingQuery}`;
     }
 
-    function connect(): void {
-      if (closed || endedForGood) return;
+    function stop(runtime: FeedRuntime): void {
+      runtime.closed = true;
+      if (runtime.reconnectTimer !== undefined) {
+        window.clearTimeout(runtime.reconnectTimer);
+        runtime.reconnectTimer = undefined;
+      }
+      runtime.socket?.close();
+      runtime.socket = undefined;
+      runtime.openSocket = undefined;
+      runtime.connected = false;
+      runtime.ended = undefined;
+      runtime.attempts = 0;
+      runtime.endedForGood = false;
+    }
+
+    function connect(runtime: FeedRuntime): void {
+      if (runtime.closed || runtime.endedForGood) return;
       let opened = false;
-      const url = query();
-      if (url === '') return;
-      const current = new WebSocket(url);
-      socket = current;
-      socketRef.current = current;
+      const current = new WebSocket(query(runtime.audience));
+      runtime.socket = current;
 
       current.addEventListener('open', () => {
-        if (closed) return;
+        if (runtime.closed) return;
         opened = true;
-        attempts.current = 0;
-        openSocketRef.current = current;
-        generation.current += 1;
-        setConnected(true);
-        setEnded(undefined);
-        for (const listener of [...openListeners.current]) {
+        runtime.attempts = 0;
+        runtime.openSocket = current;
+        runtime.generation += 1;
+        runtime.connected = true;
+        runtime.ended = undefined;
+        runtime.publish();
+        for (const listener of [...runtime.openListeners]) {
           try {
-            listener(generation.current);
+            listener(runtime.generation);
           } catch (error) {
             console.error('kaki web: a connection listener failed', error);
           }
@@ -224,7 +254,7 @@ export function useKakiLink(audiences: readonly KakiAudience[] | undefined): Kak
           return;
         }
         const event = Object.assign(parsed, { receivedAt: Date.now() });
-        for (const listener of [...eventListeners.current]) {
+        for (const listener of [...runtime.listeners]) {
           try {
             listener(event);
           } catch (error) {
@@ -234,17 +264,19 @@ export function useKakiLink(audiences: readonly KakiAudience[] | undefined): Kak
       });
 
       current.addEventListener('close', (event) => {
-        if (closed || endedForGood) return;
-        if (openSocketRef.current === current) openSocketRef.current = undefined;
-        setConnected(false);
+        if (runtime.closed || runtime.endedForGood) return;
+        if (runtime.openSocket === current) runtime.openSocket = undefined;
+        runtime.connected = false;
+        runtime.publish();
         const closeEvent = event as CloseEvent | undefined;
         if (closeEvent?.code === 4001) {
-          endedForGood = true;
-          if (reconnectTimer.current !== undefined) {
-            window.clearTimeout(reconnectTimer.current);
-            reconnectTimer.current = undefined;
+          runtime.endedForGood = true;
+          if (runtime.reconnectTimer !== undefined) {
+            window.clearTimeout(runtime.reconnectTimer);
+            runtime.reconnectTimer = undefined;
           }
-          setEnded(closeEvent.reason === '' ? MEETING_ENDED_MESSAGE : closeEvent.reason);
+          runtime.ended = closeEvent.reason === '' ? MEETING_ENDED_MESSAGE : closeEvent.reason;
+          runtime.publish();
           return;
         }
         if (!opened) {
@@ -252,52 +284,87 @@ export function useKakiLink(audiences: readonly KakiAudience[] | undefined): Kak
           // otherwise the backoff below keeps retrying at a bounded pace.
           void fetchMe()
             .then((me) => {
-              if (closed || endedForGood) return;
+              if (runtime.closed || runtime.endedForGood) return;
               if (me.authEnabled && me.kind === null && me.ended === true) {
-                endedForGood = true;
-                if (reconnectTimer.current !== undefined) {
-                  window.clearTimeout(reconnectTimer.current);
-                  reconnectTimer.current = undefined;
+                runtime.endedForGood = true;
+                if (runtime.reconnectTimer !== undefined) {
+                  window.clearTimeout(runtime.reconnectTimer);
+                  runtime.reconnectTimer = undefined;
                 }
-                socket?.close();
-                setEnded(MEETING_ENDED_MESSAGE);
+                runtime.socket?.close();
+                runtime.ended = MEETING_ENDED_MESSAGE;
+                runtime.publish();
               }
             })
             .catch((error: unknown) => {
               console.warn('kaki web: could not re-check the session after a failed reconnect', error);
             });
         }
-        if (endedForGood) return;
-        const delay = Math.min(5000, 500 * 2 ** attempts.current);
-        attempts.current += 1;
-        reconnectTimer.current = window.setTimeout(connect, delay);
+        if (runtime.endedForGood) return;
+        const delay = Math.min(5000, 500 * 2 ** runtime.attempts);
+        runtime.attempts += 1;
+        runtime.reconnectTimer = window.setTimeout(() => connect(runtime), delay);
       });
 
       current.addEventListener('error', () => current.close());
     }
 
-    connect();
+    for (const key of activeKeys) {
+      const runtime = runtimes.current.get(key);
+      if (runtime === undefined) continue;
+      runtime.closed = false;
+      runtime.endedForGood = false;
+      runtime.connected = false;
+      runtime.ended = undefined;
+      runtime.attempts = 0;
+      runtime.publish();
+      connect(runtime);
+    }
 
     return () => {
-      closed = true;
-      if (reconnectTimer.current !== undefined) {
-        window.clearTimeout(reconnectTimer.current);
-        reconnectTimer.current = undefined;
+      for (const key of activeKeys) {
+        const runtime = runtimes.current.get(key);
+        if (runtime !== undefined) stop(runtime);
       }
-      socket?.close();
-      if (socketRef.current === socket) socketRef.current = undefined;
-      if (openSocketRef.current === socket) openSocketRef.current = undefined;
     };
-  }, [wire, meetingId]);
+  }, [wire, meetingId, publish]);
 
-  return { link, connected, ended };
+  const links = new Map<string, KakiFeed>();
+  for (const key of keys) {
+    const runtime = runtimes.current.get(key);
+    if (runtime === undefined) continue;
+    const state = states.get(key);
+    links.set(key, {
+      link: runtime.link,
+      connected: state?.connected ?? runtime.connected,
+      ended: state?.ended ?? runtime.ended,
+    });
+  }
+  return links;
+}
+
+/** One feed's link for a hook used outside a page provider; undefined keeps the call site quiet. */
+export function useKakiLink(audience: KakiAudience | undefined): KakiLinkResult {
+  const key = audience === undefined ? undefined : audienceKey(audience);
+  const feeds = useMemo(
+    () => (audience === undefined ? undefined : [audience]),
+    // A new audience object with the same feed must not tear down the live socket.
+    [key],
+  );
+  const links = useKakiLinks(feeds);
+  const feed = key === undefined ? undefined : links.get(key);
+  return {
+    link: feed?.link ?? inertLink,
+    connected: feed?.connected ?? false,
+    ended: feed?.ended,
+  };
 }
 
 const KakiConnectionContext = createContext<KakiConnectionValue | null>(null);
 
 /**
- * Put one Kaki socket around a meeting page. Every `useKaki` beneath it subscribes to this link
- * instead of opening a socket of its own; the link follows the page's shared feed and its seat.
+ * Put one socket per distinct feed around a meeting page. Every `useKaki` beneath it subscribes to
+ * the link for its own feed instead of opening a socket, so consumers of one feed share one wire.
  */
 export function KakiConnectionProvider({
   role,
@@ -308,22 +375,23 @@ export function KakiConnectionProvider({
   sharedAudience: 'screen' | 'participant';
   children: ReactNode;
 }) {
-  const audiences = useMemo<KakiAudience[]>(
+  const feeds = useMemo<KakiAudience[]>(
     () => [
       sharedAudience === 'screen' ? { kind: 'screen' } : { kind: 'participant' },
       { kind: 'role', role },
+      { kind: 'lifecycle' },
     ],
     [sharedAudience, role],
   );
-  const { link, connected, ended } = useKakiLink(audiences);
+  const links = useKakiLinks(feeds);
   const value = useMemo<KakiConnectionValue>(
-    () => ({ link, connected, ended, seat: role }),
-    [link, connected, ended, role],
+    () => ({ feeds: links, seat: role }),
+    [links, role],
   );
   return <KakiConnectionContext.Provider value={value}>{children}</KakiConnectionContext.Provider>;
 }
 
-/** The page's one Kaki connection, or null outside a meeting page that provides one. */
+/** The page's Kaki connections, or null outside a meeting page that provides them. */
 export function useKakiConnection(): KakiConnectionValue | null {
   return useContext(KakiConnectionContext);
 }

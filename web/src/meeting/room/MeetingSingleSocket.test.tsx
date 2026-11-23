@@ -136,19 +136,24 @@ afterEach(() => {
 });
 
 describe('the meeting page', () => {
-  it('opens exactly one Kaki socket for all of its parts', async () => {
+  it('opens exactly one Kaki socket per distinct feed and reconnects only the dropped feed', async () => {
     render(<Meeting />);
     fireEvent.change(screen.getByLabelText('Your name'), { target: { value: 'Wei Ling' } });
     fireEvent.click(screen.getByRole('button', { name: /join with mic/i }));
 
-    await waitFor(() => expect(sockets).toHaveLength(1), { timeout: 4_000 });
-    const socket = sockets[0]!;
-    expect(socket.url).toContain('audiences=screen');
-    expect(socket.url).toContain('audiences=role%3Aoperations_director');
+    await waitFor(() => expect(sockets).toHaveLength(3), { timeout: 4_000 });
+    expect(sockets.filter((socket) => socket.url.includes('audience=lifecycle'))).toHaveLength(1);
+    expect(sockets.filter((socket) => socket.url.includes('audience=screen'))).toHaveLength(1);
+    expect(sockets.filter((socket) => socket.url.includes('role=operations_director'))).toHaveLength(1);
+    const screenSocket = sockets.find((socket) => socket.url.includes('audience=screen'))!;
 
-    // A reconnect replaces that one socket, never stacking a new one per consumer.
-    act(() => socket.close());
-    await waitFor(() => expect(sockets).toHaveLength(2), { timeout: 4_000 });
-    expect(sockets[1]!.url).toBe(socket.url);
+    // A reconnect replaces that feed's socket only, never stacking a new one per consumer.
+    act(() => screenSocket.close());
+    await waitFor(() => expect(sockets).toHaveLength(4), { timeout: 4_000 });
+    expect(sockets.filter((socket) => socket.url.includes('audience=screen'))).toHaveLength(2);
+    expect(sockets.filter((socket) => socket.url.includes('role=operations_director'))).toHaveLength(1);
+    expect(sockets.filter((socket) => socket.url.includes('audience=lifecycle'))).toHaveLength(1);
+    expect(sockets.find((socket) => socket !== screenSocket && socket.url.includes('audience=screen'))!.url)
+      .toBe(screenSocket.url);
   });
 });
