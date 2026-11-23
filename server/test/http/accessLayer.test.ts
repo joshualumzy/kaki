@@ -382,7 +382,10 @@ describe('one access layer', () => {
     vi.stubEnv('MATTERMOST_PASSWORD', '');
     const missing = await get(app, meetingPath(meeting, `/api/mattermost/open?url=${target}`), participant);
     expect(missing.status).toBe(503);
-    expect(((await missing.json()) as { error: string }).error).toMatch(/MATTERMOST_PASSWORD/);
+    expect(missing.headers.get('content-type')).toContain('text/html');
+    const page = await missing.text();
+    expect(page).toMatch(/not configured/);
+    expect(page).not.toMatch(/MATTERMOST_PASSWORD|MATTERMOST_URL|KAKI_PUBLIC_URL/);
   });
 
   it('refuses cross-site writes and WebSocket upgrades, while reads and the OAuth callback still work', async () => {

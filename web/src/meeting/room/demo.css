@@ -595,3 +595,80 @@ select.kd-field { appearance: none; cursor: pointer; background-image: linear-gr
 .kd-tile-pending small { font-weight: 500; color: var(--color-muted); }
 .kd-guest-context { display: flex; flex-direction: column; gap: 2px; padding: 2px 2px 8px; }
 .kd-guest-context small { color: var(--color-muted); font-size: 12px; }
+
+/* ---------- Phone widths: no control smaller than a fingertip, no label below 12px ---------- */
+@media (max-width: 480px) {
+  .kd-go,
+  .kd-chip,
+  .kd-tab,
+  .kd-toggle,
+  .kd-bar-btn,
+  .kd-turn-idea-btn,
+  .kd-starter-chip,
+  .kd-stage-toast-close,
+  .kd-wingman-dismiss,
+  .kd-briefing-summary,
+  .kd-role-pending-line,
+  .kd-seat-option,
+  .kd-start-step-pill,
+  .kd-stage .lk-button {
+    min-height: var(--tap-target);
+    min-width: var(--tap-target);
+  }
+
+  .kd-join-systems a,
+  .kd-lobby-link a,
+  .kd-real-link a {
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--tap-target);
+  }
+
+  .kd-live,
+  .kd-label,
+  .kd-who,
+  .kd-who-role,
+  .kd-who-stance,
+  .kd-state,
+  .kd-dock-sub,
+  .kd-dock-sub b,
+  .kd-wingman-badge,
+  .kd-wingman-kind,
+  .kd-wingman-question,
+  .kd-wingman-facts small,
+  .kd-wingman-sources,
+  .kd-briefing-toggle,
+  .kd-role-eyebrow,
+  .kd-code,
+  .kd-code span,
+  .kd-pane-badge,
+  .kd-caption,
+  .kd-caption-note,
+  .kd-turn,
+  .kd-turn b,
+  .kd-turn-pill,
+  .kd-turn-idea-btn,
+  .kd-starter-chip,
+  .kd-start-step-pill,
+  .kd-bar-btn,
+  .kd-stage-toast-badge,
+  .kd-stage-toast-text,
+  .kd-story-badge,
+  .kd-task-badge,
+  .kd-seat-text small,
+  .kd-record-source-pill,
+  .kd-role-pending-status,
+  .kd-role-pending-action,
+  .kd-real-cue,
+  .kd-bar-count,
+  .kd-real-banner,
+  .kd-start-quiet-note,
+  .kd-guest-context small,
+  .kd-who .kaki-avatar {
+    font-size: var(--phone-text-min);
+  }
+
+  .kd-stage .lk-button {
+    padding: 4px 12px;
+  }
+}

@@ -589,6 +589,32 @@ export async function ensureKnowledgeSchema(db: Queryable): Promise<void> {
   );
 }
 
+/**
+ * Delete the knowledge chunks of deleted workspaces. Runs on the caller's connection so it joins
+ * the account-deletion transaction. The table may not exist yet on a database the indexer has
+ * never migrated, so a missing table simply has nothing to delete. Both the existence check and
+ * the delete name the current schema, so a stray search_path can never reach another schema's table.
+ */
+export async function deleteWorkspaceKnowledge(input: {
+  db: Queryable;
+  workspaceIds: readonly string[];
+}): Promise<void> {
+  if (input.workspaceIds.length === 0) return;
+  const schema = await input.db.query<{ name: string | null }>('select current_schema() as name');
+  const schemaName = schema.rows[0]?.name;
+  if (schemaName === null || schemaName === undefined) {
+    throw new Error('cannot delete workspace knowledge: the connection has no current schema');
+  }
+  const table = `${quoteIdentifier(schemaName)}.${quoteIdentifier('knowledge_chunks')}`;
+  const found = await input.db.query<{ name: string | null }>('select to_regclass($1) as name', [
+    table,
+  ]);
+  if (found.rows[0]?.name === null || found.rows[0]?.name === undefined) return;
+  await input.db.query(`delete from ${table} where workspace_id = any($1::text[])`, [
+    [...input.workspaceIds],
+  ]);
+}
+
 /** Delete one workspace's source chunks whose refs are no longer present. */
 export async function pruneWorkspaceSource(
   db: Queryable,

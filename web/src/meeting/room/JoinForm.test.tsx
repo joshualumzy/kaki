@@ -58,6 +58,27 @@ describe('JoinForm', () => {
     expect([...role.options].map((option) => option.text)).toEqual(['Producer', 'Marketing Lead']);
   });
 
+  it('links every company system from the server-provided public tool URLs', () => {
+    setup({
+      toolUrls: {
+        wiki: 'https://kaki.example.com:8081',
+        gitea: 'https://kaki.example.com:8082',
+        mattermost: 'https://kaki.example.com:8443',
+        email: 'https://kaki.example.com:8084',
+        calendar: 'https://kaki.example.com',
+      },
+    });
+    const link = (name: string) => screen.getByRole('link', { name }).getAttribute('href');
+    expect(link('Wiki')).toBe('https://kaki.example.com:8081/en/home');
+    expect(link('Gitea')).toBe('https://kaki.example.com:8082/kopitiam/kopitiam-pos/issues');
+    expect(link('Mattermost')).toContain('/api/mattermost/open?url=');
+    expect(link('Mattermost')).toContain(
+      encodeURIComponent('https://kaki.example.com:8443/kopitiam/channels/kopitiam-launch'),
+    );
+    expect(link('Mailpit')).toBe('https://kaki.example.com:8084');
+    expect(link('Calendar')).toBe('https://kaki.example.com/api/calendar/seed-sfa-inspection');
+  });
+
   it('cannot join without a name', () => {
     const { button, name, onJoin } = setup();
     fireEvent.change(name, { target: { value: '' } });

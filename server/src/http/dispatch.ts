@@ -9,7 +9,7 @@ import {
   type Principal,
   type Route,
 } from './access';
-import { sendJson } from './http';
+import { sendJson, sendMattermostRefusal } from './http';
 import type { RequestContext } from './routeCall';
 import { CommandError } from '../core/hub';
 
@@ -57,6 +57,24 @@ function countsAsAction(method: string, route: Route, principal: Principal): boo
   return method === 'POST' || method === 'PUT' || method === 'PATCH' || method === 'DELETE';
 }
 
+/**
+ * A refused Mattermost link is a page a person clicked, so it gets the friendly page instead of
+ * JSON. Every other refusal stays JSON for the app to read.
+ */
+function refuse(
+  request: IncomingMessage,
+  response: ServerResponse,
+  route: Route,
+  status: number,
+  error: string,
+): void {
+  if (route.method === 'GET' && route.path === '/api/mattermost/open') {
+    sendMattermostRefusal(request, response, status, error);
+    return;
+  }
+  sendJson(response, status, { error });
+}
+
 /** Run one request through this context's route table, access check and handler. */
 export async function handleRoutedRequest(
   request: IncomingMessage,
@@ -76,7 +94,7 @@ export async function handleRoutedRequest(
     }
     const crossSite = crossSiteProblem(request, match.route, context.auth !== undefined);
     if (crossSite !== undefined) {
-      sendJson(response, crossSite.status, { error: crossSite.error });
+      refuse(request, response, match.route, crossSite.status, crossSite.error);
       return;
     }
     const principal = await resolvePrincipal(request, context);
@@ -94,7 +112,7 @@ export async function handleRoutedRequest(
       rawPath: request.url ?? '',
     });
     if (denied !== undefined) {
-      sendJson(response, denied.status, { error: denied.error });
+      refuse(request, response, match.route, denied.status, denied.error);
       return;
     }
 

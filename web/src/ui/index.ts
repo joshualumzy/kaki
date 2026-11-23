@@ -1,5 +1,5 @@
 export { Avatar, colourFor, initialsFor } from './Avatar';
-export { resolveArtifactUrl } from './artifactUrl';
+export { resolveArtifactUrl, toolLink } from './artifactUrl';
 export { Button } from './Button';
 export { Card } from './Card';
 export { RejectionBanner } from './RejectionBanner';

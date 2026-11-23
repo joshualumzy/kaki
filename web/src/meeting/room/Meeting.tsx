@@ -4,7 +4,13 @@ import '@livekit/components-styles';
 import { ConnectionState, RoomEvent, type RoomOptions } from 'livekit-client';
 import { joinSeatRoles } from '@kaki/shared';
 import { useMe } from '../../auth/useMe';
-import { meetingApiPath, useKaki, useRefreshScenario, useScenario } from '../../kaki';
+import {
+  KakiConnectionProvider,
+  meetingApiPath,
+  useKaki,
+  useRefreshScenario,
+  useScenario,
+} from '../../kaki';
 import {
   CAMERA_BLOCKED_PROBLEM,
   COULD_NOT_JOIN,
@@ -547,6 +553,7 @@ export default function Meeting({
           error={offersSeats ? error : seatsError}
           askCode={needsCode}
           initialCode={linkCode}
+          toolUrls={scenario.toolUrls}
           onJoin={(name, roleId, media, code) => void join(name, roleId, media, code)}
         />
       );
@@ -708,12 +715,16 @@ export default function Meeting({
     </div>
   );
 
-  return real && realMeetingId !== undefined ? (
-    <RealRoomStateProvider role={session.role} isHost={isHost} meetingId={realMeetingId}>
-      {roomView}
-    </RealRoomStateProvider>
-  ) : (
-    roomView
+  return (
+    <KakiConnectionProvider role={session.role} sharedAudience={sharedAudience}>
+      {real && realMeetingId !== undefined ? (
+        <RealRoomStateProvider role={session.role} isHost={isHost} meetingId={realMeetingId}>
+          {roomView}
+        </RealRoomStateProvider>
+      ) : (
+        roomView
+      )}
+    </KakiConnectionProvider>
   );
 }
 

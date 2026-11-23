@@ -42,6 +42,11 @@ import { handleHealth } from './http/routes/meeting';
 import { handleAgendaFromCalendar, handleTellKaki } from './http/routes/agenda';
 import { handleCreateMeeting, handleMeetingByCode, handleMeetingInfo, handleMeetingJoin } from './http/routes/meetings';
 import { handleWorkspaces } from './http/routes/workspaces';
+import { handleDeleteAccount } from './http/routes/account';
+import {
+  createMemoryAccountDataDeletion,
+  type AccountDataDeletion,
+} from './account/deleteAccountData';
 import { createMeetingInstance, type MeetingInstance } from './meeting/instance';
 import {
   LEGACY_MEETING_ID,
@@ -99,6 +104,11 @@ export interface CreateAppOptions {
     kind: WorkspaceToolKind;
     tools: WorkspaceTools;
   }) => Promise<void>;
+  /**
+   * Delete an account's stored data in one step; defaults to the in-memory stores. A server using
+   * Postgres stores must pass the Postgres deletion so every table goes in one transaction.
+   */
+  accountDeletion?: AccountDataDeletion;
   /** How often an open workspace is reindexed; defaults to 30 minutes. Tests set it low. */
   workspaceIndexIntervalMs?: number;
   /** Who is in a LiveKit room, to refuse a join when the meeting is full; defaults to asking LiveKit. */
@@ -209,6 +219,7 @@ function buildServerRouteTable({ auth }: { auth: Auth | undefined }): RoutedRout
     { method: 'GET', path: '/api/auth/google/start', access: 'public', handle: handleAuthRoutes },
     { method: 'GET', path: '/api/auth/google/callback', access: 'public', handle: handleAuthRoutes },
     { method: 'POST', path: '/api/join', access: 'public', handle: handleAuthRoutes },
+    { method: 'DELETE', path: '/api/account', access: 'user', handle: handleDeleteAccount },
     { method: 'GET', path: '/api/workspaces', access: 'user', handle: handleWorkspaces },
     { method: 'POST', path: '/api/workspaces', access: 'user', handle: handleWorkspaces },
     { method: 'GET', path: '/api/workspaces/:id', access: 'user', handle: handleWorkspaces },
@@ -381,6 +392,7 @@ export async function createApp({
   actionTools = {},
   workspaceTools: workspaceToolsOption,
   indexWorkspaceTool: indexWorkspaceToolOption,
+  accountDeletion: accountDeletionOption,
   workspaceIndexIntervalMs,
   roomRoster = livekitRoster(),
   draftOnly = false,
@@ -425,6 +437,11 @@ export async function createApp({
   const llm = llmOption ?? llmFromEnv();
   const workspaceTools = workspaceToolsOption ?? createMemoryWorkspaceToolStore();
   const toolSource = createWorkspaceToolSource(workspaceTools, actionTools.env);
+  const accountDeletion =
+    accountDeletionOption ??
+    (auth === undefined
+      ? undefined
+      : createMemoryAccountDataDeletion({ auth: auth.store, meetings, tools: workspaceTools }));
   const requirePostgresUrl = (): string => {
     const url = process.env.POSTGRES_URL?.trim();
     if (url === undefined || url === '') {
@@ -657,6 +674,9 @@ export async function createApp({
     ...(meetingUnloadMs === undefined ? {} : { unloadMs: meetingUnloadMs }),
     ...(practiceUnloadMs === undefined ? {} : { practiceUnloadMs }),
     ...(meetingSweepMs === undefined ? {} : { sweepMs: meetingSweepMs }),
+    ...(auth === undefined
+      ? {}
+      : { releaseMeeting: (meetingId: string) => auth.releaseMeeting(meetingId) }),
     onOpened: (meeting) => runnerControl.opened(meeting),
     onClosed: (meetingId) => runnerControl.closed(meetingId),
     onWorkspaceOpened: (workspaceId) => workspaceIndexScheduler.opened(workspaceId),
@@ -674,6 +694,10 @@ export async function createApp({
     workspaceTools,
     toolSource,
     indexWorkspaceTool,
+    accountDeletion:
+      accountDeletion === undefined
+        ? undefined
+        : (userId: string) => accountDeletion.deleteAccountData(userId),
     guestJoinAttempts,
     tellKakiAttempts,
     agendaFromCalendarAttempts,

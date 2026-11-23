@@ -46,6 +46,9 @@
   --radius-lg: 1.2rem;
   --radius-pill: 999px;
   --content-width: 44rem;
+  /* Phone ergonomics: every control is at least a fingertip, and no label drops below legibility. */
+  --tap-target: 44px;
+  --phone-text-min: 12px;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {

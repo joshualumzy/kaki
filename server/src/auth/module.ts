@@ -44,6 +44,9 @@ type AuthDecision =
     }
   | { ok: false; message: string };
 
+/** Why a session stopped being valid: a newer one replaced it, or it is gone for good. */
+export type SessionEndReason = 'replaced' | 'revoked';
+
 /** The auth feature the HTTP server and WebSocket hub call into. */
 export interface Auth {
   /** Handle an auth or join request; false means the path belongs to another route. */
@@ -80,8 +83,13 @@ export interface Auth {
   bindJoinGuard(guard: JoinGuard): void;
   /** Release every seat grant belonging to a meeting that has rotated away. */
   releaseMeeting(meetingId: string): Promise<void>;
-  /** Be told when a session is replaced, so its already-open sockets can be closed. */
-  onSessionEnded(handler: (sessionTokenHash: string) => void): void;
+  /**
+   * Be told when a session ends. `replaced` means the same person signed in again or took a seat;
+   * `revoked` means the session is gone for good (signed out or its account deleted).
+   */
+  onSessionEnded(handler: (sessionTokenHash: string, reason: SessionEndReason) => void): void;
+  /** Close every meeting hub's sockets authorized by this session, after its account is deleted. */
+  closeSockets(tokenHash: string): void;
   /** The code-attempt limiter shared with the LiveKit token route, per client address. */
   readonly meetingCodeLimiter: AttemptLimiter;
   /** The auth persistence, also used by the workspace API. */
@@ -185,7 +193,7 @@ export function createAuth({
   verifyPassword: verify = verifyPassword,
   google,
 }: AuthOptions): Auth {
-  const sessionEndedHandlers = new Set<(sessionTokenHash: string) => void>();
+  const sessionEndedHandlers = new Set<(sessionTokenHash: string, reason: SessionEndReason) => void>();
   let meetingIdentity: (() => string | undefined) | undefined;
   let offeredRoles: () => readonly string[] = readOfferedRoles ?? (() => []);
   let joinGuard: JoinGuard | undefined;
@@ -229,10 +237,10 @@ export function createAuth({
       : store.seatHeldBy({ meetingId: session.meetingId, role, holder: session.tokenHash });
   }
 
-  function notifySessionEnded(tokenHash: string): void {
+  function notifySessionEnded(tokenHash: string, reason: SessionEndReason): void {
     for (const handler of sessionEndedHandlers) {
       try {
-        handler(tokenHash);
+        handler(tokenHash, reason);
       } catch (error) {
         log(`kaki auth: a session-ended handler failed: ${String(error)}`);
       }
@@ -315,7 +323,7 @@ export function createAuth({
     if (!claimed) return false;
 
     response.setHeader('set-cookie', sessionCookie(token, secureCookies));
-    if (existing !== undefined) notifySessionEnded(existing.tokenHash);
+    if (existing !== undefined) notifySessionEnded(existing.tokenHash, 'replaced');
     return true;
   }
 
@@ -382,7 +390,7 @@ export function createAuth({
         replaces: existing.tokenHash,
       });
       response.setHeader('set-cookie', sessionCookie(token, secureCookies));
-      notifySessionEnded(existing.tokenHash);
+      notifySessionEnded(existing.tokenHash, 'replaced');
     }
     sendJson(response, 200, { kind: 'host' });
   }
@@ -393,7 +401,7 @@ export function createAuth({
       const tokenHash = hashToken(token);
       await store.releaseSeats({ holder: tokenHash });
       await store.deleteSession(tokenHash);
-      notifySessionEnded(tokenHash);
+      notifySessionEnded(tokenHash, 'revoked');
     }
     response.setHeader('set-cookie', clearSessionCookie(secureCookies));
     sendJson(response, 200, { ok: true });
@@ -705,6 +713,10 @@ export function createAuth({
 
     onSessionEnded(handler) {
       sessionEndedHandlers.add(handler);
+    },
+
+    closeSockets(tokenHash) {
+      notifySessionEnded(tokenHash, 'revoked');
     },
 
     async resolvePrincipal(request, meetingId) {

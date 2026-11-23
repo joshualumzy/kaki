@@ -3,11 +3,28 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createPostgresAuthStore } from '../../src/auth/postgres';
 import { ensureAuthSchema } from '../../src/auth/schema';
 import type { AuthStore } from '../../src/auth/store';
+import { createPostgresAccountDataDeletion } from '../../src/account/deleteAccountData';
 import { createPostgresMeetingStore } from '../../src/meeting/registry';
+import { createPostgresWorkspaceToolStore } from '../../src/workspace/tools';
 import { createPostgresTestSchema, type PostgresTestSchema } from '../postgresTestSchema';
 
 const connectionString = process.env.POSTGRES_URL;
 const email = `auth-test-${randomUUID()}@example.test`;
+
+function toolRecord(workspaceId: string) {
+  return {
+    workspaceId,
+    kind: 'mattermost' as const,
+    settings: { url: 'http://mattermost.test' },
+    secret: Buffer.from('secret'),
+    iv: Buffer.from('iv'),
+    tag: Buffer.from('tag'),
+    keyId: 'key-1',
+    connectedBy: 'tester',
+    connectedAt: new Date('2026-11-01T00:00:00Z'),
+    lastOkAt: null,
+  };
+}
 
 describe.skipIf(connectionString === undefined)('postgres auth store', () => {
   let postgres: PostgresTestSchema | undefined;
@@ -182,5 +199,76 @@ describe.skipIf(connectionString === undefined)('postgres auth store', () => {
     expect(meeting.scheduledFor).toBe(scheduledFor);
     expect((await meetings.get(meeting.id))?.status).toBe('scheduled');
     expect((await meetings.list(workspaceId)).map((row) => row.id)).toEqual([meeting.id]);
+  });
+
+  it('deletes one account and its meetings, tools and knowledge, leaving the other account intact', async () => {
+    if (postgres === undefined || connectionString === undefined) {
+      throw new Error('POSTGRES_URL is missing');
+    }
+    const meetings = createPostgresMeetingStore(postgres.pool);
+    const tools = createPostgresWorkspaceToolStore(postgres.pool);
+    const first = await store.createGoogleUser({
+      googleSub: `google-${randomUUID()}`,
+      name: 'First',
+      email: `first-${randomUUID()}@example.test`,
+    });
+    const second = await store.createGoogleUser({
+      googleSub: `google-${randomUUID()}`,
+      name: 'Second',
+      email: `second-${randomUUID()}@example.test`,
+    });
+    const firstWorkspace = (await store.listWorkspacesForUser(first.id))[0]!.workspace.id;
+    const secondWorkspace = (await store.listWorkspacesForUser(second.id))[0]!.workspace.id;
+    const firstMeeting = await meetings.create({
+      workspaceId: firstWorkspace,
+      ownerUserId: first.id,
+      title: 'First meeting',
+    });
+    const secondMeeting = await meetings.create({
+      workspaceId: secondWorkspace,
+      ownerUserId: second.id,
+      title: 'Second meeting',
+    });
+    // The route ends the account's meetings before the deletion transaction starts.
+    await meetings.markEnded!(firstMeeting.id, new Date().toISOString());
+    await tools.save(toolRecord(firstWorkspace));
+    await tools.save(toolRecord(secondWorkspace));
+    await postgres.pool.query('create table if not exists meeting_state (id text primary key)');
+    await postgres.pool.query('insert into meeting_state (id) values ($1), ($2)', [
+      firstMeeting.id,
+      secondMeeting.id,
+    ]);
+    await postgres.pool.query(
+      'create table if not exists knowledge_chunks (workspace_id text not null, ref text not null)',
+    );
+    await postgres.pool.query(
+      'insert into knowledge_chunks (workspace_id, ref) values ($1, $2), ($3, $4)',
+      [firstWorkspace, 'first', secondWorkspace, 'second'],
+    );
+
+    const deletion = createPostgresAccountDataDeletion({
+      pool: postgres.pool,
+      auth: store,
+      meetings,
+      tools,
+    });
+    expect(await deletion.deleteAccountData(first.id)).toEqual([]);
+
+    expect(await meetings.get(firstMeeting.id)).toBeUndefined();
+    expect(await meetings.get(secondMeeting.id)).toBeDefined();
+    expect(await tools.list(firstWorkspace)).toEqual([]);
+    expect(await tools.list(secondWorkspace)).toHaveLength(1);
+    expect(await store.findUserByEmail(first.email)).toBeUndefined();
+    expect(await store.findUserById(first.id)).toBeUndefined();
+    expect(await store.listWorkspacesForUser(first.id)).toEqual([]);
+    expect(await store.findUserByEmail(second.email)).toBeDefined();
+    expect(await store.listWorkspacesForUser(second.id)).toHaveLength(1);
+
+    const state = await postgres.pool.query<{ id: string }>('select id from meeting_state');
+    expect(state.rows.map((row) => row.id)).toEqual([secondMeeting.id]);
+    const chunks = await postgres.pool.query<{ workspace_id: string }>(
+      'select workspace_id from knowledge_chunks',
+    );
+    expect(chunks.rows.map((row) => row.workspace_id)).toEqual([secondWorkspace]);
   });
 });

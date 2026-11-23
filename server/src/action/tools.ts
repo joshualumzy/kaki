@@ -4,6 +4,7 @@ import { probeEmail, type EmailSettings, type EmailTransportFactory } from './em
 import { probeGitea, type GiteaSettings } from './gitea';
 import { probeMattermost, type MattermostSettings } from './mattermost';
 import { DEFAULT_PROBE_TIMEOUT_MS, probeFailed, type ToolProbeResult } from './probe';
+import { publicToolUrls } from './publicToolUrls';
 import { probeWiki, type WikiSettings } from './wiki';
 
 const ACTION_TOOL_KINDS = [
@@ -80,7 +81,13 @@ function envFor<K extends ActionKind>(
 export function giteaFromEnv(env: NodeJS.ProcessEnv = process.env): GiteaSettings | undefined {
   const values = envFor('gitea_issue', env);
   if (values === undefined) return undefined;
-  return { url: values.GITEA_URL, token: values.GITEA_TOKEN, owner: values.GITEA_ORG, repo: values.GITEA_REPO };
+  return {
+    url: values.GITEA_URL,
+    token: values.GITEA_TOKEN,
+    owner: values.GITEA_ORG,
+    repo: values.GITEA_REPO,
+    publicUrl: publicToolUrls(env).gitea,
+  };
 }
 
 /** The Mattermost settings from the environment, or undefined when a required value is missing. */
@@ -92,6 +99,7 @@ export function mattermostFromEnv(env: NodeJS.ProcessEnv = process.env): Matterm
     token: values.MATTERMOST_TOKEN,
     team: values.MATTERMOST_TEAM,
     channel: values.MATTERMOST_CHANNEL,
+    publicUrl: publicToolUrls(env).mattermost,
   };
 }
 
@@ -101,22 +109,32 @@ export function emailFromEnv(env: NodeJS.ProcessEnv = process.env): EmailSetting
   if (values === undefined) return undefined;
   const smtpPort = emailPort(values.MAILPIT_SMTP_PORT);
   if (smtpPort === undefined) return undefined;
-  return { smtpHost: values.MAILPIT_SMTP_HOST, smtpPort, from: values.EMAIL_FROM, mailpitUrl: values.MAILPIT_URL };
+  return {
+    smtpHost: values.MAILPIT_SMTP_HOST,
+    smtpPort,
+    from: values.EMAIL_FROM,
+    mailpitUrl: values.MAILPIT_URL,
+    publicUrl: publicToolUrls(env).email,
+  };
 }
 
 /** The wiki settings from the environment, or undefined when a required value is missing. */
 export function wikiFromEnv(env: NodeJS.ProcessEnv = process.env): WikiSettings | undefined {
   const values = envFor('wiki_page', env);
   if (values === undefined) return undefined;
-  return { url: values.WIKI_URL, email: values.WIKI_ADMIN_EMAIL, password: values.WIKI_ADMIN_PASSWORD };
+  return {
+    url: values.WIKI_URL,
+    email: values.WIKI_ADMIN_EMAIL,
+    password: values.WIKI_ADMIN_PASSWORD,
+    publicUrl: publicToolUrls(env).wiki,
+  };
 }
 
 /** The calendar settings from the environment, with the public view URL, or undefined without a CalDAV address. */
 export function calendarFromEnv(env: NodeJS.ProcessEnv = process.env): CalendarSettings | undefined {
   const values = envFor('calendar_event', env);
   if (values === undefined) return undefined;
-  const viewBaseUrl = requiredEnv('KAKI_PUBLIC_URL', env) ?? `http://127.0.0.1:${env.PORT ?? '3001'}`;
-  return { caldavUrl: values.CALDAV_URL, viewBaseUrl };
+  return { caldavUrl: values.CALDAV_URL, viewBaseUrl: publicToolUrls(env).calendar };
 }
 
 /** The required setting names each unconfigured action tool is missing, keyed by kind. */

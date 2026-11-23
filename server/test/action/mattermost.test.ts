@@ -159,6 +159,21 @@ describe('mattermost action module', () => {
     expect(failed.draft).toBeUndefined();
   });
 
+  it('records the post link on the server-provided public Mattermost base', async () => {
+    const tasks = setup({
+      llm: createFakeLlm(() => messageReply),
+      mattermost: { ...settings, publicUrl: 'https://kaki.example.com:8443' },
+      fetchImpl: okFetch(),
+    });
+    const task = startTask(tasks);
+    const ready = await claim(tasks, task);
+
+    tasks.transition(ready.id, 'RUNNING');
+    const completed = await waitForStatus(tasks, ready.id, 'COMPLETED');
+
+    expect(completed.artifactUrl).toBe('https://kaki.example.com:8443/kopitiam/pl/post-456');
+  });
+
   it('posts the approved draft on run and records the post URL', async () => {
     const fetchImpl = okFetch();
     const tasks = setup({ llm: createFakeLlm(() => messageReply), mattermost: settings, fetchImpl });

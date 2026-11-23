@@ -1,7 +1,7 @@
 import * as sdk from 'microsoft-cognitiveservices-speech-sdk';
 import { confidenceFrom, DEFAULT_MIN_CONFIDENCE, keepRecognised } from './sttFilter';
 import { MAX_STT_PHRASES, tidySttPhrases } from './sttPhrases';
-import type { Recognizer, SttSession } from './utterance';
+import { SttError, type Recognizer, type SttSession } from './utterance';
 
 interface AzureSttOptions {
   /** Recognition language, for example "en-SG". */
@@ -13,6 +13,27 @@ interface AzureSttOptions {
   /** Short results scoring below this are treated as noise and dropped (default 0.6). */
   minConfidence?: number;
   log?(message: string): void;
+}
+
+/**
+ * Codes retrying cannot fix: a bad key, a bad request, or the account's quota used up. Everything
+ * else (too many requests, a dropped connection, a service error) is worth another try.
+ */
+const NOT_RETRYABLE = new Set<number>([
+  sdk.CancellationErrorCode.AuthenticationFailure,
+  sdk.CancellationErrorCode.BadRequestParameters,
+  sdk.CancellationErrorCode.Forbidden,
+]);
+
+function cancellationError(details: string, code: number | undefined): SttError {
+  return new SttError(details || 'Speech recognition was cancelled', code === undefined || !NOT_RETRYABLE.has(code));
+}
+
+/** A recogniser that fails to start reports a plain message; key and quota problems are not worth retrying. */
+function startError(error: unknown): SttError {
+  const message = error instanceof Error ? error.message : String(error);
+  const config = /auth|subscription|credential|api key|invalid|unauthori[sz]ed|forbidden|quota/i.test(message);
+  return new SttError(message, !config);
 }
 
 /**
@@ -41,7 +62,7 @@ export function createAzureStt(key: string, region: string, options: AzureSttOpt
       const parts: string[] = [];
       let stopped: () => void = () => undefined;
       const ended = new Promise<void>((resolve) => (stopped = resolve));
-      let failure: string | undefined;
+      let failure: SttError | undefined;
       let closed = false;
       let streamClosed = false;
 
@@ -63,14 +84,16 @@ export function createAzureStt(key: string, region: string, options: AzureSttOpt
       };
       recognizer.sessionStopped = () => stopped();
       recognizer.canceled = (_sender, event) => {
-        if (event.reason === sdk.CancellationReason.Error) failure = event.errorDetails;
+        if (event.reason === sdk.CancellationReason.Error) {
+          failure = cancellationError(event.errorDetails, typeof event.errorCode === 'number' ? event.errorCode : undefined);
+        }
         stopped();
       };
       const started = new Promise<void>((resolve) => {
         recognizer.startContinuousRecognitionAsync(
           () => resolve(),
           (error) => {
-            failure = String(error);
+            failure = startError(error);
             stopped();
             resolve();
           },
@@ -120,10 +143,10 @@ export function createAzureStt(key: string, region: string, options: AzureSttOpt
 
           try {
             await withinDeadline(started, 'Speech recognition did not start in time.');
-            if (failure !== undefined) throw new Error(failure);
+            if (failure !== undefined) throw failure;
             closeStream();
             await withinDeadline(ended, 'Speech recognition did not finish in time.');
-            if (failure !== undefined) throw new Error(failure);
+            if (failure !== undefined) throw failure;
             return parts.join(' ');
           } finally {
             closeStream();

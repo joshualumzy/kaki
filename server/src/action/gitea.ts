@@ -5,6 +5,7 @@ import type { WorkspaceTools } from '../workspace/tools';
 import { draftString, parseDraftObject } from './draft';
 import { acceptedDecisionBlock, draftSourceText, memorySourceBlock, unsupportedDraftDetails } from './draftGrounding';
 import { DEFAULT_PROBE_TIMEOUT_MS, probeFailed, probeFetch, probeOk, responseProblem, type ToolProbeResult } from './probe';
+import { publicArtifactUrl } from './publicToolUrls';
 import { ActionError, createActionModule, plainReason, factsForTask } from './runner';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -15,6 +16,8 @@ export interface GiteaSettings {
   token: string;
   owner: string;
   repo: string;
+  /** Where a browser opens an issue; absent when `url` is already the browser's address. */
+  publicUrl?: string;
 }
 
 /** Options for the Gitea action module; tests inject fakes here. */
@@ -195,7 +198,7 @@ export function createGiteaModule({
       }
       const artifactUrl = isObject(body) && typeof body.html_url === 'string' ? body.html_url.trim() : '';
       if (artifactUrl === '') throw new ActionError('Gitea replied without an issue URL');
-      return artifactUrl;
+      return publicArtifactUrl(artifactUrl, settings.publicUrl);
     },
   });
 }

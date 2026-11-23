@@ -15,6 +15,7 @@ import type { WorkspaceTools } from '../workspace/tools';
 import { draftString, parseDraftObject } from './draft';
 import { acceptedDecisionBlock, memorySourceBlock } from './draftGrounding';
 import { DEFAULT_PROBE_TIMEOUT_MS, probeFailed, probeFetch, probeOk, responseProblem, type ToolProbeResult } from './probe';
+import { publicArtifactUrl } from './publicToolUrls';
 import { ActionError, createActionModule, plainReason, factsForTask } from './runner';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -27,6 +28,8 @@ export interface WikiSettings {
   url: string;
   email: string;
   password: string;
+  /** Where a browser opens a page; absent when `url` is already the browser's address. */
+  publicUrl?: string;
 }
 
 /** Options for the wiki action module; tests inject fakes here. */
@@ -421,7 +424,8 @@ export function createWikiModule({
       if (draft === undefined) throw new ActionError('The task has no draft to publish');
 
       const path = pagePath(today(), draft.subject);
-      return publishPage(settings, path, draft.subject, draft.body, `Written by Kaki: ${task.title}`, signal);
+      const artifactUrl = await publishPage(settings, path, draft.subject, draft.body, `Written by Kaki: ${task.title}`, signal);
+      return publicArtifactUrl(artifactUrl, settings.publicUrl);
     },
   });
 

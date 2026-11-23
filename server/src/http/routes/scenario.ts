@@ -1,8 +1,9 @@
 import { parseScenario, type Scenario } from '@kaki/shared';
 import { viewEvent } from '../../action/calendar';
+import { publicToolUrls } from '../../action/publicToolUrls';
 import { projectScenario } from '../../meeting/scenarioProjection';
 import { publicUrlIsHttps } from '../access';
-import { sendJson } from '../http';
+import { sendJson, sendMattermostRefusal } from '../http';
 import type { RouteCall } from '../routeCall';
 import { SAMPLE_WORKSPACE_ID } from '../../workspace/constants';
 
@@ -40,6 +41,17 @@ function servableScenario(
     });
   } catch (error) {
     console.error(`kaki scenario: ${label} is invalid; refusing to serve it`, error);
+    return undefined;
+  }
+}
+
+/** The host the browser used, so a local demo's tool links follow it to a phone on the Wi-Fi. */
+function requestHostname(request: RouteCall['request']): string | undefined {
+  const raw = request.headers.host;
+  if (typeof raw !== 'string' || raw.trim() === '') return undefined;
+  try {
+    return new URL(`http://${raw.trim()}`).hostname;
+  } catch {
     return undefined;
   }
 }
@@ -95,7 +107,15 @@ export async function handleScenario(call: RouteCall): Promise<void> {
     sendJson(response, 500, { error: 'The meeting scenario is broken; the owner must fix the setup.' });
     return;
   }
-  sendJson(response, 200, served);
+  // The sample workspace's tool links come from one server-built source; a real workspace uses the
+  // addresses its owner saved, so it needs none.
+  sendJson(
+    response,
+    200,
+    context.workspaceId === SAMPLE_WORKSPACE_ID
+      ? { ...served, toolUrls: publicToolUrls(process.env, requestHostname(call.request)) }
+      : served,
+  );
   return;
 }
 
@@ -144,13 +164,16 @@ export async function handleCalendarEvent(call: RouteCall): Promise<void> {
 
 /** Redirects a Mattermost link onto the configured public server and signs the demo user in. */
 export async function handleMattermostOpen(call: RouteCall): Promise<void> {
-  const { response, url, context } = call;
+  const { request, response, url, context } = call;
   // Only the shared sample workspace hands out the demo user's Mattermost cookies. A real
   // workspace's people must use that workspace's own tool connection, never this shared identity.
   if (context.workspaceId !== SAMPLE_WORKSPACE_ID) {
-    sendJson(response, 403, {
-      error: 'The shared demo sign-in is only available in the sample workspace.',
-    });
+    sendMattermostRefusal(
+      request,
+      response,
+      403,
+      'The shared demo sign-in is only available in the sample workspace.',
+    );
     return;
   }
   const query = url.searchParams;
@@ -159,24 +182,27 @@ export async function handleMattermostOpen(call: RouteCall): Promise<void> {
   try {
     parsedTarget = new URL(rawTarget);
   } catch {
-    sendJson(response, 400, { error: 'Valid target url is required' });
+    sendMattermostRefusal(request, response, 400, 'Valid target url is required');
     return;
   }
   const mmUrl = process.env.MATTERMOST_URL?.trim();
   if (mmUrl === undefined || mmUrl === '') {
-    sendJson(response, 503, { error: 'Mattermost is not configured: set MATTERMOST_URL.' });
+    console.error('kaki mattermost: the demo opener is missing MATTERMOST_URL');
+    sendMattermostRefusal(request, response, 503, 'Mattermost is not configured for this Kaki.');
     return;
   }
   const mmPassword = process.env.MATTERMOST_PASSWORD;
   if (mmPassword === undefined || mmPassword === '') {
-    sendJson(response, 503, { error: 'Mattermost is not configured: set MATTERMOST_PASSWORD.' });
+    console.error('kaki mattermost: the demo opener is missing MATTERMOST_PASSWORD');
+    sendMattermostRefusal(request, response, 503, 'Mattermost is not configured for this Kaki.');
     return;
   }
   let mmBase: URL;
   try {
     mmBase = new URL(mmUrl);
   } catch {
-    sendJson(response, 503, { error: 'Mattermost is not configured: MATTERMOST_URL is not a valid URL.' });
+    console.error('kaki mattermost: MATTERMOST_URL is not a valid URL');
+    sendMattermostRefusal(request, response, 503, 'The Mattermost connection is misconfigured.');
     return;
   }
   // Old links were generated with localhost, 127.0.0.1 or the LAN/public host. Match the path
@@ -188,16 +214,17 @@ export async function handleMattermostOpen(call: RouteCall): Promise<void> {
       ? parsedTarget.pathname.startsWith('/')
       : parsedTarget.pathname === basePath || parsedTarget.pathname.startsWith(`${basePath}/`);
   if ((parsedTarget.protocol !== 'http:' && parsedTarget.protocol !== 'https:') || !insideBase) {
-    sendJson(response, 400, { error: 'Target must be a link on the Mattermost server.' });
+    sendMattermostRefusal(request, response, 400, 'Target must be a link on the Mattermost server.');
     return;
   }
   let publicBase: URL;
   try {
     publicBase = mattermostPublicBase(mmBase);
   } catch {
-    sendJson(response, 503, {
-      error: 'Mattermost is not configured: MATTERMOST_PUBLIC_URL or KAKI_PUBLIC_URL is not a valid URL.',
-    });
+    console.error(
+      'kaki mattermost: MATTERMOST_PUBLIC_URL or KAKI_PUBLIC_URL is not a valid URL',
+    );
+    sendMattermostRefusal(request, response, 503, 'The Mattermost connection is misconfigured.');
     return;
   }
   const redirect = new URL(publicBase.toString());

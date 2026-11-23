@@ -471,11 +471,15 @@ describe('meetings API', () => {
     const meeting = await createMeeting(base, ada.cookie, team.workspace.id, 'Real work');
     const target = encodeURIComponent('http://mattermost.test/kopitiam/channels/town-square');
 
-    const denied = await request(base, `/api/meetings/${meeting.id}/mattermost/open?url=${target}`, {
-      cookie: ada.cookie,
-    });
+    const denied = await fetch(
+      `${base}/api/meetings/${meeting.id}/mattermost/open?url=${target}`,
+      { headers: { cookie: ada.cookie, accept: 'text/html' } },
+    );
     expect(denied.status).toBe(403);
-    expect(((await denied.json()) as { error: string }).error).toContain('sample workspace');
+    expect(denied.headers.get('content-type')).toContain('text/html');
+    const page = await denied.text();
+    expect(page).toContain('sample workspace');
+    expect(page).toContain('Back to Kaki');
   });
 
   it('refuses a guest join for an ended meeting without giving a name cookie', async () => {

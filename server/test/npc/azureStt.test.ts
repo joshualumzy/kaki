@@ -61,6 +61,17 @@ const sdk = vi.hoisted(() => {
     ResultReason: { RecognizedSpeech: 1 },
     PropertyId: { SpeechServiceResponse_JsonResult: 'json' },
     CancellationReason: { Error: 1 },
+    CancellationErrorCode: {
+      NoError: 0,
+      AuthenticationFailure: 1,
+      BadRequestParameters: 2,
+      TooManyRequests: 3,
+      ConnectionFailure: 4,
+      ServiceTimeout: 5,
+      ServiceError: 6,
+      RuntimeError: 7,
+      Forbidden: 8,
+    },
     AudioInputStream: {
       createPushStream: () => ({
         write: () => undefined,
@@ -83,6 +94,7 @@ const sdk = vi.hoisted(() => {
 vi.mock('microsoft-cognitiveservices-speech-sdk', () => sdk);
 
 import { createAzureStt } from '../../src/npc/azureStt';
+import { isRetryableSttError } from '../../src/npc/utterance';
 import { MAX_STT_PHRASES } from '../../src/npc/sttPhrases';
 
 const TIMEOUT_MS = 1_000;
@@ -190,5 +202,25 @@ describe('createAzureStt', () => {
     });
 
     await expect(session.finish()).rejects.toThrow('network down');
+  });
+
+  it('marks a throttle as worth retrying and a bad key as final', async () => {
+    const throttle = createSession();
+    throttle.recognizer.canceled?.(undefined, {
+      reason: sdk.CancellationReason.Error,
+      errorCode: sdk.CancellationErrorCode.TooManyRequests,
+      errorDetails: '429 too many requests',
+    });
+    const throttled = await throttle.session.finish().then(() => undefined, (error: unknown) => error);
+    expect(isRetryableSttError(throttled)).toBe(true);
+
+    const badKey = createSession();
+    badKey.recognizer.canceled?.(undefined, {
+      reason: sdk.CancellationReason.Error,
+      errorCode: sdk.CancellationErrorCode.AuthenticationFailure,
+      errorDetails: 'authentication failed',
+    });
+    const unauthorised = await badKey.session.finish().then(() => undefined, (error: unknown) => error);
+    expect(isRetryableSttError(unauthorised)).toBe(false);
   });
 });
