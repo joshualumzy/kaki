@@ -23,6 +23,14 @@ export function HostCueCard({
     coHostRole === undefined
       ? undefined
       : scenario.attendees.find((a) => a.role === coHostRole.id)?.name ?? roleLabel(scenario, coHostRole.id);
+  const coHostRoleLabel = coHostRole === undefined ? undefined : roleLabel(scenario, coHostRole.id);
+  // A real meeting's role label is the person's own name, so print it only when it adds something.
+  const coHostText =
+    coHostName === undefined
+      ? undefined
+      : coHostRoleLabel === undefined || coHostRoleLabel.trim().toLowerCase() === coHostName.trim().toLowerCase()
+        ? coHostName
+        : `${coHostName} (${coHostRoleLabel})`;
   return (
     <section className="kd-role kd-topic-card" aria-label="Host cue card">
       <p className="kd-role-eyebrow">Kaki Wingman · Host Cue Card (Item {agendaIndex + 1} of {scenario.agenda.length})</p>
@@ -32,9 +40,9 @@ export function HostCueCard({
       <p style={{ marginBottom: 6 }}>
         Try saying: <em>&ldquo;Hey team, let&rsquo;s start with {item.title}. {ownerAttendee}, can you walk us through it?&rdquo;</em>
       </p>
-      {coHostRole === undefined || coHostName === undefined ? null : (
+      {coHostRole === undefined || coHostText === undefined ? null : (
         <small style={{ display: 'block', opacity: 0.85 }}>
-          Tip: {coHostName} ({roleLabel(scenario, coHostRole.id)}) will help co-host if the room goes quiet
+          Tip: {coHostText} will help co-host if the room goes quiet
           {canAdvance ? ', or you can click ' : '.'}
           {canAdvance && (
             <>

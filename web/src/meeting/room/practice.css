@@ -92,6 +92,8 @@ select.kd-field { appearance: none; cursor: pointer; background-image: linear-gr
 .kd-tile[data-state="speaking"] .kd-state { color: var(--c); }
 .kd-tile[data-state="thinking"] .kd-state { color: var(--color-host); animation: kd-blink 1s infinite; }
 .kd-caption { position: absolute; left: 12px; right: 12px; bottom: 12px; padding: 9px 13px; border-radius: 14px; background: color-mix(in srgb, var(--color-surface) 90%, transparent); backdrop-filter: blur(10px); border: 1px solid var(--color-border); color: var(--color-text); font-size: 14px; font-weight: 500; line-height: 1.4; pointer-events: none; z-index: 3; animation: kd-word 260ms ease both; }
+/* A person's tile also carries LiveKit's bottom-left name chip: sit above it and below the top-left who tag. */
+.kd-tile[data-ai="false"] .kd-caption { bottom: 34px; max-height: calc(100% - 86px); overflow-y: auto; }
 .kd-stage-col { display: flex; flex-direction: column; height: 100%; position: relative; }
 .kd-grid-wrap { position: relative; flex: 1; padding: 10px; min-height: 0; }
 .kd-stage .lk-grid-layout { gap: 12px; padding: 0; }
@@ -230,6 +232,7 @@ select.kd-field { appearance: none; cursor: pointer; background-image: linear-gr
   .kd-reaction-badge { right: 5px; top: 24px; width: 22px; height: 22px; }
   .kd-reaction-emoji { font-size: 12px; }
   .kd-caption { left: 5px; right: 5px; bottom: 5px; padding: 4px 7px; font-size: 11px; line-height: 1.25; max-height: 54%; overflow-y: auto; border-radius: 10px; }
+  .kd-tile[data-ai="false"] .kd-caption { bottom: 38px; max-height: calc(100% - 84px); }
   .kd-turn-bar { width: calc(100% - 8px); padding: 4px 9px; margin-bottom: 1px; gap: 3px; border-radius: 11px; }
   .kd-turn-pill { font-size: 11px; }
   .kd-starter-chips { max-height: 84px; overflow-y: auto; }
