@@ -208,9 +208,9 @@ export function MeetingGrid({
   const stage = useMemo(
     () => ({
       scenario, chunks, events, now, npcState, speechStatus, waitingForHuman,
-      activeItemOwnerRole: activeOwnerRole, activeAgendaIndex, avatars, offTheRecord,
+      activeItemOwnerRole: activeOwnerRole, activeAgendaIndex, avatars, offTheRecord, real,
     }),
-    [scenario, chunks, events, now, npcState, speechStatus, waitingForHuman, activeOwnerRole, activeAgendaIndex, avatars, offTheRecord],
+    [scenario, chunks, events, now, npcState, speechStatus, waitingForHuman, activeOwnerRole, activeAgendaIndex, avatars, offTheRecord, real],
   );
 
   const starterChips = useMemo(() => {

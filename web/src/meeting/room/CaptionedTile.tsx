@@ -32,6 +32,8 @@ export interface Stage {
   avatars?: Map<string, { displayName: string; photoUrl: string | null }>;
   /** While the room is off the record, no caption or reaction may appear on any tile. */
   offTheRecord?: boolean;
+  /** A real meeting has its own Type button; practice is speech only, so its failure caption never says "type". */
+  real?: boolean;
 }
 
 /** Carries the stage values to the tiles without passing them through every component. */
@@ -45,7 +47,7 @@ function useStage(): Stage {
 
 /** One participant tile with its live caption, speaking state and reaction badge. */
 export function CaptionedTile() {
-  const { scenario, chunks, events, now, npcState, speechStatus, avatars, offTheRecord } = useStage();
+  const { scenario, chunks, events, now, npcState, speechStatus, avatars, offTheRecord, real } = useStage();
   const participant = useTrackRefContext().participant;
   const localParticipant = useLocalParticipant().localParticipant;
   const isYou = localParticipant !== undefined && participant.identity === localParticipant.identity;
@@ -76,7 +78,9 @@ export function CaptionedTile() {
       : !isAi && speechState === 'transcribing'
         ? '⏳ Transcribing…'
         : !isAi && speechState === 'failed'
-          ? '⚠️ Kaki could not hear that — please repeat or type it'
+          ? real
+            ? '⚠️ Kaki could not hear that — please repeat or type it'
+            : '⚠️ Kaki could not hear that — please say it again'
           : recognizedCaption;
   const thinking = isAi && npcState.kind === 'thinking';
   const state = speaking ? 'speaking' : thinking ? 'thinking' : 'idle';

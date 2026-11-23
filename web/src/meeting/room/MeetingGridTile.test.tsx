@@ -92,6 +92,8 @@ describe('meeting tiles', () => {
 
     speechStatus({ Owner: { state: 'failed', message: 'Kaki could not hear that. Please say it again.' } });
     expect(screen.getByRole('alert').textContent).toContain('Kaki could not hear that');
+    expect(screen.getByText(/please say it again/)).toBeTruthy();
+    expect(screen.queryByText(/type it/)).toBeNull();
     expect(screen.queryByRole('button', { name: /type/i })).toBeNull();
   });
 
