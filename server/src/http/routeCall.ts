@@ -61,8 +61,8 @@ export interface RequestContext {
     kind: WorkspaceToolKind;
     tools: WorkspaceTools;
   }) => Promise<void>;
-  /** Delete the searchable knowledge of workspaces whose account is being deleted. */
-  deleteWorkspaceKnowledge?: (workspaceIds: readonly string[]) => Promise<void>;
+  /** Delete every stored trace of an account in one atomic step; returns its session hashes. */
+  accountDeletion?: (userId: string) => Promise<string[]>;
   /** Guest-join attempts per client address, owned by the app. */
   guestJoinAttempts?: AttemptLimiter;
   /** Paid model requests for Tell Kaki, per account and address, owned by the app. */

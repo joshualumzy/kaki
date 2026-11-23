@@ -31,24 +31,28 @@ export async function handleDeleteAccount(call: RouteCall): Promise<void> {
     return;
   }
 
+  const deleteAccountData = context.accountDeletion;
+  if (deleteAccountData === undefined || context.registry === undefined) {
+    console.error('kaki account: deletion is not wired up');
+    sendJson(response, 500, { error: 'Account deletion is unavailable.' });
+    return;
+  }
+
   try {
     const ownedIds = (await store.listWorkspacesOwnedBy(userId)).map((workspace) => workspace.id);
     // End the account's meetings first, including members' meetings in the workspaces about to go,
     // before their rows and saved state are deleted, so nobody is left in a room whose meeting no
-    // longer exists.
-    await context.registry?.endOwnedBy(userId, ownedIds);
-    await context.meetings?.deleteByOwner?.(userId, ownedIds);
-    await context.workspaceTools?.deleteWorkspaces?.(ownedIds);
-    await context.deleteWorkspaceKnowledge?.(ownedIds);
-    const hashes = await store.deleteUser(userId);
+    // longer exists. A meeting that could not end stops the deletion before anything is removed.
+    await context.registry.endOwnedBy(userId, ownedIds);
+    // One step for every remaining row: the Postgres stores commit it as one transaction.
+    const hashes = await deleteAccountData(userId);
     for (const hash of hashes) context.auth?.closeSockets(hash);
     response.setHeader('set-cookie', clearSessionCookie(context.auth?.secureCookies ?? false));
     sendJson(response, 200, { ok: true });
   } catch (error) {
     console.error('kaki account: deleting the account failed', error);
     sendJson(response, 500, {
-      error:
-        'Could not delete the account. Some of your data may already be gone; trying again will finish the job.',
+      error: 'Could not delete the account. Nothing was removed; try again.',
     });
   }
 }

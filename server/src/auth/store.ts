@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import type { PoolClient } from 'pg';
 
 /** Who a session belongs to. */
 export type SessionKind = 'host' | 'participant' | 'user' | 'guest';
@@ -115,9 +116,12 @@ export interface AuthStore {
   }): Promise<void>;
   renameWorkspace(input: { id: string; name: string }): Promise<WorkspaceRecord | undefined>;
 
-  /** Delete the user, their sessions, seat claims, memberships and owned workspaces.
-   *  Returns the token hashes of the sessions it deleted, so their sockets can be closed. */
-  deleteUser(userId: string): Promise<string[]>;
+  /**
+   * Delete the user, every session they hold (found by `user_id`), their seat claims, memberships
+   * and owned workspaces. Returns the token hashes of the deleted sessions, so their sockets can
+   * be closed. When `client` is given, run inside that transaction and leave begin/commit to it.
+   */
+  deleteUser(userId: string, client?: PoolClient): Promise<string[]>;
 
   close(): Promise<void>;
 }
@@ -354,7 +358,7 @@ export function createMemoryAuthStore(now: () => number = Date.now): AuthStore {
       workspaces.set(id, updated);
       return updated;
     },
-    async deleteUser(userId) {
+    async deleteUser(userId, _client) {
       const hashes: string[] = [];
       for (const [tokenHash, session] of sessions) {
         if (session.userId === userId) hashes.push(tokenHash);

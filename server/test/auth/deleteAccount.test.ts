@@ -1,11 +1,13 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import WebSocket from 'ws';
 import type { KakiApp } from '../../src/app';
 import { createAuth } from '../../src/auth/module';
 import { hashToken } from '../../src/auth/password';
 import { createMemoryAuthStore, type AuthStore, type UserRecord } from '../../src/auth/store';
 import { createMeetingCodeSource } from '../../src/meeting/meetingCode';
 import { createMemoryMeetingStore } from '../../src/meeting/registry';
+import { SAMPLE_WORKSPACE_ID } from '../../src/workspace/constants';
 import {
   createMemoryWorkspaceToolStore,
   type WorkspaceToolRecord,
@@ -49,7 +51,13 @@ describe('delete account', () => {
     workspaceTools = createMemoryWorkspaceToolStore();
     const meetingCode = createMeetingCodeSource(MEETING_CODE);
     const auth = createAuth({ store, offeredRoles: () => ['chef', 'cashier'], meetingCode });
-    app = await createTestApp({ auth, meetingCode, meetings, workspaceTools });
+    app = await createTestApp({
+      auth,
+      meetingCode,
+      meetings,
+      workspaceTools,
+      serviceToken: 'runner-secret',
+    });
     port = portOf(app);
   });
 
@@ -238,5 +246,176 @@ describe('delete account', () => {
     expect(await store.findUserById(ben.user.id)).toBeDefined();
     expect((await store.findSession(ben.tokenHash))?.userId).toBe(ben.user.id);
     expect(await store.listWorkspacesOwnedBy(ben.user.id)).toHaveLength(1);
+  });
+
+  it('refuses a guest session, a phone seat and the service token', async () => {
+    const ada = await signIn('Ada Lovelace', 'ada@example.test');
+    const personal = (await store.listWorkspacesForUser(ada.user.id))[0]!.workspace;
+    const meetingId = await createMeeting(ada.cookie, personal.id, 'Ada open');
+
+    const guestToken = randomBytes(32).toString('base64url');
+    await store.createSession({
+      tokenHash: hashToken(guestToken),
+      kind: 'guest',
+      role: null,
+      meetingCode: null,
+      meetingId,
+      displayName: 'Visitor',
+      userId: null,
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    const guest = await deleteAccount(`kaki_session=${encodeURIComponent(guestToken)}`, {
+      confirm: 'DELETE',
+    });
+    expect(guest.status).toBe(403);
+
+    const phoneToken = randomBytes(32).toString('base64url');
+    const phoneHash = hashToken(phoneToken);
+    const stateResponse = await request('GET', '/api/meeting/state');
+    const { meetingId: currentMeetingId } = (await stateResponse.json()) as { meetingId: string };
+    const seated = await store.enterSeat({
+      session: {
+        tokenHash: phoneHash,
+        kind: 'participant',
+        role: 'chef',
+        meetingCode: MEETING_CODE,
+        meetingId: currentMeetingId,
+        displayName: 'Phone',
+        userId: null,
+        expiresAt: new Date(Date.now() + 60_000),
+      },
+      meetingId: currentMeetingId,
+      role: 'chef',
+    });
+    expect(seated).toBe(true);
+    const phone = await deleteAccount(`kaki_session=${encodeURIComponent(phoneToken)}`, {
+      confirm: 'DELETE',
+    });
+    expect(phone.status).toBe(403);
+
+    const service = await request('DELETE', '/api/account', {
+      body: { confirm: 'DELETE' },
+      headers: { authorization: 'Bearer runner-secret' },
+    });
+    expect(service.status).toBe(403);
+
+    expect(await store.findUserById(ada.user.id)).toBeDefined();
+    expect(await store.findSession(ada.tokenHash)).toBeDefined();
+    expect(await meetings.get(meetingId)).toBeDefined();
+  });
+
+  it("leaves the sample workspace and another visitor's practice meeting alone", async () => {
+    const ada = await signIn('Ada Lovelace', 'ada@example.test');
+    const ben = await signIn('Ben Bitdiddle', 'ben@example.test');
+    const practice = await app.registry.createPractice();
+
+    expect((await deleteAccount(ada.cookie, { confirm: 'DELETE' })).status).toBe(200);
+
+    expect(app.registry.findPractice(practice.id)).toBeDefined();
+    const workspaces = await request('GET', '/api/workspaces', { cookie: ben.cookie });
+    expect(workspaces.status).toBe(200);
+    const body = (await workspaces.json()) as Array<{ id: string }>;
+    expect(body.some((workspace) => workspace.id === SAMPLE_WORKSPACE_ID)).toBe(true);
+  });
+
+  it('rejects the old cookie and closes an open socket once the account is gone', async () => {
+    const ada = await signIn('Ada Lovelace', 'ada@example.test');
+    const ben = await signIn('Ben Bitdiddle', 'ben@example.test');
+    // Ada is only a member of Ben's team: the workspace and meeting must outlive her account.
+    const benTeam = await store.createWorkspace({ name: 'Ben team', createdBy: ben.user.id });
+    await store.addWorkspaceMember({
+      workspaceId: benTeam.workspace.id,
+      userId: ada.user.id,
+      role: 'member',
+    });
+    const benMeeting = await createMeeting(ben.cookie, benTeam.workspace.id, 'Ben team meeting');
+    expect(await app.registry.get(benMeeting)).toBeDefined();
+
+    const socket = new WebSocket(
+      `ws://127.0.0.1:${port}/ws?meeting=${benMeeting}&audience=lifecycle`,
+      { headers: { cookie: ada.cookie } },
+    );
+    await new Promise<void>((resolve, reject) => {
+      socket.once('open', () => resolve());
+      socket.once('error', reject);
+    });
+    const closed = new Promise<void>((resolve) =>
+      socket.once('close', () => {
+        resolve();
+      }),
+    );
+
+    expect((await deleteAccount(ada.cookie, { confirm: 'DELETE' })).status).toBe(200);
+    await closed;
+    socket.terminate();
+
+    const me = await request('GET', '/api/auth/me', { cookie: ada.cookie });
+    expect(me.status).toBe(401);
+    const workspaces = await request('GET', '/api/workspaces', { cookie: ada.cookie });
+    expect(workspaces.status).toBe(401);
+
+    // Ben's workspace survives with Ada's membership removed.
+    expect(await store.getWorkspace(benTeam.workspace.id)).toBeDefined();
+    expect(
+      await store.getMembership({ workspaceId: benTeam.workspace.id, userId: ada.user.id }),
+    ).toBeUndefined();
+    expect((await meetings.get(benMeeting))?.ownerUserId).toBe(ben.user.id);
+  });
+
+  it("keeps an owned meeting in someone else's workspace and deletes one in its own", async () => {
+    const ada = await signIn('Ada Lovelace', 'ada@example.test');
+    const ben = await signIn('Ben Bitdiddle', 'ben@example.test');
+    const adaWorkspace = (await store.listWorkspacesForUser(ada.user.id))[0]!.workspace;
+    const benWorkspace = (await store.listWorkspacesForUser(ben.user.id))[0]!.workspace;
+    const inOwnWorkspace = await createMeeting(ada.cookie, adaWorkspace.id, 'Ada own');
+    const inBenWorkspace = await app.registry.create({
+      workspaceId: benWorkspace.id,
+      ownerUserId: ada.user.id,
+      title: 'Ada in Ben room',
+    });
+
+    expect((await deleteAccount(ada.cookie, { confirm: 'DELETE' })).status).toBe(200);
+
+    expect(await meetings.get(inOwnWorkspace)).toBeUndefined();
+    const kept = await meetings.get(inBenWorkspace.id);
+    expect(kept?.ownerUserId).toBeNull();
+    expect(kept?.status).toBe('ended');
+    expect(await store.getWorkspace(benWorkspace.id)).toBeDefined();
+    expect(await store.findUserById(ben.user.id)).toBeDefined();
+  });
+
+  it('removes nothing when the deletion cannot start', async () => {
+    const ada = await signIn('Ada Lovelace', 'ada@example.test');
+    const personal = (await store.listWorkspacesForUser(ada.user.id))[0]!.workspace;
+    const meetingId = await createMeeting(ada.cookie, personal.id, 'Ada open');
+    // A store that cannot delete meetings must fail loudly before any account data changes.
+    const withoutDelete = { ...meetings, deleteByOwner: undefined };
+    const broken = await createTestApp({
+      auth: createAuth({
+        store,
+        offeredRoles: () => ['chef', 'cashier'],
+        meetingCode: createMeetingCodeSource(MEETING_CODE),
+      }),
+      meetingCode: createMeetingCodeSource(MEETING_CODE),
+      meetings: withoutDelete,
+      workspaceTools,
+    });
+    try {
+      const brokenPort = portOf(broken);
+      const response = await fetch(`http://127.0.0.1:${brokenPort}/api/account`, {
+        method: 'DELETE',
+        headers: { cookie: ada.cookie, 'content-type': 'application/json' },
+        body: JSON.stringify({ confirm: 'DELETE' }),
+      });
+      expect(response.status).toBe(500);
+
+      // The broken app shares this store, so it must still hold everything.
+      expect(await store.findUserById(ada.user.id)).toBeDefined();
+      expect(await store.findSession(ada.tokenHash)).toBeDefined();
+      expect(await store.getWorkspace(personal.id)).toBeDefined();
+      expect(await meetings.get(meetingId)).toBeDefined();
+    } finally {
+      await broken.close();
+    }
   });
 });

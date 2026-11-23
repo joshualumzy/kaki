@@ -3,9 +3,9 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createPostgresAuthStore } from '../../src/auth/postgres';
 import { ensureAuthSchema } from '../../src/auth/schema';
 import type { AuthStore } from '../../src/auth/store';
+import { createPostgresAccountDataDeletion } from '../../src/account/deleteAccountData';
 import { createPostgresMeetingStore } from '../../src/meeting/registry';
 import { createPostgresWorkspaceToolStore } from '../../src/workspace/tools';
-import { deleteWorkspaceKnowledge } from '../../src/wingman/knowledge/indexer';
 import { createPostgresTestSchema, type PostgresTestSchema } from '../postgresTestSchema';
 
 const connectionString = process.env.POSTGRES_URL;
@@ -24,12 +24,6 @@ function toolRecord(workspaceId: string) {
     connectedAt: new Date('2026-11-01T00:00:00Z'),
     lastOkAt: null,
   };
-}
-
-function pinnedUrl(value: string, schema: string): string {
-  const url = new URL(value);
-  url.searchParams.set('options', `-csearch_path=${schema}`);
-  return url.toString();
 }
 
 describe.skipIf(connectionString === undefined)('postgres auth store', () => {
@@ -250,13 +244,13 @@ describe.skipIf(connectionString === undefined)('postgres auth store', () => {
       [firstWorkspace, 'first', secondWorkspace, 'second'],
     );
 
-    await meetings.deleteByOwner?.(first.id, [firstWorkspace]);
-    await tools.deleteWorkspaces?.([firstWorkspace]);
-    await deleteWorkspaceKnowledge({
-      postgresUrl: pinnedUrl(connectionString, postgres.schema),
-      workspaceIds: [firstWorkspace],
+    const deletion = createPostgresAccountDataDeletion({
+      pool: postgres.pool,
+      auth: store,
+      meetings,
+      tools,
     });
-    expect(await store.deleteUser(first.id)).toEqual([]);
+    expect(await deletion.deleteAccountData(first.id)).toEqual([]);
 
     expect(await meetings.get(firstMeeting.id)).toBeUndefined();
     expect(await meetings.get(secondMeeting.id)).toBeDefined();

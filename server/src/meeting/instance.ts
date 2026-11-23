@@ -601,8 +601,13 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
           graceMs: rejoin.graceMs(),
         }),
     });
-    auth?.onSessionEnded((sessionTokenHash) => hub.endSession?.(sessionTokenHash));
   }
+  // A revoked session is gone, so every hub closes its sockets. A replaced one (the same person
+  // signed in again or took a seat) closes only here, on the legacy meeting, as it always has; a
+  // real meeting's owner keeps their screen when they take a seat with a new session.
+  auth?.onSessionEnded((sessionTokenHash, reason) => {
+    if (legacyPaths || reason === 'revoked') hub.endSession?.(sessionTokenHash);
+  });
   const tasks = createTaskStore({ hub, scenario: () => session.active() });
   hub.onCommand(tasks.handleCommand);
   // The ended team meeting is the owner's until the minutes are published or dismissed. Any other

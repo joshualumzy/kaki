@@ -486,10 +486,14 @@ export function createPostgresAuthStore(pool: Pool): AuthStore {
       return row === undefined ? undefined : toWorkspace(row);
     },
 
-    async deleteUser(userId) {
-      const client = await pool.connect();
+    async deleteUser(userId, transaction) {
+      // The account deletion already runs everything in one transaction; only open our own when
+      // this store is used on its own.
+      const client = transaction ?? (await pool.connect());
+      const ownsTransaction = transaction === undefined;
       try {
-        await client.query('begin');
+        if (ownsTransaction) await client.query('begin');
+        // Every session the account holds, whatever kind it became by taking a seat.
         const sessionRows = await client.query<{ token_hash: string }>(
           'select token_hash from sessions where user_id = $1',
           [userId],
@@ -510,13 +514,13 @@ export function createPostgresAuthStore(pool: Pool): AuthStore {
         );
         await client.query('delete from workspaces where created_by = $1', [userId]);
         await client.query('delete from users where id = $1', [userId]);
-        await client.query('commit');
+        if (ownsTransaction) await client.query('commit');
         return hashes;
       } catch (error) {
-        await client.query('rollback').catch(() => undefined);
+        if (ownsTransaction) await client.query('rollback').catch(() => undefined);
         throw error;
       } finally {
-        client.release();
+        if (ownsTransaction) client.release();
       }
     },
 

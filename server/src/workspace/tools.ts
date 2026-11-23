@@ -63,8 +63,8 @@ export interface WorkspaceToolStore {
    * The memory store only has the row.
    */
   delete(workspaceId: string, kind: WorkspaceToolKind): Promise<void>;
-  /** Delete every saved tool row of these deleted workspaces. */
-  deleteWorkspaces?(workspaceIds: readonly string[]): Promise<void>;
+  /** Delete every saved tool row of these deleted workspaces; run inside `client` when given. */
+  deleteWorkspaces?(workspaceIds: readonly string[], client?: PoolClient): Promise<void>;
 }
 
 /** The knowledge source a tool kind indexes under. */
@@ -240,7 +240,7 @@ export function createMemoryWorkspaceToolStore(): WorkspaceToolStore {
     async delete(workspaceId, kind) {
       rows.delete(keyOf(workspaceId, kind));
     },
-    async deleteWorkspaces(workspaceIds) {
+    async deleteWorkspaces(workspaceIds, _client) {
       const wanted = new Set(workspaceIds);
       for (const [key, record] of rows) {
         if (wanted.has(record.workspaceId)) rows.delete(key);
@@ -343,9 +343,9 @@ export function createPostgresWorkspaceToolStore(pool: Pool): WorkspaceToolStore
         client.release();
       }
     },
-    async deleteWorkspaces(workspaceIds) {
+    async deleteWorkspaces(workspaceIds, client) {
       if (workspaceIds.length === 0) return;
-      await pool.query('delete from workspace_tools where workspace_id = any($1::text[])', [
+      await (client ?? pool).query('delete from workspace_tools where workspace_id = any($1::text[])', [
         [...workspaceIds],
       ]);
     },

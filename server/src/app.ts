@@ -43,6 +43,10 @@ import { handleAgendaFromCalendar, handleTellKaki } from './http/routes/agenda';
 import { handleCreateMeeting, handleMeetingByCode, handleMeetingInfo, handleMeetingJoin } from './http/routes/meetings';
 import { handleWorkspaces } from './http/routes/workspaces';
 import { handleDeleteAccount } from './http/routes/account';
+import {
+  createMemoryAccountDataDeletion,
+  type AccountDataDeletion,
+} from './account/deleteAccountData';
 import { createMeetingInstance, type MeetingInstance } from './meeting/instance';
 import {
   LEGACY_MEETING_ID,
@@ -100,8 +104,11 @@ export interface CreateAppOptions {
     kind: WorkspaceToolKind;
     tools: WorkspaceTools;
   }) => Promise<void>;
-  /** Delete the searchable knowledge of workspaces whose account is being deleted. */
-  deleteWorkspaceKnowledge?: (workspaceIds: readonly string[]) => Promise<void>;
+  /**
+   * Delete an account's stored data in one step; defaults to the in-memory stores. A server using
+   * Postgres stores must pass the Postgres deletion so every table goes in one transaction.
+   */
+  accountDeletion?: AccountDataDeletion;
   /** How often an open workspace is reindexed; defaults to 30 minutes. Tests set it low. */
   workspaceIndexIntervalMs?: number;
   /** Who is in a LiveKit room, to refuse a join when the meeting is full; defaults to asking LiveKit. */
@@ -385,7 +392,7 @@ export async function createApp({
   actionTools = {},
   workspaceTools: workspaceToolsOption,
   indexWorkspaceTool: indexWorkspaceToolOption,
-  deleteWorkspaceKnowledge,
+  accountDeletion: accountDeletionOption,
   workspaceIndexIntervalMs,
   roomRoster = livekitRoster(),
   draftOnly = false,
@@ -430,6 +437,11 @@ export async function createApp({
   const llm = llmOption ?? llmFromEnv();
   const workspaceTools = workspaceToolsOption ?? createMemoryWorkspaceToolStore();
   const toolSource = createWorkspaceToolSource(workspaceTools, actionTools.env);
+  const accountDeletion =
+    accountDeletionOption ??
+    (auth === undefined
+      ? undefined
+      : createMemoryAccountDataDeletion({ auth: auth.store, meetings, tools: workspaceTools }));
   const requirePostgresUrl = (): string => {
     const url = process.env.POSTGRES_URL?.trim();
     if (url === undefined || url === '') {
@@ -673,7 +685,10 @@ export async function createApp({
     workspaceTools,
     toolSource,
     indexWorkspaceTool,
-    deleteWorkspaceKnowledge,
+    accountDeletion:
+      accountDeletion === undefined
+        ? undefined
+        : (userId: string) => accountDeletion.deleteAccountData(userId),
     guestJoinAttempts,
     tellKakiAttempts,
     agendaFromCalendarAttempts,

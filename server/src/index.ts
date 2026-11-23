@@ -14,7 +14,7 @@ import type { MeetingPersistence } from './persist/persistence';
 import { createWingmanModules } from './wingman';
 import { logMissingSecretKey } from './workspace/secrets';
 import { createPostgresWorkspaceToolStore, type WorkspaceToolStore } from './workspace/tools';
-import { deleteWorkspaceKnowledge as deleteWorkspaceKnowledgeRows } from './wingman/knowledge/indexer';
+import { createPostgresAccountDataDeletion } from './account/deleteAccountData';
 
 logMissingActionConfig();
 logMissingSecretKey();
@@ -69,14 +69,21 @@ const practiceModules = () => {
     meetingPause: practiceHost.meetingPause,
   };
 };
-const deleteWorkspaceKnowledge =
-  postgresUrl === undefined || postgresUrl === ''
-    ? undefined
-    : (workspaceIds: readonly string[]) =>
-        deleteWorkspaceKnowledgeRows({ postgresUrl, workspaceIds });
 const meetingCode = createMeetingCodeSource();
 const authEnabled = process.env.KAKI_AUTH === '1';
 const auth = authEnabled ? await createAuthFromEnv({ meetingCode }) : undefined;
+const accountDeletion =
+  auth !== undefined &&
+  meetings !== undefined &&
+  workspaceTools !== undefined &&
+  meetingsPool !== undefined
+    ? createPostgresAccountDataDeletion({
+        pool: meetingsPool,
+        auth: auth.store,
+        meetings,
+        tools: workspaceTools,
+      })
+    : undefined;
 
 let app: Awaited<ReturnType<typeof createApp>>;
 try {
@@ -98,7 +105,7 @@ try {
     meetingCode,
     ...(meetings === undefined ? {} : { meetings }),
     ...(workspaceTools === undefined ? {} : { workspaceTools }),
-    ...(deleteWorkspaceKnowledge === undefined ? {} : { deleteWorkspaceKnowledge }),
+    ...(accountDeletion === undefined ? {} : { accountDeletion }),
     ...(persistenceFor === undefined ? {} : { persistenceFor }),
     ...(findSavedIdByCode === undefined ? {} : { findSavedIdByCode }),
   });
