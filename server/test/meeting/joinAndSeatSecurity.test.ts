@@ -349,6 +349,9 @@ describe('security round 2', () => {
     expect(body.roles.every((role) => role.card === undefined)).toBe(true);
     expect(body.agenda.every((item) => item.seatFacts === undefined)).toBe(true);
 
+    // The same person still owns their workspace after their meeting seat claim is gone.
+    expect((await get(app, '/api/workspaces', seatHost)).status).toBe(200);
+
     const oldSeatFeed = await connect(port, meeting.id, `role=${encodeURIComponent(seat)}`, {
       cookie: seatHost,
     });

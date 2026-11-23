@@ -507,7 +507,19 @@ export function createAuth({
       if (!(await sessionOwnsSeat(session, principal.role))) return { ok: false, ended: false };
     } else if (principal.kind === 'host' && principal.seat !== undefined) {
       // A host keeps every host power, but the seat view belongs only to its current claim owner.
-      if (!(await sessionOwnsSeat(session, principal.seat))) principal = { kind: 'host' };
+      // Losing the claim (a closed meeting rotates it away) must not also lose the account: the
+      // signed-in person still needs their workspace, not just this meeting's host powers.
+      if (!(await sessionOwnsSeat(session, principal.seat))) {
+        principal = {
+          kind: 'host',
+          ...(session.userId === null || session.userId === undefined
+            ? {}
+            : { userId: session.userId }),
+          ...(session.displayName === null || session.displayName === undefined
+            ? {}
+            : { name: session.displayName }),
+        };
+      }
     }
     return { ok: true, session, principal };
   }
