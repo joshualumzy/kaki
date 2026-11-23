@@ -386,6 +386,8 @@ See [How we tested Kaki](docs/testing.md) for the full test map.
 
 ## Open source and licensing
 
+Kaki is released under the [GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0). Anyone may use, study, change and self-host it; anyone who offers a modified Kaki to others over a network must publish their changes under the same licence.
+
 The main libraries are permissive. React, React DOM, React Router, Vite, `qrcode`, `ws`, `pg`, `tsx` and Vitest are MIT. `nodemailer` is MIT-0. The LiveKit client, React components, server SDK and Node SDK are Apache-2.0. The Microsoft Cognitive Services Speech SDK is MIT. TypeScript and Playwright are Apache-2.0. These licences were read from `node_modules/<package>/package.json`.
 
 The Docker services run as unmodified images next to the code, not inside it.
