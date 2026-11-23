@@ -188,9 +188,13 @@ export function createMeetingRegistry(deps: MeetingRegistryDeps): MeetingRegistr
     roomName: instance.roomName,
   });
 
-  const openCount = (): number => loaded.size + 1; // the legacy instance is always open
+  /** An ended instance stays loaded for its room and minutes, but it holds no open slot. */
+  const isEnded = (instance: MeetingInstance): boolean => instance.session.phase() === 'ended';
+  const openCount = (): number =>
+    [...loaded.values()].filter((instance) => !isEnded(instance)).length + 1; // the legacy instance is always open
   const practiceCount = (): number =>
-    [...loaded.values()].filter((instance) => instance.runnerKind === 'practice').length;
+    [...loaded.values()].filter((instance) => instance.runnerKind === 'practice' && !isEnded(instance))
+      .length;
 
   /** The start of the current UTC day, the boundary of the daily creation cap. */
   const startOfDay = (): Date => {
@@ -244,7 +248,8 @@ export function createMeetingRegistry(deps: MeetingRegistryDeps): MeetingRegistr
     if (closed) throw new Error('the meeting registry is closed');
     const row = await deps.store.get(id);
     if (row === undefined) return undefined;
-    if (openCount() >= maxOpen) {
+    // An ended meeting is served for its room and minutes; it never takes a server-wide slot.
+    if (row.status !== 'ended' && openCount() >= maxOpen) {
       log(`kaki meetings: refusing to open ${id}: ${openCount()} meetings are already open`);
       throw new MeetingBusyError();
     }
@@ -420,13 +425,14 @@ export function createMeetingRegistry(deps: MeetingRegistryDeps): MeetingRegistr
     for (const instance of [...loaded.values()]) {
       if (instance.connectedPeople() > 0) continue;
       const practice = instance.runnerKind === 'practice';
-      // A practice meeting that has ended is a throwaway: unload it as soon as its visitor has gone.
-      const ended = practice && instance.session.phase() === 'ended';
+      // An ended meeting is kept only while someone is still viewing its room or minutes, so once
+      // it is empty it is a throwaway: unload it at once rather than waiting out the idle time.
+      const ended = isEnded(instance);
       const idleFor = practice ? practiceUnloadMs : unloadMs;
       if (!ended && at - instance.lastActivityAt() < idleFor) continue;
       log(
         ended
-          ? `kaki meetings: unloading the ended practice meeting ${instance.id}`
+          ? `kaki meetings: unloading the ended meeting ${instance.id}`
           : `kaki meetings: unloading ${instance.id}; nobody has been there for ${Math.round(idleFor / 60_000)} min`,
       );
       void registry.unload(instance.id).catch((error: unknown) =>

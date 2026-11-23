@@ -169,6 +169,31 @@ describe('POST /api/practice', () => {
     expect(app.registry.findPractice(nextId)).toBeDefined();
   });
 
+  it('frees an ended practice’s share of the practice cap at once', async () => {
+    const { app, port } = await appWith({ maxPracticeMeetings: 1 });
+    const first = await startPractice(port);
+    await connectService(port, first.meetingId);
+    const joined = await post(
+      port,
+      `/api/meetings/${first.meetingId}/livekit/token`,
+      { participantName: 'Alice', participantRole: 'operations_director', kind: 'practice' },
+      first.cookie,
+    );
+    expect(joined.status).toBe(200);
+    expect((await post(port, `/api/meetings/${first.meetingId}/meeting/start`, undefined, first.cookie)).status).toBe(200);
+
+    const instance = app.registry.findPractice(first.meetingId);
+    instance?.session.end();
+    expect(instance?.session.phase()).toBe('ended');
+
+    const next = await post(port, '/api/practice', undefined, first.cookie);
+    expect(next.status).toBe(200);
+    const nextId = ((await next.json()) as { meetingId: string }).meetingId;
+    expect(nextId).not.toBe(first.meetingId);
+    // The ended practice is still loaded for anyone still in its room.
+    expect(app.registry.findPractice(first.meetingId)).toBe(instance);
+  });
+
   it('gives a fresh practice when the cookie names a practice that has been unloaded', async () => {
     const { app, port } = await appWith();
     const first = await startPractice(port);

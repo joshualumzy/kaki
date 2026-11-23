@@ -94,7 +94,8 @@ function isRobotSpeaker(speaker: string): boolean {
 /** Drives one browser through the meeting, answers as the guest and writes a playtest report. */
 export async function runLivePlaytest(parsed: PlaytestOptions, hooks: PlaytestHooks | undefined, roomReply: RoomReplyModel): Promise<{ reportPath: string; passed: boolean; summaryLines: string[] }> {
   const startedAt = new Date();
-  const stem = `playtest-${startedAt.toISOString().replace(/[:.]/g, '-')}`;
+  // The pid keeps two runs started in the same instant from overwriting one report or shot.
+  const stem = `playtest-${startedAt.toISOString().replace(/[:.]/g, '-')}-${process.pid}`;
   const reportPath = join(LOG_DIR, `${stem}.md`);
   const shotDir = join(LOG_DIR, 'playtest-shots');
   const checks: Check[] = [];
@@ -523,6 +524,18 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks: PlaytestHo
       if (task.agendaItemTitle !== title || task.assignee !== visitorRole || task.status !== 'DISPATCHED' || accepted.has(task.id)) continue;
       const button = page.locator('.kd-role-active').getByRole('button', { name: 'Accept · Let Kaki do it' }).first();
       if (await button.isVisible().catch(() => false)) {
+        // A card update can legitimately disable the button for a moment; wait for it to settle
+        // instead of failing the click. This is bounded, and a still-disabled button is left alone.
+        const enabled = await waitFor(
+          `Topic ${index + 1} accept button ready`,
+          () => button.isEnabled().catch(() => false),
+          20_000,
+          false,
+        );
+        if (!enabled) {
+          notes.push(`${stamp()} Accept for visitor task ${task.id} stayed disabled; not clicked.`);
+          continue;
+        }
         await button.click({ timeout: 5_000 });
         accepted.add(task.id);
         notes.push(`${stamp()} Accepted visitor task ${task.id} for draft review; no publish action was pressed.`);

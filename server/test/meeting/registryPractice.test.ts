@@ -61,6 +61,7 @@ function build(options: {
   now?: () => number;
   maxOpen?: number;
   maxPractice?: number;
+  unloadMs?: number;
   practiceUnloadMs?: number;
   sweepMs?: number;
 } = {}): Built {
@@ -91,6 +92,7 @@ function build(options: {
     ...(options.now === undefined ? {} : { now: options.now }),
     ...(options.maxOpen === undefined ? {} : { maxOpen: options.maxOpen }),
     ...(options.maxPractice === undefined ? {} : { maxPractice: options.maxPractice }),
+    ...(options.unloadMs === undefined ? {} : { unloadMs: options.unloadMs }),
     ...(options.practiceUnloadMs === undefined ? {} : { practiceUnloadMs: options.practiceUnloadMs }),
     ...(options.sweepMs === undefined ? {} : { sweepMs: options.sweepMs }),
     log: () => undefined,
@@ -192,6 +194,32 @@ describe('registry practice instances', () => {
 
     await vi.advanceTimersByTimeAsync(1_000);
     expect(built.closed).toEqual([practice.id]);
+  });
+
+  it('unloads an ended real meeting at once once it is empty', async () => {
+    vi.useFakeTimers();
+    const built = build({ now: () => 1_000, unloadMs: 1_800_000, sweepMs: 1_000 });
+    registries.push(built);
+    const real = await built.registry.get('real-1');
+    if (real === undefined) throw new Error('the real meeting did not load');
+    // The meeting ends in place; the registry holds this same instance for its room.
+    (real.session as unknown as { phase: () => string }).phase = () => 'ended';
+    built.registry.noteEnded('real-1');
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(built.closed).toEqual(['real-1']);
+  });
+
+  it('does not count an ended meeting toward the open or practice caps', async () => {
+    const built = build({ maxOpen: 2, maxPractice: 1 });
+    registries.push(built);
+    const practice = await built.registry.createPractice();
+    (practice.session as unknown as { phase: () => string }).phase = () => 'ended';
+
+    // The ended practice freed both its practice room and its server-wide slot.
+    const next = await built.registry.createPractice();
+    expect(next).not.toBe(practice);
+    expect(built.registry.findPractice(practice.id)).toBe(practice);
   });
 
   it('keeps a practice with someone in the room loaded', async () => {
