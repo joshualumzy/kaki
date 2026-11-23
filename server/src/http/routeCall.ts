@@ -61,6 +61,8 @@ export interface RequestContext {
     kind: WorkspaceToolKind;
     tools: WorkspaceTools;
   }) => Promise<void>;
+  /** Delete the searchable knowledge of workspaces whose account is being deleted. */
+  deleteWorkspaceKnowledge?: (workspaceIds: readonly string[]) => Promise<void>;
   /** Guest-join attempts per client address, owned by the app. */
   guestJoinAttempts?: AttemptLimiter;
   /** Paid model requests for Tell Kaki, per account and address, owned by the app. */
@@ -68,7 +70,10 @@ export interface RequestContext {
   /** Paid calendar reads for agenda import, per account and address, owned by the app. */
   agendaFromCalendarAttempts?: AttemptLimiter;
   /** The meeting registry, for the server-wide lookup and creation of meetings and practices. */
-  registry?: Pick<MeetingRegistry, 'findByCode' | 'create' | 'createPractice' | 'findPractice'>;
+  registry?: Pick<
+    MeetingRegistry,
+    'findByCode' | 'create' | 'createPractice' | 'findPractice' | 'endOwnedBy'
+  >;
   /**
    * The meeting a session must belong to, when this is not the legacy meeting. A phone session
    * for meeting A resolves to nobody on meeting B's routes.

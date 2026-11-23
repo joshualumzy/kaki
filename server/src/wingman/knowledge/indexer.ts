@@ -1,4 +1,4 @@
-import { Client, type Pool, type PoolClient } from 'pg';
+import { Client, Pool, type PoolClient } from 'pg';
 import { loadEnv, type Env } from '../../../../docker/seed/env';
 import { jsonRequest, request, sleep } from '../../../../docker/seed/http';
 import { loadScenarioSeed } from '../../../../docker/seed/scenario';
@@ -587,6 +587,29 @@ export async function ensureKnowledgeSchema(db: Queryable): Promise<void> {
   await db.query(
     'CREATE INDEX IF NOT EXISTS knowledge_chunks_text_tsv_idx ON knowledge_chunks USING GIN (text_tsv)',
   );
+}
+
+/**
+ * Delete the knowledge chunks of deleted workspaces. The table may not exist yet on a database the
+ * indexer has never migrated, so a missing table simply has nothing to delete.
+ */
+export async function deleteWorkspaceKnowledge(input: {
+  postgresUrl: string;
+  workspaceIds: readonly string[];
+}): Promise<void> {
+  if (input.workspaceIds.length === 0) return;
+  const pool = new Pool({ connectionString: input.postgresUrl, connectionTimeoutMillis: 5_000 });
+  try {
+    const table = await pool.query<{ name: string | null }>(
+      "select to_regclass('knowledge_chunks') as name",
+    );
+    if (table.rows[0]?.name === null || table.rows[0]?.name === undefined) return;
+    await pool.query('delete from knowledge_chunks where workspace_id = any($1::text[])', [
+      [...input.workspaceIds],
+    ]);
+  } finally {
+    await pool.end();
+  }
 }
 
 /** Delete one workspace's source chunks whose refs are no longer present. */

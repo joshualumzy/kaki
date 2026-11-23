@@ -82,6 +82,8 @@ export interface Auth {
   releaseMeeting(meetingId: string): Promise<void>;
   /** Be told when a session is replaced, so its already-open sockets can be closed. */
   onSessionEnded(handler: (sessionTokenHash: string) => void): void;
+  /** Close every meeting hub's sockets authorized by this session, after its account is deleted. */
+  closeSockets(tokenHash: string): void;
   /** The code-attempt limiter shared with the LiveKit token route, per client address. */
   readonly meetingCodeLimiter: AttemptLimiter;
   /** The auth persistence, also used by the workspace API. */
@@ -703,6 +705,10 @@ export function createAuth({
 
     onSessionEnded(handler) {
       sessionEndedHandlers.add(handler);
+    },
+
+    closeSockets(tokenHash) {
+      notifySessionEnded(tokenHash);
     },
 
     async resolvePrincipal(request, meetingId) {

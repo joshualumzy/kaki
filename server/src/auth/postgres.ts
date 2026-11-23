@@ -394,6 +394,17 @@ export function createPostgresAuthStore(pool: Pool): AuthStore {
       }));
     },
 
+    async listWorkspacesOwnedBy(userId) {
+      const result = await pool.query<WorkspaceRow>(
+        `select id, name, kind, created_by, created_at
+           from workspaces
+          where created_by = $1
+          order by created_at asc`,
+        [userId],
+      );
+      return result.rows.map(toWorkspace);
+    },
+
     async createWorkspace({ name, createdBy }) {
       const client = await pool.connect();
       try {
@@ -473,6 +484,40 @@ export function createPostgresAuthStore(pool: Pool): AuthStore {
       );
       const row = result.rows[0];
       return row === undefined ? undefined : toWorkspace(row);
+    },
+
+    async deleteUser(userId) {
+      const client = await pool.connect();
+      try {
+        await client.query('begin');
+        const sessionRows = await client.query<{ token_hash: string }>(
+          'select token_hash from sessions where user_id = $1',
+          [userId],
+        );
+        const hashes = sessionRows.rows.map((row) => row.token_hash);
+        if (hashes.length > 0) {
+          await client.query('delete from seat_claims where holder = any($1::text[])', [hashes]);
+        }
+        await client.query('delete from sessions where user_id = $1', [userId]);
+        const ownedRows = await client.query<{ id: string }>(
+          'select id from workspaces where created_by = $1',
+          [userId],
+        );
+        const ownedIds = ownedRows.rows.map((row) => row.id);
+        await client.query(
+          'delete from workspace_members where user_id = $1 or workspace_id = any($2::text[])',
+          [userId, ownedIds],
+        );
+        await client.query('delete from workspaces where created_by = $1', [userId]);
+        await client.query('delete from users where id = $1', [userId]);
+        await client.query('commit');
+        return hashes;
+      } catch (error) {
+        await client.query('rollback').catch(() => undefined);
+        throw error;
+      } finally {
+        client.release();
+      }
     },
 
     async close() {

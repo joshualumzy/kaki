@@ -37,6 +37,10 @@ export interface MeetingStore {
   }): Promise<MeetingRow>;
   get(id: string): Promise<MeetingRow | undefined>;
   list(workspaceId: string): Promise<MeetingRow[]>;
+  /** Every meeting row this account owns, whatever its status. */
+  listByOwner?(ownerUserId: string): Promise<MeetingRow[]>;
+  /** Delete the rows this account owns or that sit in its deleted workspaces, plus their saved state. */
+  deleteByOwner?(ownerUserId: string, workspaceIds: readonly string[]): Promise<void>;
   /** How many meetings this owner created at or after the given time, for the daily cap. */
   countCreatedByOwnerSince(ownerUserId: string, since: Date): Promise<number>;
   /** Mark the row ended once the meeting finishes, so workspace pages show it as over. */
@@ -78,6 +82,11 @@ export interface MeetingRegistry {
    * never opened has no code yet, so it cannot be found this way.
    */
   findByCode(code: string): Promise<string | undefined>;
+  /**
+   * End and release every meeting this account owns or that sits in one of the given workspaces,
+   * before its account is deleted.
+   */
+  endOwnedBy(userId: string, workspaceIds: readonly string[]): Promise<void>;
   /** Save and dispose one meeting; its row and saved state stay. */
   unload(id: string): Promise<void>;
   /**
@@ -114,6 +123,8 @@ interface MeetingRegistryDeps {
   sweepMs?: number;
   now?: () => number;
   log?: (message: string) => void;
+  /** Release a meeting's seat claims, so no stale claim outlives a deleted meeting. */
+  releaseMeeting?: (meetingId: string) => Promise<void>;
   /** A meeting was opened (loaded) or closed (unloaded), for the runner control channel. */
   onOpened?(meeting: OpenMeeting): void;
   onClosed?(meetingId: string): void;
@@ -379,6 +390,53 @@ export function createMeetingRegistry(deps: MeetingRegistryDeps): MeetingRegistr
 
     list: (workspaceId) => deps.store.list(workspaceId),
 
+    async endOwnedBy(userId, workspaceIds) {
+      // The doomed set is every meeting this account owns plus every meeting that sits in one of
+      // the workspaces about to be deleted, whoever owns it. Deduplicate the two lists by row id.
+      const byId = new Map<string, MeetingRow>();
+      for (const row of (await deps.store.listByOwner?.(userId)) ?? []) byId.set(row.id, row);
+      for (const workspaceId of workspaceIds) {
+        for (const row of await deps.store.list(workspaceId)) byId.set(row.id, row);
+      }
+      for (const row of byId.values()) {
+        if (row.id === LEGACY_MEETING_ID) continue;
+        const instance = loaded.get(row.id);
+        // One bad meeting must never abort the whole deletion: each step is caught on its own so
+        // the rest of this row, and every later row, still runs.
+        if (instance !== undefined && instance.session.phase() === 'running') {
+          try {
+            await instance.hub.handleServerCommand?.(
+              { type: 'END_MEETING', silent: true },
+              { kind: 'screen' },
+            );
+          } catch (error) {
+            log(`kaki meetings: silent-ending ${row.id} for a deleted account failed: ${String(error)}`);
+          }
+        }
+        if (row.status !== 'ended') {
+          try {
+            await deps.store.markEnded?.(row.id, new Date().toISOString());
+          } catch (error) {
+            log(`kaki meetings: marking ${row.id} ended for a deleted account failed: ${String(error)}`);
+          }
+        }
+        try {
+          await deps.releaseMeeting?.(row.id);
+        } catch (error) {
+          log(`kaki meetings: releasing the seats of ${row.id} failed: ${String(error)}`);
+        }
+        // Unload last: the silent end still needs the instance's hub and persistence.
+        if (instance !== undefined) {
+          try {
+            await registry.unload(row.id);
+          } catch (error) {
+            log(`kaki meetings: unloading ${row.id} for a deleted account failed: ${String(error)}`);
+          }
+        }
+        log(`kaki meetings: ended ${row.id} for a deleted account`);
+      }
+    },
+
     async unload(id) {
       if (id === LEGACY_MEETING_ID) {
         throw new Error('the legacy practice meeting cannot be unloaded');
@@ -559,6 +617,39 @@ export function createPostgresMeetingStore(pool: Pool): MeetingStore {
       );
       return result.rows.map(row);
     },
+    async listByOwner(ownerUserId) {
+      await ensureMeetingsSchema(pool);
+      const result = await pool.query(
+        `select id, workspace_id, owner_user_id, title, kind, status, scheduled_for, agenda, created_at, ended_at,
+                  minutes_text, minutes_todos, minutes_archived_at
+           from meetings where owner_user_id = $1 order by created_at asc`,
+        [ownerUserId],
+      );
+      return result.rows.map(row);
+    },
+    async deleteByOwner(ownerUserId, workspaceIds) {
+      await ensureMeetingsSchema(pool);
+      const client = await pool.connect();
+      try {
+        await client.query('begin');
+        const deleted = await client.query<{ id: string }>(
+          `delete from meetings
+            where owner_user_id = $1 or workspace_id = any($2::text[])
+            returning id`,
+          [ownerUserId, [...workspaceIds]],
+        );
+        const ids = deleted.rows.map((record) => record.id);
+        if (ids.length > 0) {
+          await client.query('delete from meeting_state where id = any($1::text[])', [ids]);
+        }
+        await client.query('commit');
+      } catch (error) {
+        await client.query('rollback').catch(() => undefined);
+        throw error;
+      } finally {
+        client.release();
+      }
+    },
   };
 }
 
@@ -617,6 +708,17 @@ export function createMemoryMeetingStore(): MeetingStore & { rows: Map<string, M
       return [...rows.values()]
         .filter((meeting) => meeting.workspaceId === workspaceId)
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    },
+    async listByOwner(ownerUserId) {
+      return [...rows.values()]
+        .filter((meeting) => meeting.ownerUserId === ownerUserId)
+        .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    },
+    async deleteByOwner(ownerUserId, workspaceIds) {
+      const wanted = new Set(workspaceIds);
+      for (const [id, meeting] of rows) {
+        if (meeting.ownerUserId === ownerUserId || wanted.has(meeting.workspaceId)) rows.delete(id);
+      }
     },
   };
 }

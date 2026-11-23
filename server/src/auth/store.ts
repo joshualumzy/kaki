@@ -102,6 +102,8 @@ export interface AuthStore {
   deleteSession(tokenHash: string): Promise<void>;
 
   listWorkspacesForUser(userId: string): Promise<WorkspaceMembership[]>;
+  /** The workspaces this account created, to delete when the account goes. */
+  listWorkspacesOwnedBy(userId: string): Promise<WorkspaceRecord[]>;
   createWorkspace(input: { name: string; createdBy: string }): Promise<WorkspaceMembership>;
   getWorkspace(id: string): Promise<WorkspaceRecord | undefined>;
   getMembership(input: { workspaceId: string; userId: string }): Promise<WorkspaceRole | undefined>;
@@ -112,6 +114,10 @@ export interface AuthStore {
     role: WorkspaceRole;
   }): Promise<void>;
   renameWorkspace(input: { id: string; name: string }): Promise<WorkspaceRecord | undefined>;
+
+  /** Delete the user, their sessions, seat claims, memberships and owned workspaces.
+   *  Returns the token hashes of the sessions it deleted, so their sockets can be closed. */
+  deleteUser(userId: string): Promise<string[]>;
 
   close(): Promise<void>;
 }
@@ -312,6 +318,11 @@ export function createMemoryAuthStore(now: () => number = Date.now): AuthStore {
       }
       return result.sort((a, b) => a.workspace.createdAt.getTime() - b.workspace.createdAt.getTime());
     },
+    async listWorkspacesOwnedBy(userId) {
+      return [...workspaces.values()]
+        .filter((workspace) => workspace.createdBy === userId)
+        .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+    },
     async createWorkspace({ name, createdBy }) {
       return insertWorkspace(randomUUID(), name, 'team', createdBy, 'admin');
     },
@@ -342,6 +353,32 @@ export function createMemoryAuthStore(now: () => number = Date.now): AuthStore {
       const updated: WorkspaceRecord = { ...workspace, name };
       workspaces.set(id, updated);
       return updated;
+    },
+    async deleteUser(userId) {
+      const hashes: string[] = [];
+      for (const [tokenHash, session] of sessions) {
+        if (session.userId === userId) hashes.push(tokenHash);
+      }
+      const ownedIds = [...workspaces.values()]
+        .filter((workspace) => workspace.createdBy === userId)
+        .map((workspace) => workspace.id);
+      // No awaits below: the account and everything it owns disappear in one synchronous step.
+      for (const tokenHash of hashes) sessions.delete(tokenHash);
+      for (const [key, seat] of seats) {
+        if (hashes.includes(seat.holder)) seats.delete(key);
+      }
+      for (const workspaceId of ownedIds) {
+        members.delete(workspaceId);
+        workspaces.delete(workspaceId);
+      }
+      for (const roles of members.values()) roles.delete(userId);
+      const user = usersById.get(userId);
+      if (user !== undefined) {
+        userIdByEmail.delete(user.email);
+        if (user.googleSub !== null) userIdByGoogleSub.delete(user.googleSub);
+      }
+      usersById.delete(userId);
+      return hashes;
     },
     async close() {
       usersById.clear();
