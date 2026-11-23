@@ -1,0 +1,97 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 620" width="960" height="620" role="img" aria-labelledby="title desc">
+  <title id="title">Waking Kaki in the cloud</title>
+  <desc id="desc">A visitor opens the always-on wake page. If the VM is off, the page starts it and waits until Kaki is healthy, then redirects to the app on the Azure VM, where Caddy fronts the Kaki server and NPC runner. An idle timer on the VM deallocates it after inactivity.</desc>
+  <defs>
+    <style>
+      text { font-family: Geist, Inter, "Segoe UI", system-ui, sans-serif; }
+      .t { font-size: 22px; font-weight: 700; fill: #0d1117; }
+      .s { font-size: 14px; fill: #5a6472; }
+      .z { font-size: 12px; font-weight: 700; letter-spacing: 0.08em; fill: #5a6472; }
+      .h { font-size: 15px; font-weight: 600; fill: #0d1117; }
+      .b { font-size: 13px; fill: #5a6472; }
+      .n { font-size: 13px; font-weight: 700; fill: #ffffff; }
+      .m { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; fill: #5a6472; }
+      .l { font-size: 12px; font-weight: 600; fill: #5a6472; }
+      .ln { fill: none; stroke: #5a6472; stroke-width: 1.5; }
+    </style>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#5a6472"/>
+    </marker>
+  </defs>
+
+  <rect x="0.5" y="0.5" width="959" height="619" rx="20" fill="#ffffff" stroke="#d8dde3"/>
+  <text class="t" x="40" y="52">Waking Kaki in the cloud</text>
+  <text class="s" x="40" y="78">The VM sleeps when nobody uses it, so it costs nothing idle. The first visitor wakes it in a few minutes.</text>
+  <text class="z" x="40" y="122">ALWAYS ON · AZURE STATIC WEB APP</text>
+  <text class="z" x="780" y="122">AZURE VM</text>
+  <rect x="40" y="150" width="130" height="90" rx="12" fill="#f6f8fa" stroke="#d0d7de" stroke-width="1.5"/>
+  <text class="h" x="56" y="176">Visitor</text>
+  <text class="b" x="56" y="197">opens the link</text>
+  <path class="ln" d="M170 195 H200" marker-end="url(#a)"/>
+  <rect x="200" y="150" width="180" height="90" rx="12" fill="#eff0ff" stroke="#5865ff" stroke-width="1.5"/>
+  <text class="h" x="216" y="176">Wake page</text>
+  <text class="b" x="216" y="197">looks like Kaki’s</text>
+  <text class="b" x="216" y="215">front door</text>
+  <path class="ln" d="M380 195 H410" marker-end="url(#a)"/>
+  <polygon points="470,150 530,195 470,240 410,195" fill="#ffffff" stroke="#0d1117" stroke-width="1.5" stroke-linejoin="round"/>
+  <text class="h" x="470" y="200" text-anchor="middle">VM on?</text>
+  <path class="ln" d="M530 195 H600" marker-end="url(#a)"/>
+  <text class="l" x="565" y="186" text-anchor="middle">on</text>
+  <path class="ln" d="M470 240 V300" marker-end="url(#a)"/>
+  <text class="l" x="480" y="274">off</text>
+  <rect x="600" y="150" width="140" height="90" rx="12" fill="#e6f6f3" stroke="#00a58e" stroke-width="1.5"/>
+  <text class="h" x="616" y="176">Open Kaki</text>
+  <text class="b" x="616" y="197">redirect to</text>
+  <text class="b" x="616" y="215">the app</text>
+  <path class="ln" d="M740 195 H780" marker-end="url(#a)"/>
+  <rect x="400" y="300" width="140" height="84" rx="12" fill="#fff1eb" stroke="#ff5a1f" stroke-width="1.5"/>
+  <text class="h" x="416" y="326">Start the VM</text>
+  <text class="m" x="416" y="347">POST /api/wake</text>
+  <path class="ln" d="M540 342 H600" marker-end="url(#a)"/>
+  <rect x="600" y="300" width="140" height="84" rx="12" fill="#eff0ff" stroke="#5865ff" stroke-width="1.5"/>
+  <text class="h" x="616" y="326">Wait</text>
+  <text class="b" x="616" y="347">poll every 5 s</text>
+  <text class="b" x="616" y="365">for up to 5 min</text>
+  <path class="ln" d="M670 300 V240" marker-end="url(#a)"/>
+  <text class="l" x="680" y="274">healthy</text>
+  <path d="M290 240 V300" fill="none" stroke="#5a6472" stroke-width="1.5" stroke-dasharray="4 4" marker-end="url(#a)"/>
+  <rect x="40" y="300" width="330" height="84" rx="12" fill="#fdecef" stroke="#e5334b" stroke-width="1.5"/>
+  <text class="h" x="56" y="326">If it takes too long</text>
+  <text class="b" x="56" y="347">After 5 min or an Azure error the page says so</text>
+  <text class="b" x="56" y="365">and offers Try again. It never retries forever.</text>
+  <rect x="780" y="132" width="140" height="300" rx="16" fill="#fff8f5" stroke="#ffc9b3" stroke-width="1.5" stroke-dasharray="5 4"/>
+  <rect x="792" y="150" width="116" height="62" rx="12" fill="#ffffff" stroke="#d0d7de" stroke-width="1.5"/>
+  <text class="h" x="808" y="176">Caddy</text>
+  <text class="b" x="808" y="197">HTTPS</text>
+  <path class="ln" d="M850 212 V236" marker-end="url(#a)"/>
+  <rect x="792" y="236" width="116" height="80" rx="12" fill="#fff1eb" stroke="#ff5a1f" stroke-width="1.5"/>
+  <text class="h" x="808" y="262">Kaki server</text>
+  <text class="b" x="808" y="283">web app</text>
+  <text class="b" x="808" y="301">and API</text>
+  <rect x="792" y="334" width="116" height="80" rx="12" fill="#ffffff" stroke="#d0d7de" stroke-width="1.5"/>
+  <text class="h" x="808" y="360">NPC runner</text>
+  <text class="b" x="808" y="381">listener and</text>
+  <text class="b" x="808" y="399">AI voices</text>
+
+  <text class="z" x="40" y="476">SAVING MONEY · RUNS ON THE VM</text>
+  <rect x="40" y="494" width="330" height="90" rx="12" fill="#f6f8fa" stroke="#d0d7de" stroke-width="1.5"/>
+  <text class="h" x="56" y="520">Boot grace and loud failure</text>
+  <text class="b" x="56" y="541">A fresh VM gets 15 min first. If the check</text>
+  <text class="b" x="56" y="559">cannot read Kaki’s state, it stays on, loudly.</text>
+  <rect x="400" y="494" width="160" height="90" rx="12" fill="#f6f8fa" stroke="#d0d7de" stroke-width="1.5"/>
+  <text class="h" x="416" y="520">Idle timer</text>
+  <text class="b" x="416" y="541">every 5 min</text>
+  <text class="b" x="416" y="559">systemd</text>
+  <path class="ln" d="M560 539 H590" marker-end="url(#a)"/>
+  <rect x="590" y="494" width="160" height="90" rx="12" fill="#f6f8fa" stroke="#d0d7de" stroke-width="1.5"/>
+  <text class="h" x="606" y="520">Nobody around?</text>
+  <text class="b" x="606" y="541">no people for 60 min,</text>
+  <text class="b" x="606" y="559">or no action for 120</text>
+  <path class="ln" d="M750 539 H780" marker-end="url(#a)"/>
+  <rect x="780" y="494" width="140" height="90" rx="12" fill="#fdecef" stroke="#e5334b" stroke-width="1.5"/>
+  <text class="h" x="796" y="520">Deallocate</text>
+  <text class="b" x="796" y="541">the VM switches</text>
+  <text class="b" x="796" y="559">itself off</text>
+  <path class="ln" d="M850 494 V432" marker-end="url(#a)"/>
+  <text class="m" x="920" y="606" text-anchor="end">wake/ · deploy/idle/</text>
+</svg>

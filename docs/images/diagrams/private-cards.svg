@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 600" width="960" height="600" role="img" aria-labelledby="title desc">
+  <title id="title">Who receives what</title>
+  <desc id="desc">The server publishes each event with an audience. Shared notes and the task list go to every seat. A private task card or Wingman card goes only to the seat it belongs to. Guests get meeting-only Wingman answers.</desc>
+  <defs>
+    <style>
+      text { font-family: Geist, Inter, "Segoe UI", system-ui, sans-serif; }
+      .t { font-size: 22px; font-weight: 700; fill: #0d1117; }
+      .s { font-size: 14px; fill: #5a6472; }
+      .z { font-size: 12px; font-weight: 700; letter-spacing: 0.08em; fill: #5a6472; }
+      .h { font-size: 15px; font-weight: 600; fill: #0d1117; }
+      .b { font-size: 13px; fill: #5a6472; }
+      .n { font-size: 13px; font-weight: 700; fill: #ffffff; }
+      .m { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; fill: #5a6472; }
+      .l { font-size: 12px; font-weight: 600; fill: #5a6472; }
+      .ln { fill: none; stroke: #5a6472; stroke-width: 1.5; }
+    </style>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#5a6472"/>
+    </marker>
+  </defs>
+
+  <rect x="0.5" y="0.5" width="959" height="599" rx="20" fill="#ffffff" stroke="#d8dde3"/>
+  <text class="t" x="40" y="52">Who receives what</text>
+  <text class="s" x="40" y="78">The server decides per seat. A private card for one role never reaches another role’s screen.</text>
+
+  <rect x="40" y="106" width="880" height="60" rx="12" fill="#fff1eb" stroke="#ff5a1f" stroke-width="1.5"/>
+  <text class="h" x="60" y="132">Kaki server</text>
+  <text class="b" x="60" y="152">publishes every meeting event with an audience: everyone, or one role</text>
+  <text class="m" x="900" y="142" text-anchor="end">server/src/meeting/tasks.ts</text>
+
+  <text class="z" x="60" y="206">MESSAGE</text>
+  <text class="z" x="470" y="206" text-anchor="middle">AUDIENCE</text>
+  <text class="z" x="650" y="206" text-anchor="middle">ITS OWN SEAT</text>
+  <text class="z" x="830" y="206" text-anchor="middle">EVERY OTHER SEAT</text>
+  <rect x="40" y="220" width="880" height="64" rx="10" fill="#f6f8fa"/>
+  <text class="h" x="60" y="248">Shared notes and transcript</text>
+  <text class="b" x="60" y="268">the meeting record everyone sees</text>
+  <rect x="420" y="240" width="100" height="24" rx="12" fill="#e6f6f3"/><text x="470" y="256" text-anchor="middle" style="font-size:12px;font-weight:600;fill:#00775f">everyone</text>
+  <circle cx="650" cy="252" r="13" fill="#00a58e"/><path d="M644 252 l4 4 l8 -8" fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="830" cy="252" r="13" fill="#00a58e"/><path d="M824 252 l4 4 l8 -8" fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <text class="h" x="60" y="312">Shared task list</text>
+  <text class="b" x="60" y="332">who owns which follow-up</text>
+  <rect x="420" y="304" width="100" height="24" rx="12" fill="#e6f6f3"/><text x="470" y="320" text-anchor="middle" style="font-size:12px;font-weight:600;fill:#00775f">everyone</text>
+  <circle cx="650" cy="316" r="13" fill="#00a58e"/><path d="M644 316 l4 4 l8 -8" fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="830" cy="316" r="13" fill="#00a58e"/><path d="M824 316 l4 4 l8 -8" fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="40" y="348" width="880" height="64" rx="10" fill="#f6f8fa"/>
+  <text class="h" x="60" y="376">Private task card</text>
+  <text class="b" x="60" y="396">Do it for me, claim, approve</text>
+  <rect x="420" y="368" width="100" height="24" rx="12" fill="#eff0ff"/><text x="470" y="384" text-anchor="middle" style="font-size:12px;font-weight:600;fill:#3a43d6">one role</text>
+  <circle cx="650" cy="380" r="13" fill="#00a58e"/><path d="M644 380 l4 4 l8 -8" fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="830" cy="380" r="13" fill="#ffffff" stroke="#c4cbd3" stroke-width="1.5"/><path d="M825 380 h10" stroke="#8b949e" stroke-width="2.2" stroke-linecap="round"/>
+  <text class="h" x="60" y="440">Wingman card</text>
+  <text class="b" x="60" y="460">to-dos, direct questions, records</text>
+  <rect x="420" y="432" width="100" height="24" rx="12" fill="#eff0ff"/><text x="470" y="448" text-anchor="middle" style="font-size:12px;font-weight:600;fill:#3a43d6">one role</text>
+  <circle cx="650" cy="444" r="13" fill="#00a58e"/><path d="M644 444 l4 4 l8 -8" fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="830" cy="444" r="13" fill="#ffffff" stroke="#c4cbd3" stroke-width="1.5"/><path d="M825 444 h10" stroke="#8b949e" stroke-width="2.2" stroke-linecap="round"/>
+
+  <rect x="40" y="494" width="880" height="72" rx="12" fill="#e6f6f3" stroke="#00a58e" stroke-width="1.5"/>
+  <text class="h" x="60" y="522">Guests on a meeting link</text>
+  <text class="b" x="60" y="544">see the shared meeting, and Wingman answers them from the meeting only, never from workspace records.</text>
+</svg>

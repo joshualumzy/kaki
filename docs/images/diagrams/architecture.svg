@@ -1,0 +1,130 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 680" width="960" height="680" role="img" aria-labelledby="title desc">
+  <title id="title">Kaki architecture</title>
+  <desc id="desc">Browsers use the web app, which talks to the Kaki server over HTTP and WebSocket and to LiveKit for audio. The server holds accounts, a meeting registry with Kaki Host, Wingman and Action, and calls Postgres, the LLM gateway and company tools. The NPC runner joins LiveKit and reaches the server over a service channel.</desc>
+  <defs>
+    <style>
+      text { font-family: Geist, Inter, "Segoe UI", system-ui, sans-serif; }
+      .t { font-size: 22px; font-weight: 700; fill: #0d1117; }
+      .s { font-size: 14px; fill: #5a6472; }
+      .z { font-size: 12px; font-weight: 700; letter-spacing: 0.08em; fill: #5a6472; }
+      .h { font-size: 15px; font-weight: 600; fill: #0d1117; }
+      .b { font-size: 13px; fill: #5a6472; }
+      .l { font-size: 12px; font-weight: 600; fill: #5a6472; }
+      .ln { fill: none; stroke: #5a6472; stroke-width: 1.5; }
+    </style>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#5a6472"/>
+    </marker>
+  </defs>
+
+  <rect x="0.5" y="0.5" width="959" height="679" rx="20" fill="#ffffff" stroke="#d8dde3"/>
+  <text class="t" x="40" y="52">Kaki architecture</text>
+  <text class="s" x="40" y="78">Every LLM, speech and company-tool call is made on the server side. The browser holds no API keys.</text>
+
+  <!-- zone labels -->
+  <text class="z" x="40" y="118">BROWSERS</text>
+  <text class="z" x="240" y="118">CLIENT</text>
+  <text class="z" x="440" y="118">KAKI SERVER · NODE + TYPESCRIPT</text>
+  <text class="z" x="770" y="118">DATA AND SERVICES</text>
+
+  <!-- browsers -->
+  <rect x="40" y="134" width="160" height="58" rx="12" fill="#f6f8fa" stroke="#d0d7de" stroke-width="1.5"/>
+  <text class="h" x="56" y="158">Owner</text>
+  <text class="b" x="56" y="178">shared screen</text>
+  <rect x="40" y="206" width="160" height="58" rx="12" fill="#f6f8fa" stroke="#d0d7de" stroke-width="1.5"/>
+  <text class="h" x="56" y="230">Participants</text>
+  <text class="b" x="56" y="250">laptop or phone seat</text>
+  <rect x="40" y="278" width="160" height="58" rx="12" fill="#f6f8fa" stroke="#d0d7de" stroke-width="1.5"/>
+  <text class="h" x="56" y="302">Guest</text>
+  <text class="b" x="56" y="322">meeting link only</text>
+
+  <path class="ln" d="M200 163 C220 163 222 214 240 214" marker-end="url(#a)"/>
+  <path class="ln" d="M200 235 H240" marker-end="url(#a)"/>
+  <path class="ln" d="M200 307 C220 307 222 256 240 256" marker-end="url(#a)"/>
+
+  <!-- web app -->
+  <rect x="240" y="184" width="140" height="102" rx="12" fill="#f6f8fa" stroke="#0d1117" stroke-width="1.5"/>
+  <text class="h" x="256" y="214">Web app</text>
+  <text class="b" x="256" y="236">React + Vite</text>
+  <rect x="254" y="250" width="112" height="24" rx="12" fill="#eff0ff"/>
+  <text x="310" y="266" text-anchor="middle" style="font-size:12px;font-weight:600;fill:#3a43d6">no API keys</text>
+
+  <path class="ln" d="M380 235 H440" marker-end="url(#a)"/>
+  <text class="l" x="410" y="226" text-anchor="middle">HTTP</text>
+  <text class="l" x="410" y="254" text-anchor="middle">+ WS</text>
+
+  <!-- server zone -->
+  <rect x="440" y="134" width="290" height="352" rx="16" fill="#fff8f5" stroke="#ffc9b3" stroke-width="1.5" stroke-dasharray="5 4"/>
+  <rect x="456" y="150" width="258" height="58" rx="12" fill="#ffffff" stroke="#d0d7de" stroke-width="1.5"/>
+  <text class="h" x="472" y="174">Accounts and workspaces</text>
+  <text class="b" x="472" y="194">Google sign-in, sessions, tool logins</text>
+  <rect x="456" y="220" width="258" height="58" rx="12" fill="#ffffff" stroke="#d0d7de" stroke-width="1.5"/>
+  <text class="h" x="472" y="244">Meeting registry</text>
+  <text class="b" x="472" y="264">many meetings, one instance each</text>
+
+  <path class="ln" d="M472 278 V446"/>
+  <path class="ln" d="M472 314 H486" marker-end="url(#a)"/>
+  <path class="ln" d="M472 380 H486" marker-end="url(#a)"/>
+  <path class="ln" d="M472 446 H486" marker-end="url(#a)"/>
+
+  <rect x="486" y="290" width="228" height="50" rx="12" fill="#fff1eb" stroke="#ff5a1f" stroke-width="1.5"/>
+  <text class="h" x="502" y="311">Kaki Host</text>
+  <text class="b" x="502" y="330">agenda clock, notetaker, dispatch</text>
+  <rect x="486" y="356" width="228" height="50" rx="12" fill="#e6f6f3" stroke="#00a58e" stroke-width="1.5"/>
+  <text class="h" x="502" y="377">Kaki Wingman</text>
+  <text class="b" x="502" y="396">private help, workspace search</text>
+  <rect x="486" y="422" width="228" height="50" rx="12" fill="#fff1eb" stroke="#ff5a1f" stroke-width="1.5"/>
+  <text class="h" x="502" y="443">Kaki Action</text>
+  <text class="b" x="502" y="462">drafts, approval, connectors</text>
+
+  <!-- services -->
+  <rect x="770" y="134" width="150" height="80" rx="12" fill="#f6f8fa" stroke="#d0d7de" stroke-width="1.5"/>
+  <text class="h" x="786" y="160">Postgres</text>
+  <text class="b" x="786" y="180">+ pgvector: users,</text>
+  <text class="b" x="786" y="198">workspaces, records</text>
+  <rect x="770" y="228" width="150" height="64" rx="12" fill="#f6f8fa" stroke="#d0d7de" stroke-width="1.5"/>
+  <text class="h" x="786" y="254">LLM gateway</text>
+  <text class="b" x="786" y="274">OpenAI-compatible</text>
+  <rect x="770" y="306" width="150" height="180" rx="12" fill="#f6f8fa" stroke="#d0d7de" stroke-width="1.5"/>
+  <text class="h" x="786" y="332">Company tools</text>
+  <text class="b" x="786" y="358">Gitea</text>
+  <text class="b" x="786" y="390">Mattermost</text>
+  <text class="b" x="786" y="422">Wiki.js</text>
+  <text class="b" x="786" y="454">Mailpit, Radicale</text>
+  <path d="M786 368 H904 M786 400 H904 M786 432 H904" stroke="#e4e8ec" stroke-width="1"/>
+
+  <path class="ln" d="M730 174 H770" marker-end="url(#a)"/>
+  <path class="ln" d="M730 260 H770" marker-end="url(#a)"/>
+  <path class="ln" d="M730 396 H770" marker-end="url(#a)"/>
+
+  <!-- audio row -->
+  <path class="ln" d="M310 286 V540" marker-end="url(#a)"/>
+  <text class="l" x="320" y="410">WebRTC audio</text>
+  <text class="l" x="320" y="428">with a room token</text>
+
+  <rect x="240" y="542" width="140" height="64" rx="12" fill="#e6f6f3" stroke="#00a58e" stroke-width="1.5"/>
+  <text class="h" x="256" y="568">LiveKit room</text>
+  <text class="b" x="256" y="588">WebRTC SFU</text>
+
+  <rect x="456" y="532" width="258" height="84" rx="12" fill="#f6f8fa" stroke="#0d1117" stroke-width="1.5"/>
+  <text class="h" x="472" y="558">NPC runner</text>
+  <text class="b" x="472" y="579">silent room listener (speech-to-text)</text>
+  <text class="b" x="472" y="598">practice: Director + AI voices</text>
+
+  <path class="ln" d="M456 574 H380" marker-end="url(#a)"/>
+  <path class="ln" d="M585 532 V486" marker-end="url(#a)"/>
+  <text class="l" x="595" y="514">service channel</text>
+
+  <rect x="770" y="542" width="150" height="64" rx="12" fill="#f6f8fa" stroke="#d0d7de" stroke-width="1.5"/>
+  <text class="h" x="786" y="568">Azure Speech</text>
+  <text class="b" x="786" y="588">speech in and out</text>
+  <path class="ln" d="M714 574 H770" marker-end="url(#a)"/>
+
+  <!-- legend -->
+  <rect x="40" y="644" width="14" height="14" rx="4" fill="#fff1eb" stroke="#ff5a1f" stroke-width="1.5"/>
+  <text class="b" x="62" y="656">Host and Action agents</text>
+  <rect x="236" y="644" width="14" height="14" rx="4" fill="#e6f6f3" stroke="#00a58e" stroke-width="1.5"/>
+  <text class="b" x="258" y="656">Wingman and live audio</text>
+  <rect x="436" y="644" width="14" height="14" rx="4" fill="#f6f8fa" stroke="#d0d7de" stroke-width="1.5"/>
+  <text class="b" x="458" y="656">Browsers, data and services</text>
+</svg>
