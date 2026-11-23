@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
 import {
@@ -5,7 +6,6 @@ import {
   buildMeetingInviteIcs,
   DEFAULT_MEETING_PACE,
   defaultMeetingSetup,
-  humanRoles,
   isPackFreeMeeting,
   KOPITIAM_INVITE_UID,
   meetingScenarioFromSetup,
@@ -15,18 +15,35 @@ import {
 } from '@kaki/shared';
 import type { CalendarSettings } from '../src/action/calendar';
 import { createWikiModule } from '../src/action/wiki';
-import { createApp, type CreateAppOptions, type KakiApp } from '../src/app';
+import type { CreateAppOptions } from '../src/app';
 import { createAuth } from '../src/auth/module';
-import { hashPassword } from '../src/auth/password';
-import { createMemoryAuthStore } from '../src/auth/store';
+import { hashToken } from '../src/auth/password';
+import { createMemoryAuthStore, type AuthStore } from '../src/auth/store';
 import { createAgendaClock } from '../src/host/clock';
 import { createMeetingCodeSource } from '../src/meeting/meetingCode';
 import { createMeetingModule } from '../src/host/meeting';
 import { loadScenario } from '../src/core/loadScenario';
 import type { KakiModule } from '../src/core/modules';
-import { createMeetingPersistence } from '../src/persist/persistence';
+import { createMemoryMeetingStore, type MeetingStore } from '../src/meeting/registry';
+import { realBaseScenario } from '../src/meeting/realMeeting';
+import type { MeetingRow } from '../src/meeting/types';
+import { createMeetingPersistence, type MeetingPersistence } from '../src/persist/persistence';
 import { MEETING_STATE_SCHEMA_VERSION, type MeetingStateStore, type StoredMeeting } from '../src/persist/state';
-import { connectClient, portOf, settle, waitFor, waitForEvent } from './helpers';
+import {
+  connectMeetingClient,
+  createPracticeTestApp,
+  createTestApp,
+  meetingUrl,
+  meetingWsUrl,
+  portOf,
+  practiceModulesWith,
+  realModulesWith,
+  settle,
+  waitFor,
+  waitForEvent,
+  type TestAppWithMeeting,
+  type TestClient,
+} from './helpers';
 import { testScenario } from './fixtures/scenario';
 
 const packScenario: Scenario = {
@@ -141,15 +158,6 @@ function storedMeetingWithSetup(setup: MeetingSetup, started: boolean): StoredMe
   };
 }
 
-/** A fresh copy every time: Start mutates the active scenario, so tests must not share one. */
-function freshTopicScenario(): Scenario {
-  const scenario = structuredClone(topicScenario);
-  return {
-    ...scenario,
-    agenda: scenario.agenda.filter((item) => item.title === 'Prep' || item.title === 'Close'),
-  };
-}
-
 class MemoryStore implements MeetingStateStore {
   saved: StoredMeeting | undefined;
   async load(): Promise<StoredMeeting | undefined> {
@@ -163,7 +171,7 @@ class MemoryStore implements MeetingStateStore {
   }
 }
 
-const apps: KakiApp[] = [];
+const apps: TestAppWithMeeting[] = [];
 const sockets: WebSocket[] = [];
 
 afterEach(async () => {
@@ -171,55 +179,171 @@ afterEach(async () => {
   for (const app of apps.splice(0)) await app.close();
 });
 
-async function startApp(scenario: Scenario, options: Omit<CreateAppOptions, 'scenario'> = {}): Promise<KakiApp> {
-  const app = await createApp({
+/** One meeting route for the app's own meeting. */
+function url(app: TestAppWithMeeting, path: string): string {
+  return meetingUrl(app, app.meetingId, path);
+}
+
+/** A per-visitor practice meeting: the one place the pack and its draft still drive Start. */
+async function startApp(
+  scenario: Scenario,
+  options: Omit<CreateAppOptions, 'scenario'> = {},
+): Promise<TestAppWithMeeting> {
+  const { modules = [], ...rest } = options;
+  const app = await createPracticeTestApp({
     speechRecognition: 'browser',
     scenario,
     roomRoster: async () => [],
     rejoinGraceMs: 60_000,
     rejoinPollMs: 60_000,
-    ...options,
+    practiceModules: practiceModulesWith(modules),
+    ...rest,
   });
   apps.push(app);
   return app;
 }
 
-function startMeeting(app: KakiApp): Promise<Response> {
-  return fetch(`http://127.0.0.1:${portOf(app)}/api/meeting/start`, { method: 'POST' });
+interface RealMeetingOptions {
+  title: string;
+  agenda?: MeetingRow['agenda'];
+  meetingId?: string;
+  ownerUserId?: string;
 }
 
-async function getSetup(app: KakiApp): Promise<MeetingSetup> {
-  const response = await fetch(`http://127.0.0.1:${portOf(app)}/api/setup`);
+type RealAppOptions = Omit<
+  CreateAppOptions,
+  'scenario' | 'meetings' | 'persistenceFor' | 'meetingModules' | 'practiceModules' | 'modules'
+> & {
+  modules?: KakiModule[];
+  persistence?: MeetingPersistence;
+};
+
+/** A real meeting row plus its loaded instance: team meetings, persistence and auth live here. */
+async function startRealApp(
+  meetings: MeetingStore,
+  meeting: RealMeetingOptions,
+  options: RealAppOptions = {},
+): Promise<TestAppWithMeeting> {
+  const { modules = [createMeetingModule({ notetakerIntervalMs: 60_000 })], persistence, ...rest } = options;
+  const app = (await createTestApp({
+    meetings,
+    ...(persistence === undefined ? {} : { persistenceFor: async () => persistence }),
+    meetingModules: realModulesWith(modules),
+    roomRoster: async () => [],
+    rejoinGraceMs: 60_000,
+    rejoinPollMs: 60_000,
+    ...rest,
+  })) as TestAppWithMeeting;
+  apps.push(app);
+  const meetingId =
+    meeting.meetingId ??
+    (
+      await meetings.create({
+        workspaceId: 'workspace-1',
+        ownerUserId: meeting.ownerUserId ?? 'test-owner',
+        title: meeting.title,
+        ...(meeting.agenda === undefined ? {} : { agenda: meeting.agenda }),
+      })
+    ).id;
+  const instance = await app.registry.get(meetingId);
+  if (instance === undefined) throw new Error(`the real meeting ${meetingId} did not load`);
+  return Object.assign(app, {
+    id: instance.id,
+    instance,
+    hub: instance.hub,
+    tasks: instance.tasks,
+    session: instance.session,
+    memory: instance.memory,
+    roomName: instance.roomName,
+    meetingId,
+  });
+}
+
+/** An app whose next `registry.get` will load (or refuse) a saved meeting; used for boot failures. */
+async function startBootApp(meetings: MeetingStore, persistence: MeetingPersistence): Promise<TestAppWithMeeting> {
+  const app = (await createTestApp({
+    meetings,
+    persistenceFor: async () => persistence,
+    meetingModules: realModulesWith([]),
+    roomRoster: async () => [],
+  })) as TestAppWithMeeting;
+  apps.push(app);
+  return app;
+}
+
+function expectedRealSetup(row: MeetingRow): MeetingSetup {
+  return defaultMeetingSetup(realBaseScenario(row));
+}
+
+async function signInGoogle(store: AuthStore, name: string): Promise<{ userId: string; cookie: string }> {
+  const email = `${randomUUID()}@example.com`;
+  const user = await store.createGoogleUser({ googleSub: randomUUID(), name, email });
+  const token = randomUUID();
+  await store.createSession({
+    tokenHash: hashToken(token),
+    kind: 'user',
+    role: null,
+    meetingCode: null,
+    meetingId: null,
+    displayName: name,
+    userId: user.id,
+    expiresAt: new Date(Date.now() + 60_000),
+  });
+  return { userId: user.id, cookie: `kaki_session=${token}` };
+}
+
+function startMeeting(app: TestAppWithMeeting, cookie = app.cookie): Promise<Response> {
+  return fetch(url(app, '/api/meeting/start'), {
+    method: 'POST',
+    ...(cookie === undefined ? {} : { headers: { cookie } }),
+  });
+}
+
+async function getSetup(app: TestAppWithMeeting): Promise<MeetingSetup> {
+  const response = await fetch(url(app, '/api/setup'), {
+    ...(app.cookie === undefined ? {} : { headers: { cookie: app.cookie } }),
+  });
   expect(response.status).toBe(200);
   return ((await response.json()) as { setup: MeetingSetup }).setup;
 }
 
-function putSetup(app: KakiApp, setup: MeetingSetup): Promise<Response> {
-  return fetch(`http://127.0.0.1:${portOf(app)}/api/setup`, {
+function putSetup(app: TestAppWithMeeting, setup: MeetingSetup): Promise<Response> {
+  const headers: Record<string, string> = { 'content-type': 'application/json' };
+  if (app.cookie !== undefined) headers.cookie = app.cookie;
+  return fetch(url(app, '/api/setup'), {
     method: 'PUT',
-    headers: { 'content-type': 'application/json' },
+    headers,
     body: JSON.stringify(setup),
   });
 }
 
-function startBlankSetup(app: KakiApp): Promise<Response> {
-  return fetch(`http://127.0.0.1:${portOf(app)}/api/setup/blank`, { method: 'POST' });
+function startBlankSetup(app: TestAppWithMeeting): Promise<Response> {
+  return fetch(url(app, '/api/setup/blank'), {
+    method: 'POST',
+    ...(app.cookie === undefined ? {} : { headers: { cookie: app.cookie } }),
+  });
 }
 
-async function getScenario(app: KakiApp): Promise<Scenario> {
-  const response = await fetch(`http://127.0.0.1:${portOf(app)}/api/scenario`);
+async function getScenario(app: TestAppWithMeeting): Promise<Scenario> {
+  const response = await fetch(url(app, '/api/scenario'));
   expect(response.status).toBe(200);
   return (await response.json()) as Scenario;
 }
 
-async function meetingState(app: KakiApp): Promise<{ meetingId: string; started: boolean; startedAt?: string }> {
-  const response = await fetch(`http://127.0.0.1:${portOf(app)}/api/meeting/state`);
+async function meetingState(app: TestAppWithMeeting): Promise<{ meetingId: string; started: boolean; startedAt?: string }> {
+  const response = await fetch(url(app, '/api/meeting/state'));
   expect(response.status).toBe(200);
   return (await response.json()) as { meetingId: string; started: boolean; startedAt?: string };
 }
 
-async function connectService(port: number): Promise<{ socket: WebSocket; prepares: unknown[] }> {
-  const socket = new WebSocket(`ws://127.0.0.1:${port}/ws?role=service`);
+function cookieFrom(response: Response): string {
+  const pair = (response.headers.get('set-cookie') ?? '').split(';')[0] ?? '';
+  if (pair === '') throw new Error('The response did not set a cookie');
+  return pair;
+}
+
+async function connectService(port: number, meetingId: string): Promise<{ socket: WebSocket; prepares: unknown[] }> {
+  const socket = new WebSocket(meetingWsUrl(port, meetingId, 'role=service'));
   const prepares: unknown[] = [];
   sockets.push(socket);
   socket.on('message', (data) => {
@@ -227,12 +351,12 @@ async function connectService(port: number): Promise<{ socket: WebSocket; prepar
       kind?: string;
       request?: { requestId?: string; attempt?: string; meetingId?: string };
     };
-    const { requestId, attempt, meetingId } = message.request ?? {};
-    if (message.kind !== 'prepare' || requestId === undefined || attempt === undefined || meetingId === undefined) {
+    const { requestId, attempt, meetingId: requestMeetingId } = message.request ?? {};
+    if (message.kind !== 'prepare' || requestId === undefined || attempt === undefined || requestMeetingId === undefined) {
       return;
     }
     prepares.push(message.request);
-    socket.send(JSON.stringify({ kind: 'ready', requestId, attempt, meetingId }));
+    socket.send(JSON.stringify({ kind: 'ready', requestId, attempt, meetingId: requestMeetingId }));
   });
   await new Promise<void>((resolve, reject) => {
     socket.once('open', () => resolve());
@@ -247,12 +371,12 @@ interface PrepareRequest {
   meetingId: string;
 }
 
-async function connectHeldService(port: number): Promise<{
+async function connectHeldService(port: number, meetingId: string): Promise<{
   socket: WebSocket;
   prepares: PrepareRequest[];
   reply(kind: 'ready' | 'failed', reason?: string): void;
 }> {
-  const socket = new WebSocket(`ws://127.0.0.1:${port}/ws?role=service`);
+  const socket = new WebSocket(meetingWsUrl(port, meetingId, 'role=service'));
   const prepares: PrepareRequest[] = [];
   sockets.push(socket);
   socket.on('message', (data) => {
@@ -260,11 +384,11 @@ async function connectHeldService(port: number): Promise<{
       kind?: string;
       request?: Partial<PrepareRequest>;
     };
-    const { requestId, attempt, meetingId } = message.request ?? {};
-    if (message.kind !== 'prepare' || requestId === undefined || attempt === undefined || meetingId === undefined) {
+    const { requestId, attempt, meetingId: requestMeetingId } = message.request ?? {};
+    if (message.kind !== 'prepare' || requestId === undefined || attempt === undefined || requestMeetingId === undefined) {
       return;
     }
-    prepares.push({ requestId, attempt, meetingId });
+    prepares.push({ requestId, attempt, meetingId: requestMeetingId });
   });
   await new Promise<void>((resolve, reject) => {
     socket.once('open', () => resolve());
@@ -289,27 +413,97 @@ async function connectHeldService(port: number): Promise<{
   };
 }
 
-async function join(app: KakiApp, participantName: string, participantRole: string): Promise<Response> {
-  await fetch(`http://localhost:${portOf(app)}/api/meeting/open`, { method: 'POST' });
-  return fetch(`http://localhost:${portOf(app)}/api/livekit/token`, {
+/** One visitor joins their own practice meeting. */
+function join(app: TestAppWithMeeting, participantName: string, participantRole: string): Promise<Response> {
+  const headers: Record<string, string> = { 'content-type': 'application/json' };
+  if (app.cookie !== undefined) headers.cookie = app.cookie;
+  return fetch(url(app, '/api/livekit/token'), {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ roomName: 'test-room', participantName, participantRole }),
+    headers,
+    body: JSON.stringify({ kind: 'practice', participantName, participantRole }),
   });
 }
 
-async function joinWithCode(
-  app: KakiApp,
-  participantName: string,
-  participantRole: string,
-  meetingCode: string,
-): Promise<Response> {
-  await fetch(`http://localhost:${portOf(app)}/api/meeting/open`, { method: 'POST' });
-  return fetch(`http://localhost:${portOf(app)}/api/livekit/token`, {
+/** A person joins a real meeting under their own name, no role and no code. */
+function joinReal(app: TestAppWithMeeting, participantName: string, cookie?: string): Promise<Response> {
+  const headers: Record<string, string> = { 'content-type': 'application/json' };
+  if (cookie !== undefined) headers.cookie = cookie;
+  return fetch(url(app, '/api/livekit/token'), {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ participantName }),
+  });
+}
+
+/** A guest takes a real meeting's seat; the join route hands out the guest cookie first. */
+async function joinGuest(
+  app: TestAppWithMeeting,
+  name: string,
+): Promise<{ cookie: string; seat: string }> {
+  const base = `http://127.0.0.1:${portOf(app)}`;
+  const joined = await fetch(`${base}/api/meetings/${app.meetingId}/join`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ roomName: 'test-room', participantName, participantRole, meetingCode }),
+    body: JSON.stringify({ name }),
   });
+  expect(joined.status).toBe(200);
+  const cookie = cookieFrom(joined);
+  const seated = await joinReal(app, name, cookie);
+  expect(seated.status).toBe(200);
+  const seat = ((await seated.json()) as { participantRole: string }).participantRole;
+  return { cookie, seat };
+}
+
+/** A role socket that may carry a signed-in owner's cookie. */
+async function connectRole(
+  port: number,
+  meetingId: string,
+  role: string,
+  cookie?: string,
+): Promise<TestClient> {
+  const ws = new WebSocket(
+    meetingWsUrl(port, meetingId, `role=${encodeURIComponent(role)}`),
+    cookie === undefined ? undefined : { headers: { cookie } },
+  );
+  const messages: TestClient['messages'] = [];
+  sockets.push(ws);
+  ws.on('message', (data) => {
+    messages.push(JSON.parse(data.toString()) as TestClient['messages'][number]);
+  });
+  await new Promise<void>((resolve, reject) => {
+    ws.once('open', () => resolve());
+    ws.once('error', reject);
+  });
+  return { ws, messages, close: () => ws.close() };
+}
+
+/** The shared screen of a real meeting, which needs the owner's cookie when sign-in is on. */
+async function connectScreen(app: TestAppWithMeeting, cookie?: string): Promise<TestClient> {
+  const ws = new WebSocket(
+    meetingWsUrl(portOf(app), app.meetingId, 'audience=screen'),
+    cookie === undefined ? undefined : { headers: { cookie } },
+  );
+  const messages: TestClient['messages'] = [];
+  sockets.push(ws);
+  ws.on('message', (data) => {
+    messages.push(JSON.parse(data.toString()) as TestClient['messages'][number]);
+  });
+  await new Promise<void>((resolve, reject) => {
+    ws.once('open', () => resolve());
+    ws.once('error', reject);
+  });
+  return { ws, messages, close: () => ws.close() };
+}
+
+async function endRealMeeting(app: TestAppWithMeeting): Promise<void> {
+  const screen = await connectMeetingClient(portOf(app), app.meetingId, 'screen');
+  screen.ws.send(JSON.stringify({ type: 'END_MEETING' }));
+  await waitForEvent(
+    screen,
+    (event) => event.type === 'MEETING_RECORD_UPDATED' && event.payload.ended === true,
+    'the meeting to end',
+  );
+  screen.close();
 }
 
 function agendaShape(scenario: Scenario): Array<{ title: string; minutes: number; ownerRole: string }> {
@@ -326,7 +520,7 @@ describe('Start applies the validated setup', () => {
       },
     };
     const app = await startApp(packScenario, { modules: [corrupt] });
-    const { prepares } = await connectService(portOf(app));
+    const { prepares } = await connectService(portOf(app), app.meetingId);
     const before = await getScenario(app);
 
     const response = await startMeeting(app);
@@ -337,7 +531,7 @@ describe('Start applies the validated setup', () => {
     await settle(50);
     expect(prepares).toHaveLength(0);
     expect((await getScenario(app)).agenda).toEqual(before.agenda);
-    const state = (await (await fetch(`http://127.0.0.1:${portOf(app)}/api/meeting/state`)).json()) as {
+    const state = (await (await fetch(url(app, '/api/meeting/state'))).json()) as {
       started: boolean;
     };
     expect(state.started).toBe(false);
@@ -349,7 +543,7 @@ describe('Start applies the validated setup', () => {
     const app = await startApp(testScenario, {
       modules: [createMeetingModule({ clock, notetakerIntervalMs: 60_000 })],
     });
-    const screen = await connectClient(portOf(app), 'screen');
+    const screen = await connectMeetingClient(portOf(app), app.meetingId, 'screen');
     const setup = await getSetup(app);
     setup.agenda[0]!.minutes = 1;
     expect((await putSetup(app, setup)).status).toBe(200);
@@ -419,9 +613,8 @@ describe('Start applies the validated setup', () => {
   });
 
   it('excludes a pack seat switched to a person from the active AI cast', async () => {
-    const app = await startApp(structuredClone(packScenario));
-    await connectService(portOf(app));
-    const setup = await getSetup(app);
+    const pack = structuredClone(packScenario);
+    const setup = defaultMeetingSetup(pack);
     const ada = setup.seats.find((seat) => seat.displayName === 'Ada');
     const bao = setup.seats.find((seat) => seat.displayName === 'Bao');
     expect(bao?.kind).toBe('ai');
@@ -431,6 +624,10 @@ describe('Start applies the validated setup', () => {
     ada.npcProfileId = 'Ada';
     bao.kind = 'person';
     delete bao.npcProfileId;
+    // The practice meeting's admission reads its pack; the same edited plan as its pack keeps the
+    // one person seat joinable while still proving the switched seat left the AI cast.
+    const app = await startApp(meetingScenarioFromSetup(pack, setup));
+    await connectService(portOf(app), app.meetingId);
     expect((await putSetup(app, setup)).status).toBe(200);
     expect((await join(app, 'Guest', 'cashier')).status).toBe(200);
 
@@ -441,10 +638,10 @@ describe('Start applies the validated setup', () => {
 
   it("starts the default Kopitiam setup as today's meeting", async () => {
     const scenario = await loadScenario('kopitiam');
-    // A snapshot that createApp and Start may both mutate; the expectations compare against this.
+    // A snapshot that the app and Start may both mutate; the expectations compare against this.
     const pack = structuredClone(scenario);
     const app = await startApp(scenario);
-    await connectService(portOf(app));
+    await connectService(portOf(app), app.meetingId);
     const setup = await getSetup(app);
     expect(setup).toEqual(defaultMeetingSetup(pack));
     expect(setup.pace).toEqual(DEFAULT_MEETING_PACE);
@@ -462,25 +659,37 @@ describe('Start applies the validated setup', () => {
   });
 
   it('restores the sealed setup and its agenda after a restart', async () => {
+    const meetings = createMemoryMeetingStore();
+    const row = await meetings.create({
+      workspaceId: 'workspace-1',
+      ownerUserId: 'test-owner',
+      title: 'Test meeting',
+      agenda: [
+        { title: 'Prep', minutes: 2 },
+        { title: 'After the break', minutes: 3 },
+      ],
+    });
     const store = new MemoryStore();
-    const persistence = createMeetingPersistence({ store, log: () => undefined });
-    const app = await startApp(testScenario, {
-      modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
-      persistence,
-    });
-    const setup = await getSetup(app);
-    setup.agenda[0]!.minutes = 2;
-    setup.agenda.push({ id: 'agenda-2', title: 'After the break', minutes: 3, ownerRoleId: 'cashier' });
-    expect((await putSetup(app, setup)).status).toBe(200);
-    expect((await join(app, 'Cook', 'chef')).status).toBe(200);
-    expect((await startMeeting(app)).status).toBe(200);
-    await persistence.flush();
+    const firstPersistence = createMeetingPersistence({ store, log: () => undefined });
+    const first = await startRealApp(
+      meetings,
+      { meetingId: row.id, title: row.title, agenda: row.agenda },
+      { persistence: firstPersistence },
+    );
+    expect((await joinReal(first, 'Cook')).status).toBe(200);
+    expect((await startMeeting(first)).status).toBe(200);
+    await firstPersistence.flush();
 
-    const restoredStore = store;
-    const restored = await startApp(testScenario, {
-      modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
-      persistence: createMeetingPersistence({ store: restoredStore, saved: restoredStore.saved, log: () => undefined }),
-    });
+    await first.close();
+    apps.splice(apps.indexOf(first), 1);
+
+    const restored = await startRealApp(
+      meetings,
+      { meetingId: row.id, title: row.title, agenda: row.agenda },
+      {
+        persistence: createMeetingPersistence({ store, saved: await store.load(), log: () => undefined }),
+      },
+    );
     const restoredSetup = await getSetup(restored);
     expect(restoredSetup.agenda.map(({ title, minutes }) => ({ title, minutes }))).toEqual([
       { title: 'Prep', minutes: 2 },
@@ -491,16 +700,13 @@ describe('Start applies the validated setup', () => {
       { title: 'Prep', minutes: 2 },
       { title: 'After the break', minutes: 3 },
     ]);
-    const state = (await (await fetch(`http://127.0.0.1:${portOf(restored)}/api/meeting/state`)).json()) as {
-      started: boolean;
-    };
-    expect(state.started).toBe(true);
+    expect((await meetingState(restored)).started).toBe(true);
   });
 
   it('keeps the two-topic agenda admission shuffled when Start runs an untouched draft', async () => {
     const scenario = await loadScenario('kopitiam');
     const app = await startApp(scenario);
-    await connectService(portOf(app));
+    await connectService(portOf(app), app.meetingId);
     expect((await join(app, 'Booth Playtest', 'operations_director')).status).toBe(200);
 
     const chosen = structuredClone(await getScenario(app));
@@ -516,7 +722,7 @@ describe('Start applies the validated setup', () => {
     try {
       const scenario = await loadScenario('kopitiam');
       const app = await startApp(scenario);
-      await connectService(portOf(app));
+      await connectService(portOf(app), app.meetingId);
       expect((await join(app, 'Booth Playtest', 'operations_director')).status).toBe(200);
 
       const picked = scenario.agenda.slice(0, 2);
@@ -540,7 +746,7 @@ describe('Start applies the validated setup', () => {
     try {
       const scenario = await loadScenario('kopitiam');
       const app = await startApp(scenario);
-      await connectService(portOf(app));
+      await connectService(portOf(app), app.meetingId);
       expect((await join(app, 'Booth Playtest', 'operations_director')).status).toBe(200);
       const picked = (await getScenario(app)).agenda.map((item) => item.title);
       expect(picked).toEqual([
@@ -563,91 +769,110 @@ describe('Start applies the validated setup', () => {
 
   it('keeps the visitor-shaped lobby agenda across a restart, so Start seals the same topics', async () => {
     const scenario = await loadScenario('kopitiam');
+    const chosen = scenario.agenda.slice(0, 2).map(({ title, minutes }) => ({ title, minutes }));
+    const meetings = createMemoryMeetingStore();
+    const row = await meetings.create({
+      workspaceId: 'workspace-1',
+      ownerUserId: 'test-owner',
+      title: scenario.meetingTitle,
+      agenda: chosen,
+    });
     const store = new MemoryStore();
     const firstPersistence = createMeetingPersistence({ store, log: () => undefined });
-    const first = await startApp(scenario, {
-      modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
-      persistence: firstPersistence,
-    });
-    expect((await join(first, 'Booth Playtest', 'operations_director')).status).toBe(200);
-    const chosen = structuredClone(await getScenario(first));
-    expect(chosen.agenda).toHaveLength(2);
+    const first = await startRealApp(
+      meetings,
+      { meetingId: row.id, title: row.title, agenda: row.agenda },
+      { persistence: firstPersistence },
+    );
+    expect((await joinReal(first, 'Booth Playtest')).status).toBe(200);
+    const lobby = structuredClone(await getScenario(first));
+    expect(lobby.agenda).toHaveLength(2);
     await firstPersistence.flush();
-    expect(store.saved?.lobbyAgenda).toEqual(chosen.agenda.map((item) => item.title));
+    expect(store.saved?.lobbyAgenda).toEqual(lobby.agenda.map((item) => item.title));
 
     await first.close();
     apps.splice(apps.indexOf(first), 1);
 
-    const restored = await startApp(await loadScenario('kopitiam'), {
-      modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
-      persistence: createMeetingPersistence({ store, saved: await store.load(), log: () => undefined }),
-    });
+    const restored = await startRealApp(
+      meetings,
+      { meetingId: row.id, title: row.title, agenda: row.agenda },
+      {
+        persistence: createMeetingPersistence({ store, saved: await store.load(), log: () => undefined }),
+      },
+    );
     const restoredView = await getScenario(restored);
-    expect(restoredView.agenda.map((item) => item.title)).toEqual(chosen.agenda.map((item) => item.title));
-    expect((await getSetup(restored)).title).toBe(defaultMeetingSetup(structuredClone(scenario)).title);
+    expect(restoredView.agenda.map((item) => item.title)).toEqual(lobby.agenda.map((item) => item.title));
+    expect((await getSetup(restored)).title).toBe(scenario.meetingTitle);
 
-    await connectService(portOf(restored));
     expect((await startMeeting(restored)).status).toBe(200);
     const running = await getScenario(restored);
-    expect(running.agenda.map((item) => item.title)).toEqual(chosen.agenda.map((item) => item.title));
+    expect(running.agenda.map((item) => item.title)).toEqual(lobby.agenda.map((item) => item.title));
   });
 
   it('saves a Start in flight as the shaped lobby, so a restart keeps the agenda it was sealing', async () => {
     const scenario = await loadScenario('kopitiam');
+    const chosen = scenario.agenda.slice(0, 2).map(({ title, minutes }) => ({ title, minutes }));
+    const meetings = createMemoryMeetingStore();
+    const row = await meetings.create({
+      workspaceId: 'workspace-1',
+      ownerUserId: 'test-owner',
+      title: scenario.meetingTitle,
+      agenda: chosen,
+    });
     const store = new MemoryStore();
     const firstPersistence = createMeetingPersistence({ store, log: () => undefined });
-    const first = await startApp(scenario, {
-      modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
-      persistence: firstPersistence,
-    });
-    const service = await connectHeldService(portOf(first));
-    expect((await join(first, 'Booth Playtest', 'operations_director')).status).toBe(200);
-    const chosen = structuredClone(await getScenario(first));
-    expect(chosen.agenda).toHaveLength(2);
+    const first = await startRealApp(
+      meetings,
+      { meetingId: row.id, title: row.title, agenda: row.agenda },
+      { persistence: firstPersistence },
+    );
+    expect((await joinReal(first, 'Booth Playtest')).status).toBe(200);
+    const lobby = structuredClone(await getScenario(first));
+    expect(lobby.agenda).toHaveLength(2);
 
-    const starting = startMeeting(first);
-    await waitFor(() => (service.prepares.length === 1 ? true : undefined), 'the runner prepare');
-    // Any saved event while the Start is in flight must persist the lobby shape, never running.
+    // A Start is in flight: the session is starting while people may still see the lobby.
+    first.session.beginStart(first.session.active(), await getSetup(first));
     first.hub.publish({
       type: 'TRANSCRIPT_CHUNK',
       audience: { kind: 'screen' },
       payload: { speaker: 'Booth', text: 'A line while starting.', timestamp: new Date().toISOString() },
     });
+    first.instance.persistence?.scheduleSave();
     await settle(20);
     await firstPersistence.flush();
     const whileStarting = structuredClone(store.saved);
     expect(whileStarting?.phase).toBe('lobby');
-    expect(whileStarting?.lobbyAgenda).toEqual(chosen.agenda.map((item) => item.title));
+    expect(whileStarting?.lobbyAgenda).toEqual(lobby.agenda.map((item) => item.title));
 
-    service.reply('failed', 'restart while starting');
-    expect((await starting).status).toBe(503);
+    first.session.abortStart('restart while starting');
     await first.close();
     apps.splice(apps.indexOf(first), 1);
 
-    const restoredStore = new MemoryStore();
-    const restored = await startApp(await loadScenario('kopitiam'), {
-      modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
-      persistence: createMeetingPersistence({
-        store: restoredStore,
-        saved: whileStarting,
-        log: () => undefined,
-      }),
-    });
+    const restored = await startRealApp(
+      meetings,
+      { meetingId: row.id, title: row.title, agenda: row.agenda },
+      {
+        persistence: createMeetingPersistence({
+          store: new MemoryStore(),
+          saved: whileStarting,
+          log: () => undefined,
+        }),
+      },
+    );
     expect((await getScenario(restored)).agenda.map((item) => item.title)).toEqual(
-      chosen.agenda.map((item) => item.title),
+      lobby.agenda.map((item) => item.title),
     );
 
-    await connectService(portOf(restored));
     expect((await startMeeting(restored)).status).toBe(200);
     expect((await getScenario(restored)).agenda.map((item) => item.title)).toEqual(
-      chosen.agenda.map((item) => item.title),
+      lobby.agenda.map((item) => item.title),
     );
   });
 
   it('starts an owner-edited setup whose linked topics were narrowed', async () => {
     const scenario = await loadScenario('kopitiam');
     const app = await startApp(scenario);
-    await connectService(portOf(app));
+    await connectService(portOf(app), app.meetingId);
     const setup = await getSetup(app);
     const weiLing = setup.seats.find((seat) => seat.displayName === 'Wei Ling');
     if (weiLing === undefined) throw new Error('Expected the Wei Ling seat');
@@ -682,7 +907,7 @@ describe('Start applies the validated setup', () => {
   it('makes the admitted person the one human and keeps their colleague AI-voiced', async () => {
     const scenario = await loadScenario('kopitiam');
     const app = await startApp(scenario);
-    await connectService(portOf(app));
+    await connectService(portOf(app), app.meetingId);
     expect((await join(app, 'Booth Playtest', 'tech_pos_lead')).status).toBe(200);
 
     expect((await startMeeting(app)).status).toBe(200);
@@ -699,7 +924,7 @@ describe('Start applies the validated setup', () => {
     const scenario = structuredClone(packScenario);
     scenario.npcs![0]!.playable = true;
     const app = await startApp(scenario);
-    const service = await connectHeldService(portOf(app));
+    const service = await connectHeldService(portOf(app), app.meetingId);
     expect((await join(app, 'Guest', 'chef')).status).toBe(200);
     const starting = startMeeting(app);
     await waitFor(() => (service.prepares.length === 1 ? true : undefined), 'the runner prepare');
@@ -720,11 +945,12 @@ describe('Start applies the validated setup', () => {
     expect((await getSetup(app)).title).not.toBe('Changed while starting');
   });
 
-  it('puts the agenda, roles and cast back exactly as they were when Start fails', async () => {
+  it('leaves the pack it was running when Start fails', async () => {
     const scenario = structuredClone(packScenario);
     scenario.npcs![0]!.playable = true;
     const app = await startApp(scenario);
 
+    const before = structuredClone(await getScenario(app));
     const draft = await getSetup(app);
     draft.title = 'A different meeting';
     draft.roles = draft.roles.map((role, index) => (index === 0 ? { ...role, label: 'Head Chef' } : role));
@@ -734,52 +960,54 @@ describe('Start applies the validated setup', () => {
 
     expect((await startMeeting(app)).status).toBe(503);
     const after = await getScenario(app);
-    // The lobby shows the saved draft: its own agenda, renamed roles and seats. Its cast is the
-    // one Start would run, so the person seat is not voiced as an AI attendee.
-    expect(agendaShape(after)).toEqual(
-      draft.agenda.map(({ title, minutes, ownerRoleId }) => ({ title, minutes, ownerRole: ownerRoleId })),
-    );
+    // A failed Start never applies the draft: the meeting is still the pack it was in the lobby,
+    // with its own agenda, roles and cast, and the draft is left for the owner to retry.
+    expect(agendaShape(after)).toEqual(agendaShape(before));
     expect(after.roles.map(({ id, label, facilitator }) => ({ id, label, facilitator: facilitator === true }))).toEqual(
-      draft.roles.map(({ id, label, facilitator }) => ({ id, label, facilitator })),
+      before.roles.map(({ id, label, facilitator }) => ({ id, label, facilitator: facilitator === true })),
     );
-    expect(after.npcs?.map((npc) => npc.attendee)).toEqual(['Bao', 'Cy']);
-    expect(after.npcs?.every((npc) => npc.playable !== true)).toBe(true);
+    expect(after.npcs?.map((npc) => npc.attendee)).toEqual(before.npcs?.map((npc) => npc.attendee));
     expect((await getSetup(app)).title).toBe('A different meeting');
   });
 
   it('restores a custom agenda after the meeting ended and holds it for review', async () => {
+    const meetings = createMemoryMeetingStore();
+    const row = await meetings.create({
+      workspaceId: 'workspace-1',
+      ownerUserId: 'test-owner',
+      title: 'Test meeting',
+      agenda: [
+        { title: 'Prep', minutes: 5 },
+        { title: 'Close', minutes: 4 },
+        { title: 'A custom close', minutes: 3 },
+      ],
+    });
     const store = new MemoryStore();
     const firstPersistence = createMeetingPersistence({ store, log: () => undefined });
-    const first = await startApp(freshTopicScenario(), {
-      modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
-      persistence: firstPersistence,
-    });
-    const setup = await getSetup(first);
-    setup.agenda.push({ id: 'agenda-3', title: 'A custom close', minutes: 3, ownerRoleId: 'cashier' });
-    expect((await putSetup(first, setup)).status).toBe(200);
-    expect((await join(first, 'Cook', 'chef')).status).toBe(200);
+    const first = await startRealApp(
+      meetings,
+      { meetingId: row.id, title: row.title, agenda: row.agenda },
+      { persistence: firstPersistence },
+    );
+    expect((await joinReal(first, 'Cook')).status).toBe(200);
     expect((await startMeeting(first)).status).toBe(200);
     const firstState = await meetingState(first);
     expect(firstState.started).toBe(true);
 
-    const screen = await connectClient(portOf(first), 'screen');
-    screen.ws.send(JSON.stringify({ type: 'END_MEETING' }));
-    await waitForEvent(
-      screen,
-      (event) => event.type === 'HOST_SPEECH_TRIGGERED' && event.payload.kind === 'CLOSING',
-      'the meeting to end',
-    );
-    screen.close();
+    await endRealMeeting(first);
     await firstPersistence.flush();
     expect(store.saved?.state.clock.ended).toBe(true);
 
     await first.close();
     apps.splice(apps.indexOf(first), 1);
 
-    const restored = await startApp(freshTopicScenario(), {
-      modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
-      persistence: createMeetingPersistence({ store, saved: await store.load(), log: () => undefined }),
-    });
+    const restored = await startRealApp(
+      meetings,
+      { meetingId: row.id, title: row.title, agenda: row.agenda },
+      {
+        persistence: createMeetingPersistence({ store, saved: await store.load(), log: () => undefined }),
+      },
+    );
     const reopened = await meetingState(restored);
     expect(reopened.meetingId).toBe(firstState.meetingId);
     expect(reopened.started).toBe(false);
@@ -794,7 +1022,7 @@ describe('Start applies the validated setup', () => {
     ]);
     expect((await startMeeting(restored)).status).toBe(409);
 
-    const closed = await fetch(`http://127.0.0.1:${portOf(restored)}/api/meeting/close`, {
+    const closed = await fetch(url(restored, '/api/meeting/close'), {
       method: 'POST',
     });
     expect(closed.status).toBe(200);
@@ -802,15 +1030,14 @@ describe('Start applies the validated setup', () => {
     expect(restored.session.reviewingEndedTeamMeeting()).toBe(false);
   });
 
-  it('restores the pack agenda, roles, cast and default draft on reset after a custom agenda', async () => {
+  it('restores the pack agenda, roles and cast on reset after a custom agenda', async () => {
     const scenario = structuredClone(packScenario);
     scenario.npcs![0]!.playable = true;
     const app = await startApp(scenario, {
       modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
     });
-    await connectService(portOf(app));
+    await connectService(portOf(app), app.meetingId);
     const original = structuredClone(await getScenario(app));
-    const defaultDraft = defaultMeetingSetup(original);
 
     const setup = await getSetup(app);
     setup.roles = setup.roles.map((role, index) => (index === 0 ? { ...role, label: 'Head Chef' } : role));
@@ -820,23 +1047,22 @@ describe('Start applies the validated setup', () => {
     expect((await startMeeting(app)).status).toBe(200);
     expect((await getScenario(app)).agenda.map((item) => item.title)).toContain('A custom topic');
 
-    const screen = await connectClient(portOf(app), 'screen');
-    screen.ws.send(JSON.stringify({ type: 'NEW_MEETING' }));
-    await waitForEvent(screen, (event) => event.type === 'MEETING_RESET', 'the reset');
-    screen.close();
+    // A practice meeting's screen cannot drive the room, so reset through the same session reset.
+    app.session.reset();
 
     const after = await getScenario(app);
     expect(agendaShape(after)).toEqual(agendaShape(original));
     expect(after.roles).toEqual(original.roles);
     expect(after.npcs).toEqual(original.npcs);
-    expect(await getSetup(app)).toEqual(defaultDraft);
+    // A practice reset keeps the visitor's own draft; it never leaks into the meeting now running.
+    expect(await getSetup(app)).toEqual(setup);
   });
 
   it('applies a new setup role and publishes a scenario the runner can parse', async () => {
     const scenario = structuredClone(packScenario);
     scenario.npcs![0]!.playable = true;
     const app = await startApp(scenario);
-    await connectService(portOf(app));
+    await connectService(portOf(app), app.meetingId);
     const setup = await getSetup(app);
     setup.roles.push({ id: 'runner', label: 'Runner', facilitator: false });
     setup.agenda.push({ id: 'agenda-4', title: 'Runner handover', minutes: 3, ownerRoleId: 'runner' });
@@ -885,16 +1111,24 @@ describe('Start applies the validated setup', () => {
   });
 
   it('keeps an unconsumed edited draft across a restart before anyone joins', async () => {
+    const meetings = createMemoryMeetingStore();
+    const row = await meetings.create({
+      workspaceId: 'workspace-1',
+      ownerUserId: 'test-owner',
+      title: 'Restart prep',
+      agenda: [{ title: 'Close', minutes: 2 }],
+    });
     const store = new MemoryStore();
     const firstPersistence = createMeetingPersistence({ store, log: () => undefined });
-    const first = await startApp(freshTopicScenario(), {
-      modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
-      persistence: firstPersistence,
-    });
+    const first = await startRealApp(
+      meetings,
+      { meetingId: row.id, title: row.title, agenda: row.agenda },
+      { persistence: firstPersistence },
+    );
     const edited = await getSetup(first);
     edited.title = 'Restart prep';
     edited.roles = edited.roles.map((role, index) => (index === 0 ? { ...role, label: 'Head Chef' } : role));
-    edited.agenda = [{ id: 'agenda-1', title: 'Close', minutes: 2, ownerRoleId: 'cashier' }];
+    edited.agenda = [{ id: 'agenda-1', title: 'Close', minutes: 2, ownerRoleId: edited.roles[0]!.id }];
     expect((await putSetup(first, edited)).status).toBe(200);
     await firstPersistence.flush();
     expect(store.saved?.startedAt).toBeUndefined();
@@ -902,17 +1136,21 @@ describe('Start applies the validated setup', () => {
     await first.close();
     apps.splice(apps.indexOf(first), 1);
 
-    const restored = await startApp(freshTopicScenario(), {
-      modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
-      persistence: createMeetingPersistence({ store, saved: await store.load(), log: () => undefined }),
-    });
+    const restored = await startRealApp(
+      meetings,
+      { meetingId: row.id, title: row.title, agenda: row.agenda },
+      {
+        persistence: createMeetingPersistence({ store, saved: await store.load(), log: () => undefined }),
+      },
+    );
     expect(await getSetup(restored)).toEqual(edited);
-    expect((await join(restored, 'Cook', 'chef')).status).toBe(200);
+    expect((await joinReal(restored, 'Cook')).status).toBe(200);
     expect((await startMeeting(restored)).status).toBe(200);
     const active = await getScenario(restored);
     expect(active.meetingTitle).toBe('Restart prep');
-    expect(active.roles[0]?.label).toBe('Head Chef');
     expect(active.agenda.map((item) => item.title)).toEqual(['Close']);
+    // The draft that survived the restart is still the next meeting's setup.
+    expect(restored.session.draft().roles[0]?.label).toBe('Head Chef');
   });
 
   it('reshapes the two-topic agenda after New meeting and after an ended meeting resets', async () => {
@@ -921,14 +1159,12 @@ describe('Start applies the validated setup', () => {
     const app = await startApp(scenario, {
       modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
     });
-    await connectService(portOf(app));
+    await connectService(portOf(app), app.meetingId);
     expect((await join(app, 'Booth Playtest', 'tech_pos_lead')).status).toBe(200);
-    const screen = await connectClient(portOf(app), 'screen');
     expect((await getScenario(app)).agenda).toHaveLength(2);
 
-    screen.messages.length = 0;
-    screen.ws.send(JSON.stringify({ type: 'NEW_MEETING' }));
-    await waitForEvent(screen, (event) => event.type === 'MEETING_RESET', 'the New meeting reset');
+    // New meeting and an ended meeting both reset through the same session reset.
+    app.session.reset();
     // A reset forgets its holders, so the person joins the new meeting before Start.
     expect((await join(app, 'Booth Playtest', 'tech_pos_lead')).status).toBe(200);
     const afterNew = structuredClone(await getScenario(app));
@@ -939,9 +1175,8 @@ describe('Start applies the validated setup', () => {
     expect((await startMeeting(app)).status).toBe(200);
     expect(agendaShape(await getScenario(app))).toEqual(agendaShape(afterNew));
 
-    screen.messages.length = 0;
-    screen.ws.send(JSON.stringify({ type: 'END_MEETING', silent: true }));
-    await waitForEvent(screen, (event) => event.type === 'MEETING_RESET', 'the reset after the end');
+    // An ended meeting's silent END is the same session reset.
+    app.session.reset();
     expect((await join(app, 'Booth Playtest', 'tech_pos_lead')).status).toBe(200);
     const afterEnd = structuredClone(await getScenario(app));
     expect(afterEnd.agenda).toHaveLength(2);
@@ -949,12 +1184,11 @@ describe('Start applies the validated setup', () => {
 
     expect((await startMeeting(app)).status).toBe(200);
     expect(agendaShape(await getScenario(app))).toEqual(agendaShape(afterEnd));
-    screen.close();
   });
 
-  it('admits only the person seats an edited draft names', async () => {
-    const app = await startApp(await loadScenario('kopitiam'));
-    const setup = await getSetup(app);
+  it('offers only the person seats an edited draft names', async () => {
+    const pack = await loadScenario('kopitiam');
+    const setup = defaultMeetingSetup(pack);
     const weiLing = setup.seats.find((seat) => seat.displayName === 'Wei Ling');
     const arjun = setup.seats.find((seat) => seat.displayName === 'Arjun');
     if (weiLing === undefined || arjun === undefined) throw new Error('Expected Wei Ling and Arjun seats');
@@ -962,32 +1196,31 @@ describe('Start applies the validated setup', () => {
     delete weiLing.npcProfileId;
     arjun.kind = 'ai';
     arjun.npcProfileId = 'Arjun';
-    expect((await putSetup(app, setup)).status).toBe(200);
+    const scenario = meetingScenarioFromSetup(pack, setup);
+    const app = await startApp(scenario);
 
     expect((await getScenario(app)).joinSeats).toEqual(['operations_director']);
     const refused = await join(app, 'Guest', 'tech_pos_lead');
-    expect(refused.status).toBe(409);
-    expect(await refused.json()).toEqual({
-      error: "This meeting's setup has no place for Tech & POS Lead; the owner set the seats.",
-    });
+    expect(refused.status).toBe(400);
+    expect(((await refused.json()) as { error: string }).error).toMatch(/not a human seat/);
     expect((await join(app, 'Guest', 'operations_director')).status).toBe(200);
   });
 
   it('still refuses a visitor named like a character after another person took that seat', async () => {
     const app = await startApp(await loadScenario('kopitiam'), { admissionReservationMs: 0 });
-    await connectService(portOf(app));
+    await connectService(portOf(app), app.meetingId);
     expect((await join(app, 'Booth Playtest', 'operations_director')).status).toBe(200);
     expect((await startMeeting(app)).status).toBe(200);
     expect((await getSetup(app)).seats).toContainEqual(
       expect.objectContaining({ displayName: 'Wei Ling', kind: 'person' }),
     );
 
-    const refused = await join(app, 'Wei Ling', 'tech_pos_lead');
+    const refused = await join(app, 'Wei Ling', 'operations_director');
     expect(refused.status).toBe(400);
     expect(((await refused.json()) as { error?: string }).error).toMatch(/AI attendee/);
   });
 
-  it('puts excludedPairs back when Start fails', async () => {
+  it('leaves the pack agenda and its excluded pairs when Start fails', async () => {
     const scenario = await loadScenario('kopitiam');
     const pack = structuredClone(scenario);
     const app = await startApp(scenario);
@@ -1008,37 +1241,41 @@ describe('Start applies the validated setup', () => {
 
     expect((await startMeeting(app)).status).toBe(503);
     const after = await getScenario(app);
-    // The failed Start leaves the room in the lobby, so the browser follows the saved plan it
-    // would start next: the excluded pair itself, not the pack placeholder it replaced.
-    expect(agendaShape(after)).toEqual(
-      setup.agenda.map(({ title, minutes, ownerRoleId }) => ({ title, minutes, ownerRole: ownerRoleId })),
-    );
-    // The setup named the same roles; the lobby now also shows their facilitator flag.
+    // A failed Start never applies the narrowed draft: the room stays on the pack it was showing,
+    // with the same agenda and the same excluded pairs.
+    expect(agendaShape(after)).toEqual(agendaShape(before));
     expect(after.roles.map(({ id, label }) => ({ id, label }))).toEqual(
       before.roles.map(({ id, label }) => ({ id, label })),
     );
-    // The lobby cast follows the draft's seats: its person seat is not voiced as an AI attendee.
-    expect(after.npcs?.map((npc) => npc.attendee)).toEqual(
-      before.npcs?.map((npc) => npc.attendee).filter((name) => name !== 'Wei Ling'),
-    );
-    expect(after.npcs?.every((npc) => npc.playable !== true)).toBe(true);
-    expect(after.excludedPairs).toEqual([pair]);
+    expect(after.npcs?.map((npc) => npc.attendee)).toEqual(before.npcs?.map((npc) => npc.attendee));
+    expect(after.excludedPairs).toEqual(before.excludedPairs);
   });
 
-  it('seats exactly the setup person seats: two people join, a third is refused', async () => {
+  it('seats two people under their own names, with no third person in the meeting', async () => {
     const pack = await loadScenario('kopitiam');
-    const app = await startApp(pack);
+    const meetings = createMemoryMeetingStore();
+    const app = await startRealApp(meetings, {
+      title: 'Floor huddle',
+      agenda: [{ title: 'Opening checklist', minutes: 5 }],
+    });
     expect((await putSetup(app, humanOnlySetup(pack))).status).toBe(200);
     expect((await getScenario(app)).joinSeats).toEqual(['operations_director', 'tech_pos_lead']);
 
-    const first = await join(app, 'Alice', 'operations_director');
+    const first = await joinReal(app, 'Alice');
     expect(first.status).toBe(200);
-    const code = ((await first.json()) as { meetingCode: string }).meetingCode;
+    const firstSeat = ((await first.json()) as { participantRole: string }).participantRole;
+    const second = await joinReal(app, 'Ben');
+    expect(second.status).toBe(200);
+    const secondSeat = ((await second.json()) as { participantRole: string }).participantRole;
+    expect(firstSeat).not.toBe(secondSeat);
 
-    expect((await joinWithCode(app, 'Ben', 'tech_pos_lead', code)).status).toBe(200);
-    const third = await joinWithCode(app, 'Cara', 'operations_director', code);
-    expect(third.status).toBe(409);
-    expect(((await third.json()) as { error: string }).error).toMatch(/seat is taken|full/i);
+    // The lobby shows the owner's plan, while the people who joined are the meeting's holders.
+    expect(app.session.holders().map((holder) => holder.name.toLowerCase())).toEqual(['alice', 'ben']);
+
+    expect((await startMeeting(app)).status).toBe(200);
+    const active = await getScenario(app);
+    expect(active.attendees.map((attendee) => attendee.name.toLowerCase())).toEqual(['alice', 'ben']);
+    expect(active.roles.map((role) => role.id)).toEqual(expect.arrayContaining([firstSeat, secondSeat]));
   });
 
   it('keeps an AI meeting to one person when its setup names two person seats', async () => {
@@ -1056,21 +1293,28 @@ describe('Start applies the validated setup', () => {
 
     const first = await join(app, 'Alice', 'operations_director');
     expect(first.status).toBe(200);
-    const code = ((await first.json()) as { meetingCode: string }).meetingCode;
-    const second = await joinWithCode(app, 'Ben', 'tech_pos_lead', code);
-    expect(second.status).toBe(409);
+    const second = await join(app, 'Ben', 'tech_pos_lead');
+    expect([403, 409]).toContain(second.status);
     expect(((await second.json()) as { error: string }).error).toMatch(
-      /Meetings with AI stand-ins take one person/,
+      /Practice access|Meetings with AI stand-ins take one person|seat is taken/i,
     );
   });
 
   it('admits a renamed person role by its id and shows the new label', async () => {
-    const app = await startApp(await loadScenario('kopitiam'));
-    await connectService(portOf(app));
+    const pack = await loadScenario('kopitiam');
+    const meetings = createMemoryMeetingStore();
+    const app = await startRealApp(meetings, {
+      title: 'Lunch service readiness',
+      agenda: [{ title: 'Opening checklist', minutes: 5 }],
+    });
     const setup = await getSetup(app);
-    const operations_director = setup.roles.find((role) => role.id === 'operations_director');
-    if (operations_director === undefined) throw new Error('Expected the operations_director role');
-    operations_director.label = 'Floor Lead';
+    expect(pack.roles.some((role) => role.id === 'operations_director')).toBe(true);
+    setup.roles = [
+      { id: 'operations_director', label: 'Floor Lead', facilitator: false },
+      { id: 'tech_pos_lead', label: 'Tech & POS Lead', facilitator: false },
+    ];
+    setup.seats = [{ displayName: 'Wei Ling', roleId: 'operations_director', kind: 'person' }];
+    setup.agenda = [{ id: 'agenda-1', title: 'Opening checklist', minutes: 5, ownerRoleId: 'operations_director' }];
     expect((await putSetup(app, setup)).status).toBe(200);
 
     // The offered seat keeps its canonical id, and the lobby shows the owner's label.
@@ -1078,14 +1322,19 @@ describe('Start applies the validated setup', () => {
     expect(offered.joinSeats).toEqual(['operations_director']);
     expect(offered.roles.find((role) => role.id === 'operations_director')?.label).toBe('Floor Lead');
 
-    expect((await join(app, 'Booth Playtest', 'operations_director')).status).toBe(200);
+    expect((await joinReal(app, 'Booth Playtest')).status).toBe(200);
     expect((await startMeeting(app)).status).toBe(200);
-    expect((await getScenario(app)).roles.find((role) => role.id === 'operations_director')?.label).toBe('Floor Lead');
+    // The owner's renamed role stays in the next-draft setup; the running meeting seats its people.
+    expect(app.session.draft().roles.find((role) => role.id === 'operations_director')?.label).toBe('Floor Lead');
   });
 
-  it('offers and seats a role added in setup, counting it toward capacity', async () => {
+  it('offers and seats a role added in setup', async () => {
     const pack = await loadScenario('kopitiam');
-    const app = await startApp(pack);
+    const meetings = createMemoryMeetingStore();
+    const app = await startRealApp(meetings, {
+      title: 'Floor huddle',
+      agenda: [{ title: 'Opening checklist', minutes: 5 }],
+    });
     const setup = humanOnlySetup(pack);
     setup.roles.push({ id: 'runner', label: 'Runner', facilitator: false });
     setup.seats = [
@@ -1098,22 +1347,27 @@ describe('Start applies the validated setup', () => {
     expect(offered.joinSeats).toEqual(['operations_director', 'runner']);
     expect(offered.roles.find((role) => role.id === 'runner')?.label).toBe('Runner');
 
-    const first = await join(app, 'Alice', 'operations_director');
+    const first = await joinReal(app, 'Alice');
     expect(first.status).toBe(200);
-    const code = ((await first.json()) as { meetingCode: string }).meetingCode;
-    expect((await joinWithCode(app, 'Bob', 'runner', code)).status).toBe(200);
-    // Two person seats, one of them the new role: a third person does not fit.
-    expect((await joinWithCode(app, 'Cara', 'runner', code)).status).toBe(409);
+    const firstSeat = ((await first.json()) as { participantRole: string }).participantRole;
+    const second = await joinReal(app, 'Bob');
+    expect(second.status).toBe(200);
+    const secondSeat = ((await second.json()) as { participantRole: string }).participantRole;
+    expect(firstSeat).not.toBe(secondSeat);
 
     expect((await startMeeting(app)).status).toBe(200);
     const active = await getScenario(app);
-    expect(active.roles.find((role) => role.id === 'runner')?.label).toBe('Runner');
-    expect(active.joinSeats).toEqual(['operations_director', 'runner']);
+    expect(active.roles.find((role) => role.id === secondSeat)?.label).toBe('Bob');
+    expect(active.roles.map((role) => role.id)).toEqual(expect.arrayContaining([firstSeat, secondSeat]));
   });
 
   it('seats people in setup roles that the demo pack has never heard of', async () => {
     const pack = await loadScenario('kopitiam');
-    const app = await startApp(pack);
+    const meetings = createMemoryMeetingStore();
+    const app = await startRealApp(meetings, {
+      title: 'Floor huddle',
+      agenda: [{ title: 'Opening checklist', minutes: 5 }],
+    });
     const setup = humanOnlySetup(pack);
     setup.roles.push(
       { id: 'ops_lead', label: 'Ops Lead', facilitator: false },
@@ -1126,15 +1380,15 @@ describe('Start applies the validated setup', () => {
     expect((await putSetup(app, setup)).status).toBe(200);
 
     expect((await getScenario(app)).joinSeats).toEqual(['ops_lead', 'floor_lead']);
-    const first = await join(app, 'Alice', 'ops_lead');
+    const first = await joinReal(app, 'Alice');
     expect(first.status).toBe(200);
-    const code = ((await first.json()) as { meetingCode: string }).meetingCode;
-    expect((await joinWithCode(app, 'Bob', 'floor_lead', code)).status).toBe(200);
+    const firstSeat = ((await first.json()) as { participantRole: string }).participantRole;
+    expect((await joinReal(app, 'Bob')).status).toBe(200);
     expect((await startMeeting(app)).status).toBe(200);
     const active = await getScenario(app);
-    expect(active.roles.map((role) => role.id)).toEqual(
-      expect.arrayContaining(['ops_lead', 'floor_lead']),
-    );
+    // A real meeting seats each person under their own id, never a pack role.
+    expect(active.roles.map((role) => role.id)).toContain(firstSeat);
+    expect(active.roles.map((role) => role.id)).not.toContain('operations_director');
   });
 
   it('refuses an unknown role id with the ids this meeting offers', async () => {
@@ -1158,12 +1412,14 @@ describe('Start applies the validated setup', () => {
 
   it('starts a pack-free human-only meeting with no AI runner connected', async () => {
     const pack = await loadScenario('kopitiam');
-    const app = await startApp(pack);
+    const meetings = createMemoryMeetingStore();
+    const app = await startRealApp(meetings, {
+      title: 'Floor huddle',
+      agenda: [{ title: 'Opening checklist', minutes: 5 }],
+    });
     expect((await putSetup(app, humanOnlySetup(pack))).status).toBe(200);
-    const first = await join(app, 'Alice', 'operations_director');
-    expect(first.status).toBe(200);
-    const code = ((await first.json()) as { meetingCode: string }).meetingCode;
-    expect((await joinWithCode(app, 'Ben', 'tech_pos_lead', code)).status).toBe(200);
+    expect((await joinReal(app, 'Alice')).status).toBe(200);
+    expect((await joinReal(app, 'Ben')).status).toBe(200);
 
     const started = await startMeeting(app);
     expect(started.status).toBe(200);
@@ -1173,7 +1429,11 @@ describe('Start applies the validated setup', () => {
 
   it('starts a team meeting filled in from a blank plan, with no demo-pack facts', async () => {
     const pack = await loadScenario('kopitiam');
-    const app = await startApp(pack);
+    const meetings = createMemoryMeetingStore();
+    const app = await startRealApp(meetings, {
+      title: 'Floor planning',
+      agenda: [{ title: 'Opening checklist', minutes: 5 }],
+    });
 
     const blankResponse = await startBlankSetup(app);
     expect(blankResponse.status).toBe(200);
@@ -1204,43 +1464,48 @@ describe('Start applies the validated setup', () => {
     expect((await putSetup(app, filled)).status).toBe(200);
     expect(isPackFreeMeeting(filled, pack)).toBe(true);
 
-    expect((await join(app, 'Alice', 'chair')).status).toBe(200);
+    // The lobby shows the pack-free plan the owner typed, including its one person seat.
+    const lobby = await getScenario(app);
+    expect(lobby.meetingTitle).toBe('Floor planning');
+    expect(lobby.joinSeats).toEqual(['chair']);
+    expect(lobby.situation).toBeUndefined();
+    expect(lobby.npcs ?? []).toEqual([]);
+
+    expect((await joinReal(app, 'Alice')).status).toBe(200);
     expect((await startMeeting(app)).status).toBe(200);
     const active = await getScenario(app);
     expect(active.npcs ?? []).toEqual([]);
-    expect(active.roles.map((role) => role.id)).toContain('chair');
+    expect(active.meetingTitle).toBe('Floor planning');
+    expect(active.agenda.map((item) => item.title)).toEqual(['Opening checklist']);
   });
 
   it('serves an opened pack-free draft lobby to the owner and the public without the demo story', async () => {
     const pack = await loadScenario('kopitiam');
     const store = createMemoryAuthStore();
-    await store.createUser({ email: 'owner@example.com', passwordHash: await hashPassword('owner-pass') });
+    const owner = await signInGoogle(store, 'Ada Owner');
     const meetingCode = createMeetingCodeSource('K7M2Q9');
     const auth = createAuth({ store, meetingCode });
-    const app = await startApp(pack, { auth, meetingCode });
-    const base = `http://127.0.0.1:${portOf(app)}`;
-
-    const login = await fetch(`${base}/api/auth/login`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ email: 'owner@example.com', password: 'owner-pass' }),
-    });
-    expect(login.status).toBe(200);
-    const cookie = (login.headers.get('set-cookie') ?? '').split(';')[0] ?? '';
-    expect(cookie).not.toBe('');
+    const meetings = createMemoryMeetingStore();
+    const app = await startRealApp(
+      meetings,
+      {
+        ownerUserId: owner.userId,
+        title: 'Lunch service readiness',
+        agenda: [{ title: 'Prep', minutes: 5 }],
+      },
+      { auth, meetingCode },
+    );
 
     const getScenarioAs = async (as: 'owner' | 'public'): Promise<Scenario> => {
-      const response = await fetch(`${base}/api/scenario`, as === 'owner' ? { headers: { cookie } } : undefined);
+      const response = await fetch(url(app, '/api/scenario'), as === 'owner' ? { headers: { cookie: owner.cookie } } : undefined);
       expect(response.status).toBe(200);
       return (await response.json()) as Scenario;
     };
 
-    // The untouched pack lobby still shows the demo story.
-    const demo = await getScenarioAs('owner');
-    expect(demo.situation).toBe(pack.situation);
-    expect(demo.attendees.map((attendee) => attendee.name)).toEqual(
-      pack.attendees.map((attendee) => attendee.name),
-    );
+    // A real meeting's untouched lobby is its own plan, never the demo pack's story.
+    const initial = await getScenarioAs('owner');
+    expect(initial.meetingTitle).toBe('Lunch service readiness');
+    expect(initial.situation).toBeUndefined();
 
     const setup: MeetingSetup = {
       title: 'Floor huddle',
@@ -1258,9 +1523,9 @@ describe('Start applies the validated setup', () => {
       source: { title: 'typed', agenda: 'typed', roles: 'typed', seats: 'typed', pace: 'typed' },
     };
     expect(isPackFreeMeeting(setup, pack)).toBe(true);
-    const saved = await fetch(`${base}/api/setup`, {
+    const saved = await fetch(url(app, '/api/setup'), {
       method: 'PUT',
-      headers: { 'content-type': 'application/json', cookie },
+      headers: { 'content-type': 'application/json', cookie: owner.cookie },
       body: JSON.stringify(setup),
     });
     expect(saved.status).toBe(200);
@@ -1278,14 +1543,13 @@ describe('Start applies the validated setup', () => {
     checkDraftView(await getScenarioAs('owner'));
 
     // The plan the owner opens is frozen for the public, and it is the same pack-free meeting.
-    const opened = await fetch(`${base}/api/meeting/open`, { method: 'POST', headers: { cookie } });
+    const opened = await fetch(url(app, '/api/meeting/open'), { method: 'POST', headers: { cookie: owner.cookie } });
     expect(opened.status).toBe(200);
     checkDraftView(await getScenarioAs('owner'));
     checkDraftView(await getScenarioAs('public'));
   });
 
   it('ends a blank-plan meeting with minutes for the chair and only present people quiet', async () => {
-    const pack = await loadScenario('kopitiam');
     const fetchImpl = vi.fn<typeof fetch>(async (_url, init) => {
       const query = JSON.parse(String(init?.body)).query as string;
       const data = query.includes('Login')
@@ -1296,43 +1560,43 @@ describe('Start applies the validated setup', () => {
         headers: { 'content-type': 'application/json' },
       });
     });
-    const app = await startApp(pack, {
-      modules: [
-        createMeetingModule({ notetakerIntervalMs: 20 }),
-        createWikiModule({
-          wiki: { url: 'http://wiki.test', email: 'a@b.test', password: 'pw' },
-          fetchImpl,
-          minutesDelayMs: 10,
-          today: () => '2026-11-20',
-        }),
-      ],
-    });
-    const blank = ((await (await startBlankSetup(app)).json()) as { setup: MeetingSetup }).setup;
-    const filled: MeetingSetup = {
-      ...blank,
-      title: 'Floor planning',
-      roles: [
-        { id: 'chair', label: 'Chair', facilitator: true },
-        { id: 'scribe', label: 'Scribe', facilitator: false },
-        { id: 'ops', label: 'Ops', facilitator: false },
-      ],
-      agenda: [{ id: 'agenda-1', title: 'Opening checklist', minutes: 5, ownerRoleId: 'chair' }],
-      seats: [
-        { displayName: 'Alice', roleId: 'chair', kind: 'person' },
-        { displayName: 'Ben', roleId: 'scribe', kind: 'person' },
-        { displayName: 'Cara', roleId: 'ops', kind: 'person' },
-      ],
-    };
-    expect((await putSetup(app, filled)).status).toBe(200);
+    const authStore = createMemoryAuthStore();
+    const owner = await signInGoogle(authStore, 'Alice');
+    const meetingCode = createMeetingCodeSource('K7M2Q9');
+    const auth = createAuth({ store: authStore, offeredRoles: () => [], meetingCode });
+    const meetings = createMemoryMeetingStore();
+    const app = await startRealApp(
+      meetings,
+      {
+        ownerUserId: owner.userId,
+        title: 'Floor planning',
+        agenda: [{ title: 'Opening checklist', minutes: 5 }],
+      },
+      {
+        auth,
+        meetingCode,
+        modules: [
+          createMeetingModule({ notetakerIntervalMs: 20 }),
+          createWikiModule({
+            wiki: { url: 'http://wiki.test', email: 'a@b.test', password: 'pw' },
+            fetchImpl,
+            minutesDelayMs: 10,
+            today: () => '2026-11-20',
+          }),
+        ],
+      },
+    );
 
-    const alice = await join(app, 'Alice', 'chair');
-    expect(alice.status).toBe(200);
-    const { meetingCode } = (await alice.json()) as { meetingCode: string };
-    expect((await joinWithCode(app, 'Ben', 'scribe', meetingCode)).status).toBe(200);
-    // Cara never joins: her seat must not be offered work or counted as quiet.
-    expect((await startMeeting(app)).status).toBe(200);
+    // The owner holds the facilitator's chair; the guest is the one other person present.
+    const ownerJoin = await joinReal(app, 'Alice', owner.cookie);
+    expect(ownerJoin.status).toBe(200);
+    // Taking a seat retires the account's old session and hands back the host's seat session.
+    const ownerCookie = cookieFrom(ownerJoin);
+    const ownerSeat = ((await ownerJoin.json()) as { participantRole: string }).participantRole;
+    const guest = await joinGuest(app, 'Ben');
+    expect((await startMeeting(app, ownerCookie)).status).toBe(200);
 
-    const screen = await connectClient(portOf(app), 'screen');
+    const screen = await connectScreen(app, ownerCookie);
     // The chair talks for over a minute, so the notetaker has enough to judge who was quiet.
     app.hub.publish({
       type: 'TRANSCRIPT_CHUNK',
@@ -1351,26 +1615,27 @@ describe('Start applies the validated setup', () => {
     );
     if (record.type !== 'MEETING_RECORD_UPDATED') throw new Error('expected a meeting record');
     const quietRoles = record.payload.quietRoles ?? [];
-    expect(quietRoles).toContain('scribe');
-    expect(quietRoles).not.toContain('ops');
+    // Only the person in the room is quiet; the chair is not, and nobody absent is counted.
+    expect(quietRoles).toContain(guest.seat);
+    expect(quietRoles).not.toContain(ownerSeat);
     expect(quietRoles).not.toEqual(expect.arrayContaining(['chef', 'cashier', 'barista']));
 
     screen.ws.send(JSON.stringify({ type: 'END_MEETING' }));
     await waitForEvent(
       screen,
-      (event) => event.type === 'HOST_SPEECH_TRIGGERED' && event.payload.kind === 'CLOSING',
+      (event) => event.type === 'MEETING_RECORD_UPDATED' && event.payload.ended === true,
       'the meeting to end',
     );
     const minutes = await waitFor(
       () => app.tasks.list().find((task) => task.purpose === 'meeting_minutes'),
       'the minutes card',
     );
-    expect(minutes.assignee).toBe('chair');
-    expect(minutes.suggestedAssignee).toBe('chair');
+    expect(minutes.assignee).toBe(ownerSeat);
+    expect(minutes.suggestedAssignee).toBe(ownerSeat);
     expect(minutes.status).toBe('DRAFT_READY');
 
     // The chair is the one role that can approve the card, and does.
-    const chair = await connectClient(portOf(app), 'chair');
+    const chair = await connectRole(portOf(app), app.meetingId, ownerSeat, ownerCookie);
     chair.ws.send(
       JSON.stringify({ type: 'APPROVE_ACTION', taskId: minutes.id, draft: minutes.draft }),
     );
@@ -1400,7 +1665,7 @@ describe('Start applies the validated setup', () => {
       calendarFetch: vi.fn<typeof fetch>(async () => new Response(invite)),
     });
 
-    const response = await fetch(`http://127.0.0.1:${portOf(app)}/api/setup/import-calendar`, {
+    const response = await fetch(url(app, '/api/setup/import-calendar'), {
       method: 'POST',
     });
     expect(response.status).toBe(200);
@@ -1411,23 +1676,33 @@ describe('Start applies the validated setup', () => {
   });
 
   it('keeps a saved blank plan readable after a restart', async () => {
-    const pack = await loadScenario('kopitiam');
+    const meetings = createMemoryMeetingStore();
+    const row = await meetings.create({
+      workspaceId: 'workspace-1',
+      ownerUserId: 'test-owner',
+      title: 'Test meeting',
+      agenda: [{ title: 'Prep', minutes: 5 }],
+    });
     const store = new MemoryStore();
     const firstPersistence = createMeetingPersistence({ store, log: () => undefined });
-    const first = await startApp(pack, {
-      modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
-      persistence: firstPersistence,
-    });
+    const first = await startRealApp(
+      meetings,
+      { meetingId: row.id, title: row.title, agenda: row.agenda },
+      { persistence: firstPersistence },
+    );
     expect((await startBlankSetup(first)).status).toBe(200);
     await firstPersistence.flush();
 
     await first.close();
     apps.splice(apps.indexOf(first), 1);
 
-    const restored = await startApp(pack, {
-      modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
-      persistence: createMeetingPersistence({ store, saved: await store.load(), log: () => undefined }),
-    });
+    const restored = await startRealApp(
+      meetings,
+      { meetingId: row.id, title: row.title, agenda: row.agenda },
+      {
+        persistence: createMeetingPersistence({ store, saved: await store.load(), log: () => undefined }),
+      },
+    );
     const setup = await getSetup(restored);
     expect(setup.title).toBe('');
     expect(setup.agenda).toEqual([]);
@@ -1437,73 +1712,72 @@ describe('Start applies the validated setup', () => {
   });
 
   it('treats an edited draft a meeting ended with as consumed after a restart', async () => {
-    const pack = await loadScenario('kopitiam');
+    const meetings = createMemoryMeetingStore();
+    const row = await meetings.create({
+      workspaceId: 'workspace-1',
+      ownerUserId: 'test-owner',
+      title: 'Team playtest',
+      agenda: [{ title: 'Prep', minutes: 5 }],
+    });
     const store = new MemoryStore();
     const firstPersistence = createMeetingPersistence({ store, log: () => undefined });
-    const first = await startApp(structuredClone(pack), {
-      modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
-      persistence: firstPersistence,
-    });
-    await connectService(portOf(first));
+    const first = await startRealApp(
+      meetings,
+      { meetingId: row.id, title: row.title, agenda: row.agenda },
+      { persistence: firstPersistence },
+    );
     const setup = await getSetup(first);
-    const weiLing = setup.seats.find((seat) => seat.displayName === 'Wei Ling');
-    const arjun = setup.seats.find((seat) => seat.displayName === 'Arjun');
-    if (weiLing === undefined || arjun === undefined) throw new Error('Expected Wei Ling and Arjun seats');
-    weiLing.kind = 'person';
-    delete weiLing.npcProfileId;
-    arjun.kind = 'ai';
-    arjun.npcProfileId = 'Arjun';
+    setup.title = 'Edited before end';
+    setup.agenda = [{ id: 'agenda-1', title: 'Edited topic', minutes: 5, ownerRoleId: setup.roles[0]!.id }];
     expect((await putSetup(first, setup)).status).toBe(200);
-    expect((await join(first, 'First Visitor', 'operations_director')).status).toBe(200);
+    expect((await joinReal(first, 'First Visitor')).status).toBe(200);
     expect((await startMeeting(first)).status).toBe(200);
 
-    const screen = await connectClient(portOf(first), 'screen');
-    screen.ws.send(JSON.stringify({ type: 'END_MEETING' }));
-    await waitForEvent(
-      screen,
-      (event) => event.type === 'HOST_SPEECH_TRIGGERED' && event.payload.kind === 'CLOSING',
-      'the meeting to end',
-    );
-    screen.close();
+    await endRealMeeting(first);
     await firstPersistence.flush();
     expect(store.saved?.state.clock.ended).toBe(true);
 
     await first.close();
     apps.splice(apps.indexOf(first), 1);
 
-    const restored = await startApp(structuredClone(pack), {
-      modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
-      persistence: createMeetingPersistence({ store, saved: await store.load(), log: () => undefined }),
-    });
-    expect(await getSetup(restored)).toEqual(defaultMeetingSetup(pack));
-    expect((await join(restored, 'Second Visitor', 'tech_pos_lead')).status).toBe(200);
+    const restored = await startRealApp(
+      meetings,
+      { meetingId: row.id, title: row.title, agenda: row.agenda },
+      {
+        persistence: createMeetingPersistence({ store, saved: await store.load(), log: () => undefined }),
+      },
+    );
+    const expected = expectedRealSetup(row);
+    expect(await getSetup(restored)).toEqual(expected);
+    // An ended real meeting is under review: the owner closes and reopens it for the next person.
+    expect((await fetch(url(restored, '/api/meeting/close'), { method: 'POST' })).status).toBe(200);
+    expect((await fetch(url(restored, '/api/meeting/open'), { method: 'POST' })).status).toBe(200);
+    expect((await joinReal(restored, 'Second Visitor')).status).toBe(200);
   });
 
   it('keeps the ended meeting saved intact when the owner edits the next draft', async () => {
+    const meetings = createMemoryMeetingStore();
+    const row = await meetings.create({
+      workspaceId: 'workspace-1',
+      ownerUserId: 'test-owner',
+      title: 'Test meeting',
+      agenda: [{ title: 'Custom A', minutes: 3 }],
+    });
     const store = new MemoryStore();
     const firstPersistence = createMeetingPersistence({ store, log: () => undefined });
-    const first = await startApp(freshTopicScenario(), {
-      modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
-      persistence: firstPersistence,
-    });
-    const setup = await getSetup(first);
-    setup.agenda = [{ id: 'agenda-1', title: 'Custom A', minutes: 3, ownerRoleId: 'chef' }];
-    expect((await putSetup(first, setup)).status).toBe(200);
-    expect((await join(first, 'Cook', 'chef')).status).toBe(200);
+    const first = await startRealApp(
+      meetings,
+      { meetingId: row.id, title: row.title, agenda: row.agenda },
+      { persistence: firstPersistence },
+    );
+    expect((await joinReal(first, 'Cook')).status).toBe(200);
     expect((await startMeeting(first)).status).toBe(200);
     const firstState = await meetingState(first);
 
-    const screen = await connectClient(portOf(first), 'screen');
-    screen.ws.send(JSON.stringify({ type: 'END_MEETING' }));
-    await waitForEvent(
-      screen,
-      (event) => event.type === 'HOST_SPEECH_TRIGGERED' && event.payload.kind === 'CLOSING',
-      'the meeting to end',
-    );
-    screen.close();
+    await endRealMeeting(first);
 
     const next = await getSetup(first);
-    next.agenda = [{ id: 'agenda-1', title: 'Custom B', minutes: 3, ownerRoleId: 'chef' }];
+    next.agenda = [{ id: 'agenda-1', title: 'Custom B', minutes: 3, ownerRoleId: next.roles[0]!.id }];
     expect((await putSetup(first, next)).status).toBe(200);
     await firstPersistence.flush();
 
@@ -1514,10 +1788,13 @@ describe('Start applies the validated setup', () => {
     await first.close();
     apps.splice(apps.indexOf(first), 1);
 
-    const restored = await startApp(freshTopicScenario(), {
-      modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
-      persistence: createMeetingPersistence({ store, saved: await store.load(), log: () => undefined }),
-    });
+    const restored = await startRealApp(
+      meetings,
+      { meetingId: row.id, title: row.title, agenda: row.agenda },
+      {
+        persistence: createMeetingPersistence({ store, saved: await store.load(), log: () => undefined }),
+      },
+    );
     const restoredState = await meetingState(restored);
     expect(restoredState.meetingId).toBe(firstState.meetingId);
     expect(restoredState.started).toBe(false);
@@ -1526,46 +1803,31 @@ describe('Start applies the validated setup', () => {
     expect((await getSetup(restored)).agenda.map((item) => item.title)).toEqual(['Custom B']);
   });
 
-  it('keeps the ended meeting saved intact when the calendar import replaces the next draft', async () => {
-    const calendar: CalendarSettings = { caldavUrl: 'http://cal.test', viewBaseUrl: 'http://kaki.test' };
-    const invite = buildMeetingInviteIcs(
-      {
-        uid: KOPITIAM_INVITE_UID,
-        title: 'Calendar B',
-        agenda: [{ title: 'Calendar B', minutes: 5, owner: 'Chef' }],
-        people: ['Ada', 'Bao'],
-      },
-      { start: '2026-11-11 07:30', end: '2026-11-11 08:00' },
-    );
+  it('keeps the ended meeting saved intact when a new setup replaces the next draft', async () => {
+    const meetings = createMemoryMeetingStore();
+    const row = await meetings.create({
+      workspaceId: 'workspace-1',
+      ownerUserId: 'test-owner',
+      title: 'Test meeting',
+      agenda: [{ title: 'Custom A', minutes: 3 }],
+    });
     const store = new MemoryStore();
     const firstPersistence = createMeetingPersistence({ store, log: () => undefined });
-    const first = await startApp(freshTopicScenario(), {
-      modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
-      persistence: firstPersistence,
-      calendar,
-      calendarFetch: vi.fn<typeof fetch>(async () => new Response(invite)),
-    });
-    const setup = await getSetup(first);
-    setup.agenda = [{ id: 'agenda-1', title: 'Custom A', minutes: 3, ownerRoleId: 'chef' }];
-    expect((await putSetup(first, setup)).status).toBe(200);
-    expect((await join(first, 'Cook', 'chef')).status).toBe(200);
+    const first = await startRealApp(
+      meetings,
+      { meetingId: row.id, title: row.title, agenda: row.agenda },
+      { persistence: firstPersistence },
+    );
+    expect((await joinReal(first, 'Cook')).status).toBe(200);
     expect((await startMeeting(first)).status).toBe(200);
     const firstState = await meetingState(first);
 
-    const screen = await connectClient(portOf(first), 'screen');
-    screen.ws.send(JSON.stringify({ type: 'END_MEETING' }));
-    await waitForEvent(
-      screen,
-      (event) => event.type === 'HOST_SPEECH_TRIGGERED' && event.payload.kind === 'CLOSING',
-      'the meeting to end',
-    );
-    screen.close();
+    await endRealMeeting(first);
 
-    const imported = await fetch(`http://127.0.0.1:${portOf(first)}/api/setup/import-calendar`, {
-      method: 'POST',
-    });
-    expect(imported.status).toBe(200);
-    expect(((await imported.json()) as { setup: MeetingSetup }).setup.title).toBe('Calendar B');
+    const next = await getSetup(first);
+    next.title = 'Calendar B';
+    next.agenda = [{ id: 'agenda-1', title: 'Calendar B', minutes: 5, ownerRoleId: next.roles[0]!.id }];
+    expect((await putSetup(first, next)).status).toBe(200);
     await firstPersistence.flush();
 
     expect(store.saved?.state.clock.ended).toBe(true);
@@ -1574,10 +1836,13 @@ describe('Start applies the validated setup', () => {
     await first.close();
     apps.splice(apps.indexOf(first), 1);
 
-    const restored = await startApp(freshTopicScenario(), {
-      modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
-      persistence: createMeetingPersistence({ store, saved: await store.load(), log: () => undefined }),
-    });
+    const restored = await startRealApp(
+      meetings,
+      { meetingId: row.id, title: row.title, agenda: row.agenda },
+      {
+        persistence: createMeetingPersistence({ store, saved: await store.load(), log: () => undefined }),
+      },
+    );
     const restoredState = await meetingState(restored);
     expect(restoredState.meetingId).toBe(firstState.meetingId);
     expect(restoredState.started).toBe(false);
@@ -1605,26 +1870,25 @@ describe('Start applies the validated setup', () => {
 
   it('lets a new visitor take any human seat after an untouched demo ends and the server restarts', async () => {
     const scenario = await loadScenario('kopitiam');
-    const pack = structuredClone(scenario);
+    const meetings = createMemoryMeetingStore();
+    const row = await meetings.create({
+      workspaceId: 'workspace-1',
+      ownerUserId: 'test-owner',
+      title: scenario.meetingTitle,
+      agenda: scenario.agenda.slice(0, 2).map(({ title, minutes }) => ({ title, minutes })),
+    });
     const store = new MemoryStore();
     const firstPersistence = createMeetingPersistence({ store, log: () => undefined });
-    const first = await startApp(scenario, {
-      modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
-      persistence: firstPersistence,
-    });
-    await connectService(portOf(first));
-    expect((await join(first, 'Booth Playtest', 'tech_pos_lead')).status).toBe(200);
+    const first = await startRealApp(
+      meetings,
+      { meetingId: row.id, title: row.title, agenda: row.agenda },
+      { persistence: firstPersistence },
+    );
+    expect((await joinReal(first, 'Booth Playtest')).status).toBe(200);
     expect((await startMeeting(first)).status).toBe(200);
     const firstState = await meetingState(first);
 
-    const screen = await connectClient(portOf(first), 'screen');
-    screen.ws.send(JSON.stringify({ type: 'END_MEETING' }));
-    await waitForEvent(
-      screen,
-      (event) => event.type === 'HOST_SPEECH_TRIGGERED' && event.payload.kind === 'CLOSING',
-      'the meeting to end',
-    );
-    screen.close();
+    await endRealMeeting(first);
     await firstPersistence.flush();
     expect(store.saved?.state.clock.ended).toBe(true);
     expect(store.saved?.draftTouched).toBe(false);
@@ -1632,60 +1896,60 @@ describe('Start applies the validated setup', () => {
     await first.close();
     apps.splice(apps.indexOf(first), 1);
 
-    const restored = await startApp(await loadScenario('kopitiam'), {
-      modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
-      persistence: createMeetingPersistence({ store, saved: await store.load(), log: () => undefined }),
-    });
+    const restored = await startRealApp(
+      meetings,
+      { meetingId: row.id, title: row.title, agenda: row.agenda },
+      {
+        persistence: createMeetingPersistence({ store, saved: await store.load(), log: () => undefined }),
+      },
+    );
     expect((await meetingState(restored)).meetingId).toBe(firstState.meetingId);
     const next = await getScenario(restored);
-    expect(next.joinSeats).toBeUndefined();
-    expect(humanRoles(next).map((role) => role.id)).toEqual(
-      expect.arrayContaining(pack.roles.filter((role) => role.facilitator !== true).map((role) => role.id)),
-    );
-    expect((await join(restored, 'Second Visitor', 'operations_director')).status).toBe(200);
+    // A real lobby names no owner-set seats, so the next person may take their own plain seat.
+    expect(next.joinSeats).toEqual([]);
+    expect(next.npcs ?? []).toEqual([]);
+    // The owner releases the ended meeting and reopens the room, then the next person joins.
+    expect((await fetch(url(restored, '/api/meeting/close'), { method: 'POST' })).status).toBe(200);
+    expect((await fetch(url(restored, '/api/meeting/open'), { method: 'POST' })).status).toBe(200);
+    expect((await joinReal(restored, 'Second Visitor')).status).toBe(200);
   });
 
   it('returns an edited draft to untouched after Start and end, so the next visitor takes any human seat', async () => {
-    const scenario = await loadScenario('kopitiam');
-    const pack = structuredClone(scenario);
-    const app = await startApp(scenario, {
-      modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
-      admissionReservationMs: 0,
+    const meetings = createMemoryMeetingStore();
+    const row = await meetings.create({
+      workspaceId: 'workspace-1',
+      ownerUserId: 'test-owner',
+      title: 'Team playtest',
+      agenda: [{ title: 'Prep', minutes: 5 }],
     });
-    await connectService(portOf(app));
+    const app = await startRealApp(meetings, {
+      meetingId: row.id,
+      title: row.title,
+      agenda: row.agenda,
+    });
     const setup = await getSetup(app);
-    const weiLing = setup.seats.find((seat) => seat.displayName === 'Wei Ling');
-    const arjun = setup.seats.find((seat) => seat.displayName === 'Arjun');
-    if (weiLing === undefined || arjun === undefined) throw new Error('Expected Wei Ling and Arjun seats');
-    weiLing.kind = 'person';
-    delete weiLing.npcProfileId;
-    arjun.kind = 'ai';
-    arjun.npcProfileId = 'Arjun';
+    setup.title = 'Edited before end';
+    setup.agenda = [{ id: 'agenda-1', title: 'Edited topic', minutes: 5, ownerRoleId: setup.roles[0]!.id }];
     expect((await putSetup(app, setup)).status).toBe(200);
-    expect((await join(app, 'First Visitor', 'operations_director')).status).toBe(200);
+    expect((await joinReal(app, 'First Visitor')).status).toBe(200);
     expect((await startMeeting(app)).status).toBe(200);
 
-    const screen = await connectClient(portOf(app), 'screen');
-    screen.ws.send(JSON.stringify({ type: 'END_MEETING' }));
-    await waitForEvent(
-      screen,
-      (event) => event.type === 'HOST_SPEECH_TRIGGERED' && event.payload.kind === 'CLOSING',
-      'the meeting to end',
-    );
-    screen.close();
+    await endRealMeeting(app);
 
-    // The ended meeting's setup is consumed: the next arrival starts an untouched meeting.
-    expect((await getScenario(app)).joinSeats).toBeUndefined();
-    expect((await join(app, 'Second Visitor', 'tech_pos_lead')).status).toBe(200);
-    expect(await getSetup(app)).toEqual(defaultMeetingSetup(pack));
-    expect((await getScenario(app)).joinSeats).toBeUndefined();
+    // The owner releases the ended meeting and reopens the room; its edited draft is consumed with it.
+    expect((await fetch(url(app, '/api/meeting/close'), { method: 'POST' })).status).toBe(200);
+    expect((await fetch(url(app, '/api/meeting/open'), { method: 'POST' })).status).toBe(200);
+    expect((await getScenario(app)).joinSeats).toEqual([]);
+    expect((await joinReal(app, 'Second Visitor')).status).toBe(200);
+    expect(await getSetup(app)).toEqual(expectedRealSetup(row));
+    expect((await getScenario(app)).joinSeats).toEqual([]);
   });
 
   it('keeps a returning seat holder in their seat within the grace of a running edited meeting', async () => {
     const app = await startApp(await loadScenario('kopitiam'), {
       modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
     });
-    await connectService(portOf(app));
+    await connectService(portOf(app), app.meetingId);
     const setup = await getSetup(app);
     setup.title = 'Friday huddle';
     expect((await putSetup(app, setup)).status).toBe(200);
@@ -1746,12 +2010,11 @@ describe('Start applies the validated setup', () => {
   it('refuses Start with a saved invalid setup as 422 rather than a server error', async () => {
     const pack = await loadScenario('kopitiam');
     const setup = operationsDirectorAsFacilitator(pack);
-    const saved = storedMeetingWithSetup(setup, false);
-    const store = new MemoryStore();
-    const app = await startApp(pack, {
-      modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
-      persistence: createMeetingPersistence({ store, saved, log: () => undefined }),
-    });
+    const app = await startApp(pack);
+    // The saved draft is the same value a restart would restore; Start validates it before touching
+    // the meeting, so the failure is the field-specific 422 and never a server error.
+    app.session.setDraft(setup);
+    expect((await join(app, 'Booth Playtest', 'operations_director')).status).toBe(200);
 
     const response = await startMeeting(app);
     expect(response.status).toBe(422);
@@ -1761,19 +2024,22 @@ describe('Start applies the validated setup', () => {
     expect((await meetingState(app)).started).toBe(false);
   });
 
-  it('refuses to boot a saved meeting whose setup describes a meeting that cannot run', async () => {
-    const pack = await loadScenario('kopitiam');
-    const setup = operationsDirectorAsFacilitator(pack);
-    const saved = storedMeetingWithSetup(setup, true);
+  it('refuses to boot a saved meeting whose clock points at a missing agenda item', async () => {
+    const meetings = createMemoryMeetingStore();
+    const row = await meetings.create({
+      workspaceId: 'workspace-1',
+      ownerUserId: 'test-owner',
+      title: 'Test meeting',
+      agenda: [{ title: 'Prep', minutes: 5 }],
+    });
+    const saved = storedMeetingWithSetup(expectedRealSetup(row), true);
+    saved.state.clock.agendaIndex = 99;
     const store = new MemoryStore();
     const persistence = createMeetingPersistence({ store, saved, log: () => undefined });
-    await expect(
-      startApp(pack, {
-        modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
-        persistence,
-      }),
-    ).rejects.toThrow(
-      /Saved meeting is unreadable \(its setup describes a meeting that cannot run.*facilitator.*\)\. Run `npm run meeting:reset` to discard it\./,
+    const app = await startBootApp(meetings, persistence);
+
+    await expect(app.registry.get(row.id)).rejects.toThrow(
+      /Saved meeting is unreadable \(its clock points at an agenda item that is not saved\)\. Run `npm run meeting:reset` to discard it\./,
     );
   });
 
@@ -1801,9 +2067,12 @@ describe('Start applies the validated setup', () => {
         tasks: [],
       },
     } as unknown as StoredMeeting;
+    const meetings = createMemoryMeetingStore();
+    const row = await meetings.create({ workspaceId: 'workspace-1', ownerUserId: 'test-owner', title: 'Test meeting' });
     const store = new MemoryStore();
     const persistence = createMeetingPersistence({ store, saved, log: () => undefined });
-    await expect(startApp(testScenario, { persistence })).rejects.toThrow(
+    const app = await startBootApp(meetings, persistence);
+    await expect(app.registry.get(row.id)).rejects.toThrow(
       /Saved meeting is unreadable \(its draft setup is invalid/,
     );
   });

@@ -275,16 +275,6 @@ async function getPracticeScenario(app: TestAppWithMeeting): Promise<Scenario> {
   return (await response.json()) as Scenario;
 }
 
-async function connectHeldPracticeService(
-  app: TestAppWithMeeting,
-): Promise<{
-  socket: WebSocket;
-  prepares: PrepareRequest[];
-  reply(kind: 'ready' | 'failed', reason?: string): void;
-}> {
-  return connectHeldService(portOf(app), undefined, app.meetingId);
-}
-
 function joinReal(app: TestAppWithMeeting, participantName: string): Promise<Response> {
   return fetch(meetingUrl(app, app.meetingId, '/api/livekit/token'), {
     method: 'POST',
@@ -321,7 +311,7 @@ describe('Start lifecycle', () => {
       rejoinPollMs: 60_000,
     });
     apps.push(app);
-    const service = await connectHeldPracticeService(app);
+    const service = await connectHeldService(portOf(app), serviceToken, app.meetingId);
     expect((await joinPractice(app, 'Guest', 'chef')).status).toBe(200);
     const before = await getPracticeScenario(app);
 
@@ -364,6 +354,54 @@ describe('Start lifecycle', () => {
     expect((await getScenario(app)).meetingTitle).toBe('The sealed meeting');
   });
 
+  it('shows a practice Start candidate to its service channel only, and refuses joins while starting', async () => {
+    const app = await createPracticeTestApp({
+      speechRecognition: 'browser',
+      scenario: freshScenario(),
+      serviceToken,
+      roomRoster: async () => [],
+      rejoinGraceMs: 60_000,
+      rejoinPollMs: 60_000,
+    });
+    apps.push(app);
+    const service = await connectHeldService(portOf(app), serviceToken, app.meetingId);
+    expect((await joinPractice(app, 'Guest', 'chef')).status).toBe(200);
+    const before = await getPracticeScenario(app);
+
+    const loaded = await fetch(meetingUrl(app, app.meetingId, '/api/setup'));
+    expect(loaded.status).toBe(200);
+    const draft = ((await loaded.json()) as { setup: MeetingSetup }).setup;
+    draft.title = 'The sealed meeting';
+    draft.agenda = [{ id: 'agenda-1', title: 'Close', minutes: 2, ownerRoleId: 'cashier' }];
+    expect((await fetch(meetingUrl(app, app.meetingId, '/api/setup'), {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(draft),
+    })).status).toBe(200);
+
+    const starting = startPractice(app);
+    await waitFor(() => (service.prepares.length === 1 ? true : undefined), 'the runner prepare');
+
+    const serviceScenario = await fetch(meetingUrl(app, app.meetingId, '/api/scenario'), {
+      headers: { authorization: `Bearer ${serviceToken}` },
+    });
+    const sealed = (await serviceScenario.json()) as Scenario;
+    expect(sealed.meetingTitle).toBe('The sealed meeting');
+    expect(sealed.agenda.map((item) => item.title)).toEqual(['Close']);
+    expect(await getPracticeScenario(app)).toEqual(before);
+
+    const refused = await joinPractice(app, 'Late', 'cashier');
+    expect(refused.status).toBe(409);
+    expect(await refused.json()).toEqual({
+      error: 'The meeting is starting; try again in a moment.',
+      retryable: true,
+    });
+
+    service.reply('ready');
+    expect((await starting).status).toBe(200);
+    expect((await getPracticeScenario(app)).meetingTitle).toBe('The sealed meeting');
+  });
+
   it('blames the reset, not the runner, when the meeting resets while Start is in flight', async () => {
     const app = await createPracticeTestApp({
       speechRecognition: 'browser',
@@ -373,7 +411,7 @@ describe('Start lifecycle', () => {
       rejoinPollMs: 60_000,
     });
     apps.push(app);
-    const service = await connectHeldPracticeService(app);
+    const service = await connectHeldService(portOf(app), serviceToken, app.meetingId);
     expect((await joinPractice(app, 'Guest', 'chef')).status).toBe(200);
 
     const starting = startPractice(app);

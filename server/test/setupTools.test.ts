@@ -1,12 +1,21 @@
+import { randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ActionKind } from '@kaki/shared';
 import type { KakiApp } from '../src/app';
 import { createAuth } from '../src/auth/module';
-import { hashPassword } from '../src/auth/password';
+import { hashToken } from '../src/auth/password';
 import { createMemoryAuthStore } from '../src/auth/store';
 import type { EmailTransportFactory } from '../src/action/email';
 import { createMeetingCodeSource } from '../src/meeting/meetingCode';
-import { createTestApp, portOf } from './helpers';
+import {
+  createPracticeTestApp,
+  createTestApp,
+  meetingPath,
+  meetingUrl,
+  openRealMeeting,
+  portOf,
+  type TestAppWithMeeting,
+} from './helpers';
 
 const SECRETS = {
   GITEA_TOKEN: 'gitea-super-secret',
@@ -121,8 +130,9 @@ describe('setup tool status and probes', () => {
   });
 
   async function start(options: Parameters<typeof createTestApp>[0] = {}): Promise<void> {
-    app = await createTestApp(options);
-    base = `http://127.0.0.1:${portOf(app)}`;
+    const practice = await createPracticeTestApp(options);
+    app = practice;
+    base = `http://127.0.0.1:${portOf(practice)}${meetingPath(practice, '')}`;
   }
 
   async function tools(env: NodeJS.ProcessEnv, cookie?: string): Promise<{ status: number; tools: ToolStatus[]; text: string }> {
@@ -280,14 +290,18 @@ describe('setup tool status and probes', () => {
   it('keeps working after Start because the probe only reads', async () => {
     const fetchImpl = healthyFetch();
     await start({ actionTools: { env: CONFIGURED_ENV, fetchImpl }, roomRoster: async () => [] });
-    expect((await fetch(`${base}/api/meeting/open`, { method: 'POST' })).status).toBe(200);
-    const joined = await fetch(`${base}/api/livekit/token`, {
+    const practice = app as TestAppWithMeeting;
+    const joined = await fetch(meetingUrl(practice, practice.meetingId, '/api/livekit/token'), {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ roomName: 'test-room', participantName: 'Cook', participantRole: 'chef' }),
+      headers: { 'content-type': 'application/json', cookie: practice.cookie! },
+      body: JSON.stringify({ roomName: 'test-room', participantName: 'Cook', participantRole: 'chef', kind: 'practice' }),
     });
     expect(joined.status).toBe(200);
-    expect((await fetch(`${base}/api/meeting/start`, { method: 'POST' })).status).toBe(200);
+    const started = await fetch(meetingUrl(practice, practice.meetingId, '/api/meeting/start'), {
+      method: 'POST',
+      headers: { cookie: practice.cookie! },
+    });
+    expect(started.status).toBe(200);
 
     const response = await postProbe('gitea_issue');
     expect(response.status).toBe(200);
@@ -302,45 +316,52 @@ describe('setup tool status and probes', () => {
 
   it('lets only the owner read or test tools when auth is on', async () => {
     const store = createMemoryAuthStore();
-    await store.createUser({
-      email: 'host@example.com',
-      passwordHash: await hashPassword('correct-horse-battery'),
+    const email = `${randomUUID()}@example.com`;
+    const ownerUser = await store.createGoogleUser({ googleSub: randomUUID(), name: 'Ada', email });
+    const token = randomUUID();
+    await store.createSession({
+      tokenHash: hashToken(token),
+      kind: 'user',
+      role: null,
+      meetingCode: null,
+      meetingId: null,
+      displayName: 'Ada',
+      userId: ownerUser.id,
+      expiresAt: new Date(Date.now() + 60_000),
     });
+    const owner = `kaki_session=${token}`;
     const meetingCode = createMeetingCodeSource('K7M2Q9');
     const auth = createAuth({ store, offeredRoles: () => ['chef', 'cashier'], meetingCode });
-    await start({ auth, meetingCode, actionTools: { env: CONFIGURED_ENV, fetchImpl: healthyFetch() } });
-
-    const openLogin = await fetch(`${base}/api/auth/login`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ email: 'host@example.com', password: 'correct-horse-battery' }),
+    app = await createTestApp({
+      auth,
+      meetingCode,
+      actionTools: { env: CONFIGURED_ENV, fetchImpl: healthyFetch() },
+      roomRoster: async () => [],
     });
-    expect(openLogin.status).toBe(200);
-    const hostCookie = openLogin.headers.get('set-cookie')?.split(';')[0];
-    if (hostCookie === undefined || hostCookie === '') throw new Error('Login did not set a cookie');
-    expect((await fetch(`${base}/api/meeting/open`, { method: 'POST', headers: { cookie: hostCookie } })).status).toBe(200);
-    const joined = await fetch(`${base}/api/join`, {
+    const meeting = await openRealMeeting(app, { ownerUserId: ownerUser.id, title: 'Weekly planning' });
+    base = `http://127.0.0.1:${portOf(app)}${meetingPath(meeting, '')}`;
+
+    const joined = await fetch(meetingUrl(app, meeting.id, '/join'), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ code: 'K7M2Q9', role: 'chef' }),
+      body: JSON.stringify({ name: 'Bao' }),
     });
     expect(joined.status).toBe(200);
-    const participant = cookieFrom(joined);
-    if (participant === undefined) throw new Error('Join did not set a cookie');
+    const guest = cookieFrom(joined);
+    if (guest === undefined) throw new Error('Join did not set a cookie');
+    const seated = await fetch(meetingUrl(app, meeting.id, '/api/livekit/token'), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie: guest },
+      body: JSON.stringify({ participantName: 'Bao' }),
+    });
+    expect(seated.status).toBe(200);
+    const participant = cookieFrom(seated);
+    if (participant === undefined) throw new Error('Taking a seat did not set a cookie');
 
     expect((await fetch(`${base}/api/setup/tools`, { headers: { cookie: participant } })).status).toBe(403);
     expect((await postProbe('gitea_issue', participant)).status).toBe(403);
 
-    const login = await fetch(`${base}/api/auth/login`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ email: 'host@example.com', password: 'correct-horse-battery' }),
-    });
-    expect(login.status).toBe(200);
-    const host = cookieFrom(login);
-    if (host === undefined) throw new Error('Login did not set a cookie');
-
-    expect((await fetch(`${base}/api/setup/tools`, { headers: { cookie: host } })).status).toBe(200);
-    expect((await postProbe('gitea_issue', host)).status).toBe(200);
+    expect((await fetch(`${base}/api/setup/tools`, { headers: { cookie: owner } })).status).toBe(200);
+    expect((await postProbe('gitea_issue', owner)).status).toBe(200);
   });
 });

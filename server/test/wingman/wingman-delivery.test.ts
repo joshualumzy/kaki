@@ -1,13 +1,14 @@
+import { randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
 import type { KakiEvent } from '@kaki/shared';
 import { createApp, type KakiApp } from '../../src/app';
 import { createAuth } from '../../src/auth/module';
-import { hashPassword } from '../../src/auth/password';
+import { hashPassword, hashToken } from '../../src/auth/password';
 import { createMemoryAuthStore } from '../../src/auth/store';
 import { createMeetingCodeSource } from '../../src/meeting/meetingCode';
 import { createWingmanModule } from '../../src/wingman/module';
-import { portOf, settle, waitFor } from '../helpers';
+import { openRealMeeting, portOf, realModulesWith, settle, waitFor, type TestMeeting } from '../helpers';
 import { testScenario } from '../fixtures/scenario';
 
 const CODE = 'K7M2Q9';
@@ -106,22 +107,81 @@ function notes(messages: readonly KakiEvent[]): Array<Extract<KakiEvent, { type:
   );
 }
 
+interface RealWingmanApp {
+  app: KakiApp;
+  port: number;
+  meeting: TestMeeting;
+  owner: string;
+}
+
+/** A real meeting with an owner and guest seats, where Wingman notes are per seat. */
+async function realWingmanApp(): Promise<RealWingmanApp> {
+  const store = createMemoryAuthStore();
+  const email = `${randomUUID()}@example.com`;
+  const ownerUser = await store.createGoogleUser({ googleSub: randomUUID(), name: 'Owner', email });
+  const token = randomUUID();
+  await store.createSession({
+    tokenHash: hashToken(token),
+    kind: 'user',
+    role: null,
+    meetingCode: null,
+    meetingId: null,
+    displayName: 'Owner',
+    userId: ownerUser.id,
+    expiresAt: new Date(Date.now() + 60_000),
+  });
+  const meetingCode = createMeetingCodeSource(CODE);
+  const auth = createAuth({ store, offeredRoles: () => ['chef', 'cashier'], meetingCode });
+  const app = await createApp({
+    scenario: testScenario,
+    auth,
+    meetingCode,
+    modules: [createWingmanModule({ env: {}, askedCheckDelayMs: 0 })],
+    meetingModules: realModulesWith([createWingmanModule({ env: {}, askedCheckDelayMs: 0 })]),
+    roomRoster: async () => [],
+    speechRecognition: 'browser',
+  });
+  apps.push(app);
+  const meeting = await openRealMeeting(app, { ownerUserId: ownerUser.id, title: 'Weekly planning' });
+  return { app, port: portOf(app), meeting, owner: `kaki_session=${token}` };
+}
+
+async function joinGuest(port: number, meeting: TestMeeting, name: string): Promise<{ cookie: string; seat: string }> {
+  const joined = await request(port, `/api/meetings/${meeting.id}/join`, 'POST', { name });
+  expect(joined.status).toBe(200);
+  const guest = joined.headers.get('set-cookie')?.split(';')[0];
+  if (guest === undefined) throw new Error('Join did not set a cookie');
+  const seated = await fetch(
+    `http://127.0.0.1:${port}/api/meetings/${encodeURIComponent(meeting.id)}/livekit/token`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie: guest },
+      body: JSON.stringify({ participantName: name }),
+    },
+  );
+  expect(seated.status).toBe(200);
+  const cookie = seated.headers.get('set-cookie')?.split(';')[0];
+  if (cookie === undefined) throw new Error('Taking a seat did not set a cookie');
+  const seat = ((await seated.json()) as { participantRole: string }).participantRole;
+  return { cookie, seat };
+}
+
 describe('Wingman note delivery', () => {
   it('reaches only the participant it is for, never another seat or the owner screen', async () => {
-    const { app, port } = await authApp();
-    const host = cookieFrom(
-      await request(port, '/api/auth/login', 'POST', { email: HOST_EMAIL, password: HOST_PASSWORD }),
-    );
-    expect((await request(port, '/api/meeting/open', 'POST', undefined, host)).status).toBe(200);
-    const chef = cookieFrom(await request(port, '/api/join', 'POST', { code: CODE, role: 'chef' }));
-    const cashier = cookieFrom(await request(port, '/api/join', 'POST', { code: CODE, role: 'cashier' }));
+    const { port, meeting, owner } = await realWingmanApp();
+    const ada = await joinGuest(port, meeting, 'Ada');
+    const bao = await joinGuest(port, meeting, 'Bao');
+    const addressed: KakiEvent = {
+      ...note,
+      audience: { kind: 'role', role: ada.seat },
+    };
 
-    const own = await connect(port, 'participant', chef);
-    const other = await connect(port, 'participant', cashier);
-    const screen = await connect(port, 'screen', host);
+    const own = await connect(port, 'participant', ada.cookie, meeting.id);
+    const other = await connect(port, 'participant', bao.cookie, meeting.id);
+    const screen = await connect(port, 'screen', owner, meeting.id);
     if (!own.ok || !other.ok || !screen.ok) throw new Error('a socket did not open');
 
-    app.hub.publish(note, { retainKey: 'wingman:chef:answer' });
+    meeting.hub.publish(addressed, { retainKey: 'wingman:chef:answer' });
 
     const received = await waitFor(() => notes(own.messages)[0], 'the chef note');
     await settle(50);
@@ -130,7 +190,7 @@ describe('Wingman note delivery', () => {
     expect(notes(screen.messages)).toHaveLength(0);
 
     // A reload of the same person's feed replays their current notes.
-    const reloaded = await connect(port, 'participant', chef);
+    const reloaded = await connect(port, 'participant', ada.cookie, meeting.id);
     if (!reloaded.ok) throw new Error('the reloaded chef socket did not open');
     const replayed = await waitFor(() => notes(reloaded.messages)[0], 'the retained chef note');
     expect(replayed.payload.text).toBe('Ada only.');

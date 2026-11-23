@@ -279,4 +279,25 @@ describe('POST /api/practice', () => {
     });
     expect(noCookie.status).toBe(403);
   });
+
+  it('lets the same cookie rejoin after a reset of the visitor’s own practice', async () => {
+    const { app, port } = await appWith();
+    const practice = await startPractice(port);
+    const join = (name: string) =>
+      post(
+        port,
+        `/api/meetings/${practice.meetingId}/livekit/token`,
+        { participantName: name, participantRole: 'operations_director', kind: 'practice' },
+        practice.cookie,
+      );
+    expect((await join('Alice')).status).toBe(200);
+
+    // A reset during a Start is a new meeting generation of the same practice; the visitor's
+    // capability must follow it, or their cookie can never open their own practice again.
+    const instance = app.registry.findPractice(practice.meetingId);
+    if (instance === undefined) throw new Error('the practice meeting did not load');
+    instance.session.reset();
+
+    expect((await join('Alice')).status).toBe(200);
+  });
 });

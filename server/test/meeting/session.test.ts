@@ -209,7 +209,7 @@ describe('meeting session phase transitions', () => {
     expect(h.session.sealed()).toBeUndefined();
   });
 
-  it('clears the meeting kind and practice capability when the meeting ends or resets', () => {
+  it('clears the meeting kind and practice capability when the meeting ends', () => {
     const h = harness({ phase: 'lobby' });
     h.session.beginPractice({ seat: 'chef', token: 'grant-1' });
     expect(h.session.kind()).toBe('practice');
@@ -224,10 +224,23 @@ describe('meeting session phase transitions', () => {
     expect(h.session.kind()).toBeUndefined();
     expect(h.session.practiceStartToken()).toBeUndefined();
     expect(h.session.practiceSeat()).toBeUndefined();
+  });
 
-    h.session.beginPractice({ seat: 'chef', token: 'grant-2' });
+  it('keeps a practice capability across a reset, rebound to the new generation', () => {
+    const h = harness({ phase: 'lobby' });
+    h.session.beginPractice({ seat: 'chef', token: 'grant-1' });
+    const granted = h.session.practiceGeneration();
+
     h.session.reset();
-    expect(h.session.kind()).toBeUndefined();
+
+    expect(h.session.kind()).toBe('practice');
+    expect(h.session.practiceStartToken()).toBe('grant-1');
+    expect(h.session.practiceSeat()).toBe('chef');
+    expect(h.session.practiceGeneration()).toBe(h.session.generation());
+    expect(h.session.practiceGeneration()).not.toBe(granted);
+
+    // A real meeting still owns no practice capability.
+    h.session.setKind('real');
     expect(h.session.practiceStartToken()).toBeUndefined();
   });
 

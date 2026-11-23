@@ -1,31 +1,32 @@
+import { randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
-import {
-  blankMeetingSetup,
-  defaultMeetingSetup,
-  parseScenario,
-  type MeetingSetup,
-} from '@kaki/shared';
-import { createApp, type KakiApp, type CreateAppOptions } from '../../src/app';
+import { DEFAULT_MEETING_PACE, parseScenario, type MeetingSetup } from '@kaki/shared';
+import type { CreateAppOptions, KakiApp } from '../../src/app';
 import { createAuth } from '../../src/auth/module';
-import { hashPassword } from '../../src/auth/password';
-import { createMemoryAuthStore } from '../../src/auth/store';
-import { createMeetingModule } from '../../src/host/meeting';
+import { hashToken } from '../../src/auth/password';
+import { createMemoryAuthStore, type AuthStore } from '../../src/auth/store';
 import { createMeetingCodeSource } from '../../src/meeting/meetingCode';
+import { createMeetingModule } from '../../src/host/meeting';
+import { createMemoryMeetingStore, type MeetingStore } from '../../src/meeting/registry';
+import type { MeetingRow } from '../../src/meeting/types';
 import { createMeetingPersistence } from '../../src/persist/persistence';
 import { createPostgresMeetingStateStore, ensureMeetingStateSchema } from '../../src/persist/postgres';
+import type { MeetingStateStore, StoredMeeting } from '../../src/persist/state';
 import {
-  MEETING_STATE_SCHEMA_VERSION,
-  type MeetingStateStore,
-  type StoredMeeting,
-} from '../../src/persist/state';
-import { connectClient, portOf, waitForEvent, type TestClient } from '../helpers';
+  createPracticeTestApp,
+  createTestApp,
+  connectMeetingClient,
+  meetingUrl,
+  portOf,
+  realModulesWith,
+  waitFor,
+  type TestAppWithMeeting,
+  type TestMeeting,
+} from '../helpers';
 import { testScenario } from '../fixtures/scenario';
 import { createPostgresTestSchema } from '../postgresTestSchema';
 
 const connectionString = process.env.POSTGRES_URL;
-
-const HOST_EMAIL = 'owner@example.com';
-const HOST_PASSWORD = 'correct-horse-battery';
 const MEETING_CODE = 'K7M2Q9';
 
 class MemoryStore implements MeetingStateStore {
@@ -44,182 +45,185 @@ class MemoryStore implements MeetingStateStore {
   }
 }
 
-/** A plan a real team typed from a blank setup: its own roles, topics and people, no pack cast. */
-function teamSetup(): MeetingSetup {
+/** A plan a real team plays: its own title, topics and people, no pack cast. */
+function teamRow(ownerUserId = 'test-owner'): Parameters<MeetingStore['create']>[0] {
   return {
-    ...blankMeetingSetup(),
+    workspaceId: 'workspace-1',
+    ownerUserId,
     title: 'Team playtest meeting',
-    roles: [
-      { id: 'role_1', label: 'Role one', facilitator: false },
-      { id: 'role_2', label: 'Role two', facilitator: false },
-    ],
     agenda: [
-      { id: 'agenda-1', title: 'Topic one', minutes: 5, ownerRoleId: 'role_1' },
-      { id: 'agenda-2', title: 'Topic two', minutes: 5, ownerRoleId: 'role_2' },
-    ],
-    seats: [
-      { displayName: 'Mira', roleId: 'role_1', kind: 'person' },
-      { displayName: 'Noah', roleId: 'role_2', kind: 'person' },
+      { title: 'Topic one', minutes: 5 },
+      { title: 'Topic two', minutes: 5 },
     ],
   };
 }
 
+/** A signed-in product account; a real meeting's owner is an account, not a password host. */
+async function signInGoogle(store: AuthStore, name: string): Promise<{ userId: string; cookie: string }> {
+  const email = `${randomUUID()}@example.com`;
+  const user = await store.createGoogleUser({ googleSub: randomUUID(), name, email });
+  const token = randomUUID();
+  await store.createSession({
+    tokenHash: hashToken(token),
+    kind: 'user',
+    role: null,
+    meetingCode: null,
+    meetingId: null,
+    displayName: name,
+    userId: user.id,
+    expiresAt: new Date(Date.now() + 60_000),
+  });
+  return { userId: user.id, cookie: `kaki_session=${token}` };
+}
+
 const apps: KakiApp[] = [];
-const clients: TestClient[] = [];
 
 afterEach(async () => {
-  for (const client of clients.splice(0)) client.close();
   for (const app of apps.splice(0)) await app.close();
 });
 
-function startApp(
+async function startApp(
+  meetings: MeetingStore,
   persistence: ReturnType<typeof createMeetingPersistence>,
   options: Omit<CreateAppOptions, 'scenario' | 'modules' | 'persistence'> = {},
-): Promise<KakiApp> {
-  return createApp({
+): Promise<TestAppWithMeeting> {
+  const app = (await createTestApp({
     speechRecognition: 'browser',
     scenario: testScenario,
-    modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
-    persistence,
+    meetings,
+    meetingModules: realModulesWith([createMeetingModule({ notetakerIntervalMs: 60_000 })]),
+    persistenceFor: async () => persistence,
     roomRoster: async () => [],
     rejoinGraceMs: 60_000,
     rejoinPollMs: 60_000,
     ...options,
-  }).then((app) => {
-    apps.push(app);
-    return app;
+  })) as TestAppWithMeeting;
+  apps.push(app);
+  return app;
+}
+
+function attach(app: TestAppWithMeeting, instance: TestMeeting, row: MeetingRow): void {
+  Object.assign(app, {
+    id: instance.id,
+    instance: instance.instance,
+    hub: instance.hub,
+    tasks: instance.tasks,
+    session: instance.session,
+    memory: instance.memory,
+    roomName: instance.roomName,
+    meetingId: row.id,
   });
 }
 
-function baseUrl(app: KakiApp): string {
-  return `http://127.0.0.1:${portOf(app)}`;
+async function openMeeting(app: TestAppWithMeeting, row: MeetingRow): Promise<TestMeeting> {
+  const instance = await app.registry.get(row.id);
+  if (instance === undefined) throw new Error(`the real meeting ${row.id} did not load`);
+  const meeting: TestMeeting = {
+    id: instance.id,
+    instance,
+    hub: instance.hub,
+    tasks: instance.tasks,
+    session: instance.session,
+    memory: instance.memory,
+    roomName: instance.roomName,
+  };
+  attach(app, meeting, row);
+  return meeting;
 }
 
-function post(path: string, body: unknown): Promise<Response> {
-  return fetch(path, {
+async function joinPerson(app: TestAppWithMeeting, meeting: TestMeeting, name: string): Promise<string> {
+  const response = await fetch(meetingUrl(app, meeting.id, '/api/livekit/token'), {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body),
+    body: JSON.stringify({ participantName: name }),
   });
-}
-
-function hostAuth(): { auth: ReturnType<typeof createAuth>; store: ReturnType<typeof createMemoryAuthStore> } {
-  const store = createMemoryAuthStore();
-  const auth = createAuth({
-    store,
-    offeredRoles: () => ['role_1', 'role_2'],
-    meetingCode: createMeetingCodeSource(MEETING_CODE),
-  });
-  return { auth, store };
-}
-
-/** Sign the owner in on the restarted app and keep their cookie for the private routes. */
-async function hostCookie(
-  app: KakiApp,
-  store: ReturnType<typeof createMemoryAuthStore>,
-): Promise<string> {
-  await store.createUser({
-    email: HOST_EMAIL,
-    passwordHash: await hashPassword(HOST_PASSWORD),
-  });
-  const response = await post(
-    `${baseUrl(app)}/api/auth/login`,
-    { email: HOST_EMAIL, password: HOST_PASSWORD },
-  );
   expect(response.status).toBe(200);
-  const cookie = response.headers.get('set-cookie')?.split(';')[0];
-  if (cookie === undefined) throw new Error('host login did not set a cookie');
-  return cookie;
+  return ((await response.json()) as { participantRole: string }).participantRole;
 }
 
-async function createMeeting(app: KakiApp, setup: MeetingSetup): Promise<void> {
-  const base = baseUrl(app);
-  expect(
-    (
-      await fetch(`${base}/api/setup`, {
-        method: 'PUT',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(setup),
-      })
-    ).status,
-  ).toBe(200);
-  expect((await fetch(`${base}/api/meeting/open`, { method: 'POST' })).status).toBe(200);
-  const joined = await post(`${base}/api/livekit/token`, {
-    participantName: 'Mira',
-    participantRole: 'role_1',
-  });
-  expect(joined.status).toBe(200);
-  expect((await fetch(`${base}/api/meeting/start`, { method: 'POST' })).status).toBe(200);
+async function startMeeting(app: TestAppWithMeeting, meeting: TestMeeting): Promise<string[]> {
+  const seats = [
+    await joinPerson(app, meeting, 'Mira'),
+    await joinPerson(app, meeting, 'Noah'),
+  ];
+  const started = await fetch(meetingUrl(app, meeting.id, '/api/meeting/start'), { method: 'POST' });
+  expect(started.status).toBe(200);
+  return seats;
 }
 
-async function endMeeting(app: KakiApp): Promise<void> {
-  const screen = await connectClient(portOf(app), 'screen');
-  clients.push(screen);
+async function endMeeting(app: TestAppWithMeeting, meeting: TestMeeting): Promise<void> {
+  const screen = await connectMeetingClient(portOf(app), meeting.id);
   screen.ws.send(JSON.stringify({ type: 'END_MEETING' }));
-  await waitForEvent(
-    screen,
-    (event) => event.type === 'HOST_SPEECH_TRIGGERED' && event.payload.kind === 'CLOSING',
-    'the meeting to end',
-  );
+  await waitFor(() => (meeting.session.phase() === 'ended' ? true : undefined), 'the meeting to end');
+  screen.close();
 }
 
-function expectOwnTeamScenario(scenario: unknown): void {
+function expectOwnTeamScenario(scenario: unknown, seats: string[]): void {
   const parsed = parseScenario(scenario, { requireOrganisation: false });
   expect(parsed.meetingTitle).toBe('Team playtest meeting');
-  expect(parsed.roles.map((role) => role.id)).toEqual(expect.arrayContaining(['role_1', 'role_2']));
-  expect(parsed.agenda.map((item) => `${item.title}:${item.ownerRole}`)).toEqual([
-    'Topic one:role_1',
-    'Topic two:role_2',
-  ]);
+  expect(parsed.roles.map((role) => role.id)).toEqual(expect.arrayContaining(seats));
+  expect(parsed.agenda.map((item) => item.title)).toEqual(['Topic one', 'Topic two']);
   expect(parsed.attendees.map((attendee) => attendee.name).sort()).toEqual(['Mira', 'Noah']);
 }
 
 describe('restoring a real team meeting from its own setup', () => {
   it('serves the meeting it ran after END, and still offers the owner setup', async () => {
     const store = new MemoryStore();
+    const meetings = createMemoryMeetingStore();
+    const authStore = createMemoryAuthStore();
+    const owner = await signInGoogle(authStore, 'Ada Owner');
+    const row = await meetings.create(teamRow(owner.userId));
     const first = createMeetingPersistence({ store, log: () => undefined });
-    const app1 = await startApp(first);
-    await createMeeting(app1, teamSetup());
-    await endMeeting(app1);
+    const app1 = await startApp(meetings, first);
+    const meeting1 = await openMeeting(app1, row);
+    const seats = await startMeeting(app1, meeting1);
+    await endMeeting(app1, meeting1);
     // The owner starts the next meeting from a blank plan before the restart: the saved draft is
     // empty while the meeting that ran is still the one being reviewed.
-    expect((await fetch(`${baseUrl(app1)}/api/setup/blank`, { method: 'POST' })).status).toBe(200);
+    expect((await fetch(meetingUrl(app1, meeting1.id, '/api/setup/blank'), { method: 'POST' })).status).toBe(200);
     await first.flush();
     expect(store.saved?.phase).toBe('ended');
     expect(store.saved?.draft.title).toBe('');
-    expect(store.saved?.sealed?.roles.map((role) => role.id)).toEqual(['role_1', 'role_2']);
+    expect(store.saved?.sealed?.roles.map((role) => role.id)).toEqual(expect.arrayContaining(seats));
 
     await app1.close();
     apps.splice(apps.indexOf(app1), 1);
 
-    const { auth, store: authStore } = hostAuth();
+    const auth = createAuth({
+      store: authStore,
+      offeredRoles: () => seats,
+      meetingCode: createMeetingCodeSource(MEETING_CODE),
+    });
     const second = createMeetingPersistence({ store, saved: await store.load(), log: () => undefined });
-    const app2 = await startApp(second, { auth });
-    const cookie = await hostCookie(app2, authStore);
+    const app2 = await startApp(meetings, second, { auth });
+    const meeting2 = await openMeeting(app2, row);
 
-    const scenarioResponse = await fetch(`${baseUrl(app2)}/api/scenario`, {
-      headers: { cookie },
+    const scenarioResponse = await fetch(meetingUrl(app2, meeting2.id, '/api/scenario'), {
+      headers: { cookie: owner.cookie },
     });
     expect(scenarioResponse.status).toBe(200);
-    expectOwnTeamScenario(await scenarioResponse.json());
+    expectOwnTeamScenario(await scenarioResponse.json(), seats);
 
-    const setupResponse = await fetch(`${baseUrl(app2)}/api/setup`, {
-      headers: { cookie },
+    const setupResponse = await fetch(meetingUrl(app2, meeting2.id, '/api/setup'), {
+      headers: { cookie: owner.cookie },
     });
     expect(setupResponse.status).toBe(200);
     const setup = (await setupResponse.json()) as { setup: MeetingSetup; phase: string };
     expect(setup.phase).toBe('ended');
     // The blank next-meeting draft is reachable and editable; it never leaks into the live scenario.
     expect(setup.setup.title).toBe('');
-    expect(app2.session.phase()).toBe('ended');
+    expect(meeting2.session.phase()).toBe('ended');
   });
 
   it('shows a screen after the restart that the ended meeting is over, not a running clock', async () => {
     const store = new MemoryStore();
+    const meetings = createMemoryMeetingStore();
+    const row = await meetings.create(teamRow());
     const first = createMeetingPersistence({ store, log: () => undefined });
-    const app1 = await startApp(first);
-    await createMeeting(app1, teamSetup());
-    await endMeeting(app1);
+    const app1 = await startApp(meetings, first);
+    const meeting1 = await openMeeting(app1, row);
+    await startMeeting(app1, meeting1);
+    await endMeeting(app1, meeting1);
     await first.flush();
     expect(store.saved?.phase).toBe('ended');
 
@@ -227,98 +231,82 @@ describe('restoring a real team meeting from its own setup', () => {
     apps.splice(apps.indexOf(app1), 1);
 
     const second = createMeetingPersistence({ store, saved: await store.load(), log: () => undefined });
-    const app2 = await startApp(second);
-    expect(app2.session.phase()).toBe('ended');
+    const app2 = await startApp(meetings, second);
+    const meeting2 = await openMeeting(app2, row);
 
     // A screen that connects after the restart sees the frozen record marked ended, so the page
     // shows the meeting as over instead of a running clock with an "End meeting" button.
-    const screen = await connectClient(portOf(app2), 'screen');
-    clients.push(screen);
-    const record = await waitForEvent(
-      screen,
-      (event) => event.type === 'MEETING_RECORD_UPDATED',
+    const screen = await connectMeetingClient(portOf(app2), meeting2.id);
+    const record = await waitFor(
+      () => screen.messages.find((event) => event.type === 'MEETING_RECORD_UPDATED'),
       'the restored meeting record',
     );
     expect(
       (record as Extract<typeof record, { type: 'MEETING_RECORD_UPDATED' }>).payload.ended,
     ).toBe(true);
+    screen.close();
   });
 
   it('serves the same own setup from a restart in the middle of the meeting', async () => {
     const store = new MemoryStore();
+    const meetings = createMemoryMeetingStore();
+    const authStore = createMemoryAuthStore();
+    const owner = await signInGoogle(authStore, 'Ada Owner');
+    const row = await meetings.create({ ...teamRow(owner.userId) });
     const first = createMeetingPersistence({ store, log: () => undefined });
-    const app1 = await startApp(first);
-    await createMeeting(app1, teamSetup());
+    const app1 = await startApp(meetings, first);
+    const meeting1 = await openMeeting(app1, row);
+    const seats = await startMeeting(app1, meeting1);
     await first.flush();
     expect(store.saved?.phase).toBe('running');
 
     await app1.close();
     apps.splice(apps.indexOf(app1), 1);
 
-    const { auth, store: authStore } = hostAuth();
+    const auth = createAuth({
+      store: authStore,
+      offeredRoles: () => seats,
+      meetingCode: createMeetingCodeSource(MEETING_CODE),
+    });
     const second = createMeetingPersistence({ store, saved: await store.load(), log: () => undefined });
-    const app2 = await startApp(second, { auth });
-    const cookie = await hostCookie(app2, authStore);
+    const app2 = await startApp(meetings, second, { auth });
+    const meeting2 = await openMeeting(app2, row);
 
-    const response = await fetch(`${baseUrl(app2)}/api/scenario`, { headers: { cookie } });
+    const response = await fetch(meetingUrl(app2, meeting2.id, '/api/scenario'), {
+      headers: { cookie: owner.cookie },
+    });
     expect(response.status).toBe(200);
-    expectOwnTeamScenario(await response.json());
-    expect(app2.session.phase()).toBe('running');
+    expectOwnTeamScenario(await response.json(), seats);
+    expect(meeting2.session.phase()).toBe('running');
 
     const setup = (await (
-      await fetch(`${baseUrl(app2)}/api/setup`, { headers: { cookie } })
+      await fetch(meetingUrl(app2, meeting2.id, '/api/setup'), { headers: { cookie: owner.cookie } })
     ).json()) as { setup: MeetingSetup; started: boolean };
     expect(setup.started).toBe(true);
     expect(setup.setup.title).toBe('Team playtest meeting');
-    expect(setup.setup.roles.map((role) => role.id)).toEqual(['role_1', 'role_2']);
+    expect(setup.setup.roles.map((role) => role.id)).toEqual(expect.arrayContaining(seats));
   });
 
   it('restores a practice meeting from the pack, never from a team setup', async () => {
-    const setup = defaultMeetingSetup(structuredClone(testScenario));
-    const saved: StoredMeeting = {
-      schemaVersion: MEETING_STATE_SCHEMA_VERSION,
-      meetingId: 'practice-1',
-      phase: 'running',
-      kind: 'practice',
-      sealedKind: 'practice',
-      draft: setup,
-      draftTouched: false,
-      sealed: setup,
-      holders: [{ name: 'ben', seat: 'chef' }],
-      meetingCode: 'AB12CD',
-      startedAt: '2026-01-01T00:00:00.000Z',
-      savedAt: '2026-01-01T00:05:00.000Z',
-      state: {
-        clock: {
-          started: true,
-          ended: false,
-          paused: false,
-          agendaIndex: 0,
-          itemElapsedSeconds: 30,
-          meetingElapsedSeconds: 30,
-        },
-        notetaker: {
-          pending: [],
-          inFlight: [],
-          recentGrounded: [],
-          contextAgendaIndex: 0,
-          agendaContext: [],
-          openQuestions: [],
-          questionCount: 0,
-          status: 'ok',
-          talkByItem: [],
-          talkTotals: [],
-          talkTotal: 0,
-        },
-        tasks: [],
-      },
+    const app = await createPracticeTestApp({ roomRoster: async () => [] });
+    apps.push(app);
+    const teamSetup: MeetingSetup = {
+      title: 'Team playtest meeting',
+      agenda: [{ id: 'agenda-1', title: 'Topic one', minutes: 5, ownerRoleId: 'role_1' }],
+      roles: [
+        { id: 'role_1', label: 'Role one', facilitator: false },
+        { id: 'role_2', label: 'Role two', facilitator: false },
+      ],
+      seats: [
+        { displayName: 'Mira', roleId: 'role_1', kind: 'person' },
+        { displayName: 'Noah', roleId: 'role_2', kind: 'person' },
+      ],
+      pace: { ...DEFAULT_MEETING_PACE },
+      source: { title: 'typed', agenda: 'typed', roles: 'typed', seats: 'typed', pace: 'typed' },
     };
-    const store = new MemoryStore();
-    store.saved = saved;
-    const persistence = createMeetingPersistence({ store, saved, log: () => undefined });
-    const app = await startApp(persistence);
+    app.session.setDraft(teamSetup);
 
-    const response = await fetch(`${baseUrl(app)}/api/scenario?kind=practice`);
+    const response = await fetch(meetingUrl(app, app.meetingId, '/api/scenario?kind=practice'));
     expect(response.status).toBe(200);
     const scenario = parseScenario(await response.json());
     expect(scenario.meetingTitle).toBe(testScenario.meetingTitle);
@@ -332,26 +320,39 @@ describe.skipIf(connectionString === undefined)('restoring a team meeting from P
     const postgres = await createPostgresTestSchema(connectionString);
     try {
       await ensureMeetingStateSchema(postgres.pool);
-      const store = createPostgresMeetingStateStore(postgres.pool, 'meeting');
+      const meetings = createMemoryMeetingStore();
+      const authStore = createMemoryAuthStore();
+      const owner = await signInGoogle(authStore, 'Ada Owner');
+      const row = await meetings.create(teamRow(owner.userId));
+      const store = createPostgresMeetingStateStore(postgres.pool, row.id);
       const first = createMeetingPersistence({ store, log: () => undefined });
-      const app1 = await startApp(first);
-      await createMeeting(app1, teamSetup());
-      await endMeeting(app1);
+      const app1 = await startApp(meetings, first);
+      const meeting1 = await openMeeting(app1, row);
+      const seats = await startMeeting(app1, meeting1);
+      await endMeeting(app1, meeting1);
       await first.flush();
       expect((await store.load())?.phase).toBe('ended');
 
       await app1.close();
       apps.splice(apps.indexOf(app1), 1);
 
-      const { auth, store: authStore } = hostAuth();
+      const auth = createAuth({
+        store: authStore,
+        offeredRoles: () => seats,
+        meetingCode: createMeetingCodeSource(MEETING_CODE),
+      });
       const second = createMeetingPersistence({ store, saved: await store.load(), log: () => undefined });
-      const app2 = await startApp(second, { auth });
-      const cookie = await hostCookie(app2, authStore);
+      const app2 = await startApp(meetings, second, { auth });
+      const meeting2 = await openMeeting(app2, row);
 
-      const response = await fetch(`${baseUrl(app2)}/api/scenario`, { headers: { cookie } });
+      const response = await fetch(meetingUrl(app2, meeting2.id, '/api/scenario'), {
+        headers: { cookie: owner.cookie },
+      });
       expect(response.status).toBe(200);
-      expectOwnTeamScenario(await response.json());
-      expect((await fetch(`${baseUrl(app2)}/api/setup`, { headers: { cookie } })).status).toBe(200);
+      expectOwnTeamScenario(await response.json(), seats);
+      expect((await fetch(meetingUrl(app2, meeting2.id, '/api/setup'), {
+        headers: { cookie: owner.cookie },
+      })).status).toBe(200);
     } finally {
       await postgres.dispose();
     }

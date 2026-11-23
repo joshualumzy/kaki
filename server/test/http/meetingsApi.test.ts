@@ -344,6 +344,16 @@ describe('meetings API', () => {
     expect((await request(base, `/api/meetings/by-code/${code}`)).status).toBe(404);
   });
 
+  it('rate-limits wrong meeting-code lookups per address', async () => {
+    const { base } = await buildApp();
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      expect((await request(base, `/api/meetings/by-code/WRNG${String(attempt).padStart(2, '0')}`)).status).toBe(404);
+    }
+    const limited = await request(base, '/api/meetings/by-code/WRNG99');
+    expect(limited.status).toBe(429);
+    expect(((await limited.json()) as { error: string }).error).toMatch(/Too many attempts/);
+  });
+
   it('gives every real meeting its own code even when a practice code is pinned', async () => {
     const previous = process.env.KAKI_MEETING_CODE;
     process.env.KAKI_MEETING_CODE = 'PINNED';

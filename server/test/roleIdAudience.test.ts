@@ -1,8 +1,15 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
 import type { KakiEvent, Scenario } from '@kaki/shared';
-import { createApp, type KakiApp } from '../src/app';
-import { portOf, waitFor } from './helpers';
+import type { KakiApp } from '../src/app';
+import {
+  createPracticeTestApp,
+  meetingUrl,
+  meetingWsUrl,
+  portOf,
+  waitFor,
+  type TestAppWithMeeting,
+} from './helpers';
 import { testScenario } from './fixtures/scenario';
 
 const apps: KakiApp[] = [];
@@ -41,11 +48,16 @@ const personParticipantScenario: Scenario = {
   ],
 };
 
-async function openRoleSocket(port: number, role: string, token?: string): Promise<WebSocket> {
+async function openRoleSocket(
+  app: TestAppWithMeeting,
+  role: string,
+  options: { token?: string; cookie?: string } = {},
+): Promise<WebSocket> {
   const headers: Record<string, string> = {};
-  if (token !== undefined) headers.authorization = `Bearer ${token}`;
+  if (options.token !== undefined) headers.authorization = `Bearer ${options.token}`;
+  if (options.cookie !== undefined) headers.cookie = options.cookie;
   const socket = new WebSocket(
-    `ws://127.0.0.1:${port}/ws?role=${encodeURIComponent(role)}`,
+    meetingWsUrl(portOf(app), app.meetingId, `role=${encodeURIComponent(role)}`),
     Object.keys(headers).length === 0 ? undefined : { headers },
   );
   sockets.push(socket);
@@ -62,14 +74,13 @@ async function openRoleSocket(port: number, role: string, token?: string): Promi
 
 describe('a role id that spells a projection audience', () => {
   it('accepts the AI runner on a setup role whose id is participant', async () => {
-    const app = await createApp({
-      speechRecognition: 'browser',
+    const app = await createPracticeTestApp({
       scenario: participantRoleScenario,
       serviceToken: 'runner-secret',
     });
     apps.push(app);
 
-    const socket = await openRoleSocket(portOf(app), 'participant', 'runner-secret');
+    const socket = await openRoleSocket(app, 'participant', { token: 'runner-secret' });
     const messages: KakiEvent[] = [];
     socket.on('message', (data) => messages.push(JSON.parse(data.toString()) as KakiEvent));
 
@@ -86,20 +97,25 @@ describe('a role id that spells a projection audience', () => {
 
   it('delivers that role its own events when a person takes the seat', async () => {
     // Nobody is in the room yet; the test must not depend on a running LiveKit server.
-    const app = await createApp({ speechRecognition: 'browser', scenario: personParticipantScenario, roomRoster: async () => [] });
+    const app = await createPracticeTestApp({
+      scenario: personParticipantScenario,
+      roomRoster: async () => [],
+    });
     apps.push(app);
-    const port = portOf(app);
 
-    expect((await fetch(`http://127.0.0.1:${port}/api/meeting/open`, { method: 'POST' })).status).toBe(200);
-    const joined = await fetch(`http://127.0.0.1:${port}/api/livekit/token`, {
+    const joined = await fetch(meetingUrl(app, app.meetingId, '/api/livekit/token'), {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ participantName: 'Ada', participantRole: 'participant' }),
+      headers: { 'content-type': 'application/json', cookie: app.cookie! },
+      body: JSON.stringify({
+        participantName: 'Ada',
+        participantRole: 'participant',
+        kind: 'practice',
+      }),
     });
     expect(joined.status).toBe(200);
 
     const messages: KakiEvent[] = [];
-    const socket = await openRoleSocket(port, 'participant');
+    const socket = await openRoleSocket(app, 'participant', { cookie: app.cookie });
     socket.on('message', (data) => messages.push(JSON.parse(data.toString()) as KakiEvent));
 
     const note: KakiEvent = {

@@ -1163,7 +1163,6 @@ describe('rejoin and start races', () => {
       method: 'POST',
       headers: { cookie: app.cookie! },
     });
-    const capability = app.cookie!.slice(app.cookie!.indexOf('.') + 1);
     try {
       runner.on('message', (data) => {
         const message = JSON.parse(data.toString()) as {
@@ -1207,9 +1206,8 @@ describe('rejoin and start races', () => {
       expect(afterReset).toMatchObject({ meetingId: replacement, started: false });
 
       // The replacement meeting gets its own attempt; the old acknowledgement cannot satisfy it.
-      // A reset also clears the visitor's capability and revokes the practice screen, so re-grant
-      // the capability and reconnect the screen before the same person rejoins.
-      app.session.beginPractice({ token: capability });
+      // The reset revokes the practice screen, but the visitor's cookie still opens the same
+      // practice, so they rejoin and reconnect without a new capability.
       expect((await join()).status).toBe(200);
       screen = await connectMeetingClient(port, app.meetingId, 'screen');
       ackMode = 'ready';
