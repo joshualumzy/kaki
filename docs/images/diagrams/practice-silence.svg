@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 600" width="960" height="600" role="img" aria-labelledby="title desc">
+  <title id="title">The practice host’s silence ladder</title>
+  <desc id="desc">When the guest stays silent, the host checks in, then a colleague nudges, then one offer is built from the guest’s own words, then the topic is left open as unresolved and the meeting moves on. Whenever the guest speaks, the ladder stops and restarts at the check-in. At most two offers and two read-backs per topic.</desc>
+  <defs>
+    <style>
+      text { font-family: Geist, Inter, "Segoe UI", system-ui, sans-serif; }
+      .t { font-size: 22px; font-weight: 700; fill: #0d1117; }
+      .s { font-size: 14px; fill: #5a6472; }
+      .z { font-size: 12px; font-weight: 700; letter-spacing: 0.08em; fill: #5a6472; }
+      .h { font-size: 15px; font-weight: 600; fill: #0d1117; }
+      .b { font-size: 13px; fill: #5a6472; }
+      .n { font-size: 13px; font-weight: 700; fill: #ffffff; }
+      .m { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; fill: #5a6472; }
+      .l { font-size: 12px; font-weight: 600; fill: #5a6472; }
+      .ln { fill: none; stroke: #5a6472; stroke-width: 1.5; }
+    </style>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#5a6472"/>
+    </marker>
+    <marker id="e" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#00a58e"/>
+    </marker>
+  </defs>
+
+  <rect x="0.5" y="0.5" width="959" height="599" rx="20" fill="#ffffff" stroke="#d8dde3"/>
+  <text class="t" x="40" y="52">When the guest goes quiet</text>
+  <text class="s" x="40" y="78">The practice host climbs down one step at a time. Every step has an exit, so a silent guest is never stuck.</text>
+
+  <rect x="40" y="106" width="880" height="50" rx="12" fill="#e6f6f3" stroke="#00a58e" stroke-width="1.5"/>
+  <text class="h" x="60" y="137">Exit at any step: the guest speaks</text>
+  <text class="b" x="316" y="137">The room answers them, and the next silence starts again at the check-in.</text>
+  <path d="M120 206 V156" fill="none" stroke="#00a58e" stroke-width="1.5" stroke-dasharray="4 4" marker-end="url(#e)"/>
+  <rect x="40" y="206" width="160" height="108" rx="12" fill="#fff1eb" stroke="#ff5a1f" stroke-width="1.5"/>
+  <circle cx="68" cy="234" r="13" fill="#ff5a1f"/><text class="n" x="68" y="238.5" text-anchor="middle">1</text>
+  <text class="h" x="56" y="270">Check-in</text>
+  <text class="b" x="56" y="290">the host checks</text>
+  <text class="b" x="56" y="307">in with the guest</text>
+  <path class="ln" d="M200 260 H210 V296 H220" marker-end="url(#a)"/>
+  <path d="M300 242 V156" fill="none" stroke="#00a58e" stroke-width="1.5" stroke-dasharray="4 4" marker-end="url(#e)"/>
+  <rect x="220" y="242" width="160" height="108" rx="12" fill="#fff1eb" stroke="#ff5a1f" stroke-width="1.5"/>
+  <circle cx="248" cy="270" r="13" fill="#ff5a1f"/><text class="n" x="248" y="274.5" text-anchor="middle">2</text>
+  <text class="h" x="236" y="306">Colleague nudge</text>
+  <text class="b" x="236" y="326">another AI voice</text>
+  <text class="b" x="236" y="343">invites their view</text>
+  <path class="ln" d="M380 296 H390 V332 H400" marker-end="url(#a)"/>
+  <path d="M480 278 V156" fill="none" stroke="#00a58e" stroke-width="1.5" stroke-dasharray="4 4" marker-end="url(#e)"/>
+  <rect x="400" y="278" width="160" height="108" rx="12" fill="#fff1eb" stroke="#ff5a1f" stroke-width="1.5"/>
+  <circle cx="428" cy="306" r="13" fill="#ff5a1f"/><text class="n" x="428" y="310.5" text-anchor="middle">3</text>
+  <text class="h" x="416" y="342">One offer</text>
+  <text class="b" x="416" y="362">a call built from</text>
+  <text class="b" x="416" y="379">the guest’s own words</text>
+  <path class="ln" d="M560 332 H570 V368 H580" marker-end="url(#a)"/>
+  <path d="M660 314 V156" fill="none" stroke="#00a58e" stroke-width="1.5" stroke-dasharray="4 4" marker-end="url(#e)"/>
+  <rect x="580" y="314" width="160" height="108" rx="12" fill="#fdecef" stroke="#e5334b" stroke-width="1.5"/>
+  <circle cx="608" cy="342" r="13" fill="#e5334b"/><text class="n" x="608" y="346.5" text-anchor="middle">4</text>
+  <text class="h" x="596" y="378">Leave it open</text>
+  <text class="b" x="596" y="398">“We’ll leave it open</text>
+  <text class="b" x="596" y="415">for now”: unresolved</text>
+  <path class="ln" d="M740 368 H750 V404 H760" marker-end="url(#a)"/>
+  <rect x="760" y="350" width="160" height="108" rx="12" fill="#e6f6f3" stroke="#00a58e" stroke-width="1.5"/>
+  <circle cx="788" cy="378" r="13" fill="#00a58e"/><text class="n" x="788" y="382.5" text-anchor="middle">5</text>
+  <text class="h" x="776" y="414">Move on</text>
+  <text class="b" x="776" y="434">next agenda item,</text>
+  <text class="b" x="776" y="451">or the wrap-up</text>
+  <text class="l" x="920" y="200" text-anchor="end">each step waits for another silence</text>
+
+  <rect x="40" y="494" width="430" height="74" rx="12" fill="#f6f8fa" stroke="#d0d7de" stroke-width="1.5"/>
+  <text class="h" x="60" y="522">At most 2 offers per topic</text>
+  <text class="b" x="60" y="544">After two, the topic closes honestly as unresolved.</text>
+  <rect x="490" y="494" width="430" height="74" rx="12" fill="#f6f8fa" stroke="#d0d7de" stroke-width="1.5"/>
+  <text class="h" x="510" y="522">At most 2 read-backs per topic</text>
+  <text class="b" x="510" y="544">“Is that your call?” is asked twice at most, then offer or close.</text>
+  <text class="m" x="920" y="582" text-anchor="end">server/src/npc/conversation.ts</text>
+</svg>

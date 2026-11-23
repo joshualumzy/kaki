@@ -2,25 +2,25 @@
 
 A meeting assistant that gives every seat a private wingman.
 
-[Live demo](https://green-sky-0c9a41800.4.azurestaticapps.net) · [Screenshots](#screenshots) · [Architecture](#architecture) · [Setup automation](#setup-automation) · [Contents](#contents) · [Poster](docs/poster/kaki-a1-poster.pdf)
+[Try Kaki](https://green-sky-0c9a41800.4.azurestaticapps.net) · [Screenshots](#screenshots) · [Architecture](#architecture) · [Setup automation](#setup-automation) · [Contents](#contents) · [Poster](docs/poster/kaki-a1-poster.pdf)
 
 ![Kaki meeting room](docs/images/meeting-room.png)
 *A team meeting in progress: the owner and a guest, with Kaki's agenda, live transcript and a follow-up card in the side panel.*
 
-Kaki (Singlish for "buddy" or "one of us") helps a small team run a meeting and finish the work it creates. A person signs in, gets a personal workspace, and connects the tools that workspace already uses. They start a meeting now or schedule it for later, invite people by link or QR code, and guests join under their own name without an account. Each person holds their own seat and gets a private wingman, while a neutral host keeps the clock and the notes. Follow-ups become to-do cards that a person can hand to Kaki to draft, and the minutes and to-dos stay in the workspace after the meeting ends. A practice meeting, where AI colleagues fill the other seats, is one click away at `/practice`, with no sign-in.
+Kaki (Singlish for "buddy" or "one of us") helps a small team run a meeting and finish the work it creates. Each person holds their own seat with a private wingman, while a neutral host keeps the clock and the notes. Follow-ups become to-do cards that a person can hand to Kaki to draft, and the minutes and to-dos stay in the workspace after the meeting ends. A practice meeting, where AI colleagues fill the other seats, is one click away at `/practice` with no sign-in.
 
 ## Highlights
 
-- Sign in with Google. Each person gets a personal workspace, and a read-only sample workspace (Nanyang Kopi) shows how the tools fit together.
-- A workspace connects Mattermost, Gitea, a wiki, email and a calendar. Logins are stored encrypted with AES-GCM, and a Test button checks each connection.
-- Start a meeting now or schedule it for later, describe it to Tell Kaki for a drafted agenda, or take the agenda from the calendar. Invite people by link or QR code, and guests join by link without an account.
-- Many meetings can run at once. Each has its own notes, transcript and cards, and an open-meeting cap returns a plain busy message.
-- Every person has their own seat and a private wingman that answers "what did I miss?" from the meeting first, then the workspace records with sources and dates. Guests get answers from the meeting only.
-- A to-do card can be done for you: the owner presses Do it for me (tool), reviews the draft and approves it. At End, the minutes card publishes the one record to the team wiki. Every post Kaki makes is signed "Posted by Kaki for <name>, approved in <meeting title>".
+- Sign in with Google to get a personal workspace; a read-only sample workspace, Nanyang Kopi, shows how the tools fit together.
+- A workspace connects Mattermost, Gitea, a wiki, email and a calendar, stores their logins encrypted, and tests each connection with one button.
+- A meeting can start now or be scheduled, with an agenda that is typed, drafted by Tell Kaki or taken from the calendar.
+- Guests join by link or QR code under their own name, without an account.
+- Many meetings run at once, each with its own notes, transcript and cards.
+- Every person's wingman answers "what did I miss?" from the meeting first and then from workspace records, with sources and dates.
+- A to-do card can be done for you: Kaki drafts the issue, post, email, wiki page or calendar event, and nothing is written until a person approves it.
 - After the meeting, the workspace keeps the minutes and to-dos, with Copy, Download and a tick for each to-do.
-- Meetings are speech only: people talk, Kaki listens, and nobody types into the room. The layout adapts to phone screens, and a meeting-ended screen links to the minutes.
-- A practice meeting with AI colleagues runs at `/practice`; each visitor gets their own room.
-- A signed-in person can delete their account and everything in it from the account menu. The [privacy policy](https://green-sky-0c9a41800.4.azurestaticapps.net/privacy.html) says what Kaki keeps.
+- Meetings are speech only, and the layout works on a phone.
+- A signed-in person can delete their account and everything in it; the [privacy policy](https://green-sky-0c9a41800.4.azurestaticapps.net/privacy.html) says what Kaki keeps.
 
 ## Screenshots
 
@@ -47,335 +47,362 @@ Kaki (Singlish for "buddy" or "one of us") helps a small team run a meeting and 
 
 ## Contents
 
-- [Highlights](#highlights)
-- [Screenshots](#screenshots)
-- [Team](#team)
-- [Try it](#try-it)
-- [Problem statement](#problem-statement)
-- [Architecture](#architecture)
-- [Front-end features](#front-end-features)
-- [Back-end features](#back-end-features)
-- [Sign-in and sessions](#sign-in-and-sessions)
-- [Setup automation](#setup-automation)
-- [Integration with third-party services](#integration-with-third-party-services)
-- [Usability and invalid-input handling](#usability-and-invalid-input-handling)
-- [Code structure and library components](#code-structure-and-library-components)
-- [Built with React](#built-with-react)
-- [Technology choices](#technology-choices)
-- [Testing and evaluation](#testing-and-evaluation)
-- [Open source and licensing](#open-source-and-licensing)
-- [Borrowed code and credits](#borrowed-code-and-credits)
-- [Competitors](#competitors)
-- [Business model](#business-model)
-- [Project management](#project-management)
-- [Repository structure](#repository-structure)
-- [Sources](#sources)
+1. [Try it](#try-it)
+2. [Problem statement](#problem-statement)
+3. [Architecture](#architecture)
+4. [Front-end features](#front-end-features) and [Back-end features](#back-end-features)
+5. [Sign-in and sessions](#sign-in-and-sessions)
+6. [Setup automation](#setup-automation)
+7. [Integration with third-party services](#integration-with-third-party-services)
+8. [Usability and invalid-input handling](#usability-and-invalid-input-handling)
+9. [Code structure and library components](#code-structure-and-library-components), [Built with React](#built-with-react) and [Technology choices](#technology-choices)
+10. [Testing and evaluation](#testing-and-evaluation)
+11. [Open source and licensing](#open-source-and-licensing) and [Borrowed code and credits](#borrowed-code-and-credits)
+12. [Competitors](#competitors) and [Business model](#business-model)
+13. [Project management](#project-management)
+14. [Repository structure](#repository-structure)
+15. [Sources](#sources)
 
 ## Try it
 
-Start at **[green-sky-0c9a41800.4.azurestaticapps.net](https://green-sky-0c9a41800.4.azurestaticapps.net)**. That page is always on. The demo itself runs on an Azure VM (HTTPS, so browsers and phones allow the microphone) that switches itself off when nobody is using it; if it is off, choosing an option on the start page wakes it, which takes a minute or two, and then takes you where you chose. The other links below work once it is awake. Kaki works on phones: the layout is sized for a phone screen, and guests join from a phone browser by link or QR code.
+Start at **[green-sky-0c9a41800.4.azurestaticapps.net](https://green-sky-0c9a41800.4.azurestaticapps.net)**. This start page is always on. Kaki itself runs on an Azure virtual machine (VM) that switches itself off when nobody is using it, so choosing an option on the start page may first wake it, which takes a minute or two.
 
-Sign in with Google to open your workspace. The account menu lists your personal workspace and the read-only Nanyang Kopi sample workspace. In a workspace, connect the tools to use (Mattermost, Gitea, wiki, email, calendar), or use the sample's built-in tools. Open New meeting, describe the meeting to Tell Kaki or take the agenda from your calendar, then start it now or schedule it for later. Share the invite link or QR code; guests join by link under their own name without an account.
+<img src="docs/images/diagrams/cloud-wake.svg" alt="How the start page wakes the VM and how the VM switches itself off when idle" width="100%">
 
-| What | Where | Sign-in |
+*The start page wakes the VM on demand; a timer on the VM switches it off again when nobody is around.*
+
+- The start page's two small functions can only read the VM's state and start it.
+- Every 5 minutes a check on the VM reads Kaki's idle state from a route only the VM itself can reach.
+- The VM switches itself off after 60 minutes with nobody connected, or after 2 hours with nobody speaking or clicking (a forgotten open tab).
+- If the check cannot read Kaki's state, the VM stays on and switches off only after 2 hours of that.
+- A meeting cut off this way is saved and comes back when the VM wakes.
+
+### A team meeting
+
+1. Sign in with Google. The account menu lists your personal workspace and the read-only Nanyang Kopi sample workspace.
+2. In a workspace, connect the tools you want (Mattermost, Gitea, wiki, email, calendar), or use the sample's built-in ones.
+3. Open New meeting, describe the meeting to Tell Kaki or take the agenda from your calendar, then start it now or schedule it.
+4. Share the invite link or QR code. Guests join from any browser, including a phone, under their own name.
+
+Each person has their own seat under their own name (two people called Sam show as "Sam" and "Sam (2)"), and no AI colleagues join. The room can go off the record, anyone can leave and rejoin, and the owner or an admin can end the meeting for everyone.
+
+### A practice meeting
+
+Open [/practice](https://kaki.southeastasia.cloudapp.azure.com/practice). Each visitor gets their own room, the AI colleagues take the other seats, and the visitor takes part by speaking. A signed-in visitor keeps the minutes and to-dos in their own sample history; a signed-out visitor reads the minutes on the sample wiki and is invited to sign in to keep future meetings.
+
+### Links and logins
+
+| What | Where | Login |
 | --- | --- | --- |
-| Kaki app (workspaces and real meetings) | [kaki.southeastasia.cloudapp.azure.com](https://kaki.southeastasia.cloudapp.azure.com) | Sign in with Google |
-| Practice meeting with AI colleagues | [/practice](https://kaki.southeastasia.cloudapp.azure.com/practice) | No sign-in |
+| Kaki app (workspaces and team meetings) | [kaki.southeastasia.cloudapp.azure.com](https://kaki.southeastasia.cloudapp.azure.com) | Sign in with Google |
+| Practice meeting with AI colleagues | [/practice](https://kaki.southeastasia.cloudapp.azure.com/practice) | None |
 | Wiki.js | [Port 8081](http://kaki.southeastasia.cloudapp.azure.com:8081) | `demo` / `demo` |
-| Gitea | [Port 8082](http://kaki.southeastasia.cloudapp.azure.com:8082) | `demo` / `demo` (or `wei-ling`, `arjun`, `mei`, `daniel` / `demo`) |
-| Mattermost | [Port 8443](https://kaki.southeastasia.cloudapp.azure.com:8443) | `demo` / `demo` (or `weiling`, `arjun`, `mei`, `daniel` / `demo`) |
-| Mailpit inbox | [Port 8084](http://kaki.southeastasia.cloudapp.azure.com:8084) | No login |
+| Gitea | [Port 8082](http://kaki.southeastasia.cloudapp.azure.com:8082) | `demo` / `demo`, or `wei-ling`, `arjun`, `mei`, `daniel` with password `demo` |
+| Mattermost | [Port 8443](https://kaki.southeastasia.cloudapp.azure.com:8443) | `demo` / `demo`, or `weiling`, `arjun`, `mei`, `daniel` with password `demo` |
+| Mailpit inbox | [Port 8084](http://kaki.southeastasia.cloudapp.azure.com:8084) | None |
 | Radicale calendar | [Port 5232](http://kaki.southeastasia.cloudapp.azure.com:5232) | `demo` / `demo` |
 
-In a real meeting, each person has their own seat under their own name (two people called Sam show as "Sam" and "Sam (2)") and no AI colleagues join. The room can go off the record, and anyone can leave and rejoin. The owner or an admin can end the meeting for everyone. In a practice meeting at `/practice`, each visitor gets their own room, the AI colleagues take the other seats and the visitor takes part by speaking. A signed-in visitor's practice keeps its minutes and to-dos in their own sample history; a signed-out visitor reads the minutes on the sample wiki and is invited to sign in to keep future meetings.
-
-The VM switches itself off after 60 minutes with nobody connected, or after 2 hours with nobody speaking or clicking (a forgotten open tab). A meeting cut off this way is saved and comes back when the VM wakes. The waking page is in `wake/` and the switch-off check in `deploy/idle/`. You can also run Kaki locally with `npm start` (see [Setup automation](#setup-automation)).
-
-```bash
-npm run cloud:status   # Check the VM and the live HTTPS health endpoint
-npm run cloud:up       # Start kaki-vm and wait until the site and integrations are ready
-npm run cloud:down     # Deallocate kaki-vm ($0/hr compute billing)
-```
+The sample colleague Wei Ling is `wei-ling` in Gitea and `weiling` in Mattermost, because the seed creates each tool's admin account under the name that tool accepts (`docker/seed/env.ts`). To run Kaki on your own machine, see [Setup automation](#setup-automation).
 
 ## Problem statement
 
-A meeting host has to present, watch the clock, keep the agenda and record who agreed to do what, and in a hybrid meeting much of that is harder. When the person who knows the answer stays quiet, the question can sit open for the rest of the call.
+A meeting host has to present, watch the clock, keep the agenda and record who agreed to do what, and a hybrid meeting makes each of those harder. When the person who knows the answer stays quiet, the question can sit open for the rest of the call.
 
-Zoom AI Companion 3.0 drafts tasks and emails inside Zoom, and Otter.ai Live Assist gives private coaching tips while the call runs. The harder part is deciding when to stay silent, who needs which fact, and how to write into another system without surprising anyone. Kaki splits those jobs between a neutral host, a private wingman for each participant and an action agent that writes into the team's own tools.
+Zoom AI Companion 3.0 drafts tasks and emails inside Zoom, and Otter.ai Live Assist gives private coaching tips while the call runs. The harder problems are deciding when to stay silent, who needs which fact, and how to write into another system without surprising anyone. Kaki splits those jobs between a neutral host, a private wingman for each participant and an action agent that writes into the team's own tools.
 
-Several parts were hard to get right. In a live meeting several people can talk at once, and each person's microphone is transcribed on its own, so the transcript has to keep their lines apart. A follow-up should not be sent until its agenda item is settled, and a private card must reach only one seat. In a practice meeting the AI colleagues have to take turns and stop when someone interrupts. A real meeting adds its own problems: many people at once, guests with no account, and a room that can go off the record.
+Several parts were hard to get right. Several people can talk at once, and each microphone is transcribed separately, so the transcript has to keep their lines apart. A follow-up should not be sent until its agenda item is settled, and a private card must reach only one seat. In a practice meeting the AI colleagues have to take turns and stop when someone interrupts. A real meeting adds many people at once, guests with no account, and a room that can go off the record.
 
-In two years, personal help during a live meeting should feel as ordinary as the recap does today. In five, a team should expect the meeting to leave finished work behind, such as an issue opened and an email sent. In ten, the assistant should be part of how the team runs, with the open questions being trust and permission.
+We expect private help during a live meeting to become as ordinary as the automatic recap is today, and teams to expect a meeting to leave finished work behind.
 
 ## Architecture
 
-```mermaid
-flowchart LR
-  Owner["Owner browser"] --> Web["Web app (React + Vite)"]
-  People["Participant and phone browsers"] --> Web
-  Guest["Guest browser (meeting link)"] --> Web
-  Web -->|"HTTP + WebSocket /ws"| Server["Kaki server (Node + TypeScript)"]
-  Server --> Auth["Accounts and workspaces: Google sign-in, sessions, tools"]
-  Server --> Registry["Meeting registry: many meetings, one instance each"]
-  Registry --> Host["Kaki Host: agenda clock, notetaker, auto-dispatch"]
-  Registry --> Wingman["Kaki Wingman: private meeting help, workspace search"]
-  Registry --> Action["Kaki Action: drafts, approval, connectors"]
-  Auth --> PG[("Postgres + pgvector<br/>users, workspaces, tools and records")]
-  Host --> PG
-  Wingman --> PG
-  Host --> LLM["OpenAI-compatible LLM gateway"]
-  Wingman --> LLM
-  Action --> LLM
-  Action --> Tools["Gitea, Mattermost, Wiki.js, Mailpit, Radicale"]
-  Web -->|"WebRTC audio"| LiveKit["LiveKit room"]
-  NPC["Runner: room listener, plus the Director and AI voices in practice"] --> LiveKit
-  NPC -->|"service channel"| Server
-```
+<img src="docs/images/diagrams/architecture.svg" alt="Kaki architecture: browsers, web app, Kaki server with its three agents, data stores, company tools, LiveKit and the NPC runner" width="100%">
 
-The browser holds no API keys. It talks to the Kaki server and to LiveKit with a room token from the server. Every LLM call, Azure Speech call and company-tool write is made by the server or by the NPC runner.
+*Browsers talk only to the Kaki server and to LiveKit; every model, speech and company-tool call is made on the server side.*
 
-A person signs in with Google. The server creates their personal workspace on first sign-in, and the built-in sample workspace is read-only for everyone. Tool logins are stored encrypted with AES-GCM under `KAKI_SECRET_KEY` and are never returned to the browser.
+The browser holds no API keys. It reaches LiveKit, the real-time audio server, with a room token issued by the Kaki server. Every LLM call, Azure Speech call and company-tool write is made by the server or by the AI runner (the NPC runner in the table below).
 
-Many meetings can run in one server process. The registry loads each meeting on demand, gives it its own notes, transcript, tasks and socket audience, and caps how many are open at once. Meeting state is saved to Postgres, so a restart restores a meeting where it was. When a person joins, the server decides which messages their seat receives. A private card for one role never reaches another role's screen.
-
-Company records sit in the same Postgres database, so a question can match a record by meaning as well as by its words.
+One server process runs many meetings. The meeting registry loads each meeting on demand, gives it its own notes, transcript, tasks and socket audience, and caps how many are open at once. Meeting state is saved to Postgres, so a restart restores each meeting where it was. Company records sit in the same database, with pgvector (a Postgres extension for similarity search over embeddings), so a question can match a record by meaning as well as by its words.
 
 | Agent | What it does | Code |
 | --- | --- | --- |
-| Kaki Host | Runs the agenda clock, keeps the meeting record, finds open questions and follow-ups, dispatches work to the right role and triggers the closing summary. | `server/src/host/` |
-| Kaki Wingman | A private helper for one person. Answers "what did I miss?" and other questions from the meeting first and the workspace second (with sources and dates), notes a to-do given to them, flags a direct question they must answer, and surfaces a record that answers or contradicts the current discussion. Guests get meeting-only answers. | `server/src/wingman/` |
-| Kaki Action | Drafts a concrete issue, post, email, wiki page or calendar event after a person presses Do it for me or claims the task, then runs it once they approve. At End it drafts the minutes for a person to approve before the wiki write. | `server/src/action/` |
-| NPC Director and runner | The runner joins every room as the silent listener for speech recognition. In a practice meeting it also plays the AI colleagues (NPCs in the code) over LiveKit. One Director speaks for every AI colleague, one at a time. The runner uses Azure Speech, voice-activity detection and barge-in (stops talking when someone talks over it). | `server/src/npc/` |
+| Kaki Host | Runs the agenda clock, keeps the meeting record, finds open questions and follow-ups, dispatches work to the right person and triggers the closing summary. | `server/src/host/` |
+| Kaki Wingman | A private helper for one person. It answers "what did I miss?" and other questions from the meeting first and the workspace second, notes a to-do given to them, flags a direct question they must answer, and surfaces a record that answers or contradicts the discussion. Guests get meeting-only answers. | `server/src/wingman/` |
+| Kaki Action | Drafts an issue, post, email, wiki page or calendar event after a person presses Do it for me or claims the task, and runs it once they approve. At the end it drafts the minutes for a person to approve before anything is written to the wiki. | `server/src/action/` |
+| NPC runner and Director | The runner joins every room as a silent listener for speech-to-text (STT). In a practice meeting it also plays the AI colleagues, which the code calls NPCs: one Director speaks for all of them, one at a time, through Azure text-to-speech (TTS), and stops when someone talks over it. | `server/src/npc/` |
 
-Here is the path of one follow-up in a real meeting. Someone says, "I'll email the supplier." The notetaker proposes a follow-up from that transcript line and keeps the evidence (`server/src/host/notetakerTasks.ts`). The owner dispatches it to that person's seat from the shared task list (`server/src/host/autoDispatch.ts`). The task store publishes the card only to their seat (`server/src/meeting/tasks.ts`), and the dock shows it privately (`web/src/meeting/room/ActiveRoleCards.tsx`). The owner presses Do it for me (email), edits the draft and presses Approve. The action runner checks the draft against its source and runs it (`server/src/action/runner.ts`, `server/src/action/draftGrounding.ts`). Mailpit receives the email (`server/src/action/email.ts`).
+### The path of one follow-up
+
+When someone says "I'll email the supplier", the notetaker turns the line into a follow-up, the owner sends it to that person's seat, and the email is written only after a person approves the draft.
+
+<img src="docs/images/diagrams/follow-up-path.svg" alt="The path of one follow-up, from a spoken line to an email in Mailpit" width="100%">
+
+*From a spoken line to a sent email, with a person in charge at every step that changes something.*
+
+| Step | Code |
+| --- | --- |
+| Notetaker proposes the follow-up and keeps the source line | `server/src/host/notetakerTasks.ts` |
+| Owner dispatches it to a seat | `server/src/host/autoDispatch.ts` |
+| Card is published to that seat only | `server/src/meeting/tasks.ts`, `web/src/meeting/room/ActiveRoleCards.tsx` |
+| Draft is checked against its source and run | `server/src/action/runner.ts`, `server/src/action/draftGrounding.ts` |
+| Email reaches Mailpit | `server/src/action/email.ts` |
 
 ## Front-end features
 
-The web app is one React and Vite application. The product pages are `/signin` (Google sign-in), `/new` (new meeting), `/workspaces/:id` (workspace and tools), `/workspaces/:id/meetings/:meetingId` (meeting history), `/m/:id` (guest join) and `/m/:id/room` (real meeting room) (`web/src/product/`, `web/src/App.tsx`). `/practice` opens a practice meeting. `/` is the landing page: it leads to Google sign-in and a new meeting, to the practice meeting, or to a real meeting's join page when someone types its meeting code. Any other path redirects to `/`.
+The web app is one React and Vite application. Shared colour and type tokens and a small set of components (`Button`, `Card`, `StatusPill`) keep the pages consistent. In the meeting room the stage takes most of the space and private cards sit in a dock beside it; on a phone the stage stacks above the dock and the controls stay at the bottom.
 
-The design uses shared colour and type tokens in `web/src/ui/tokens.css` and shared components in `web/src/ui` (`Button`, `Card`, `StatusPill`). The meeting stage takes the most space, private cards sit in the dock beside it, and on a phone-sized screen the stage stacks above the dock and the controls stay at the bottom.
+| Route | Who | What |
+| --- | --- | --- |
+| `/` | Anyone | Landing page: sign in, start a team meeting, try a practice meeting or enter a meeting code. A signed-in person goes straight to `/new`. |
+| `/signin` | Anyone | Google sign-in, returning to the page named in `next` or to `/new`. |
+| `/new` | Signed in | Create a meeting now or for later, with a typed agenda, a Tell Kaki draft or a calendar import. |
+| `/workspaces/:id` | Members | The workspace's meetings and tools; an admin connects, tests and disconnects tools. |
+| `/workspaces/:id/meetings/:meetingId` | Members | Minutes and to-dos of an ended meeting, with Copy, Download and a tick per to-do. |
+| `/m/:id` | Anyone with the link | Guest join page. |
+| `/m/:id/room` | Joined people | The team meeting room. |
+| `/practice` | Anyone | This visitor's own practice meeting. |
 
-Screen map:
+Any other path redirects to `/`. The account menu signs out, or deletes the account once the person types DELETE to confirm.
 
-- `/` shows the landing page: sign in, start a team meeting, try a practice meeting, or enter a meeting code. A signed-in person goes straight to `/new`.
-- `/signin` starts Google sign-in and returns to the page in `next`, or to `/new`.
-- `/new` creates a real meeting now or for later, with a typed agenda, a Tell Kaki draft or a calendar import, and goes to `/m/:id/room`.
-- `/workspaces/:id` lists the workspace's meetings and tools. An admin can connect, test and disconnect tools.
-- `/workspaces/:id/meetings/:meetingId` shows the minutes and to-dos of an ended meeting, with Copy and Download.
-- `/m/:id` is the guest join page, and `/m/:id/room` is the real meeting room.
-- `/practice` opens this visitor's own practice meeting. Any other path redirects to `/`.
-- The account menu signs out or deletes the account after the person types DELETE to confirm. The sign-in page then says the account and everything in it is gone.
+Code: `web/src/App.tsx`, `web/src/product/`, `web/src/ui/tokens.css`, `web/src/ui/`
 
 ### Plan the meeting (front end)
 
-- A signed-in person creates a meeting at `/new`: choose a workspace, type the title and agenda, describe the meeting to Tell Kaki for a draft, or import the agenda from the calendar, then press Start now or Schedule for later. Field errors appear next to the input. `web/src/product/NewMeetingPage.tsx`, `web/src/product/api.ts`, `server/src/http/routes/agenda.ts`
-- The workspace page lists its meetings and each connected tool, with connect, save, test and disconnect controls for an admin. `web/src/product/WorkspacePage.tsx`, `web/src/product/ToolSection.tsx`
+On `/new` a person chooses a workspace, types the title and agenda, or asks Tell Kaki for a draft or imports the agenda from the calendar, then presses Start now or Schedule for later. Field errors appear next to the input. The workspace page lists its meetings and each connected tool, with connect, save, test and disconnect controls for an admin.
+
+Code: `web/src/product/NewMeetingPage.tsx`, `web/src/product/api.ts`, `web/src/product/WorkspacePage.tsx`, `web/src/product/ToolSection.tsx`
 
 ### Invite and join (front end)
 
-- The real meeting bar shares the invite link and a QR code, copies the link, and lists who has joined. `web/src/meeting/room/RealMeetingBar.tsx`
-- A guest opens the link, enters a name and joins without an account. A scheduled meeting can be joined early. `web/src/product/JoinPage.tsx`
-- A reload or a dropped connection restores the same name and seat while the grace window is open. `web/src/meeting/room/rejoinSession.ts`
-- The practice join form takes a name and a seat with a microphone and camera check. `web/src/meeting/room/JoinForm.tsx`
+The meeting bar shares the invite link and a QR code and lists who has joined. A guest opens the link, enters a name and joins; a scheduled meeting can be joined early. A reload or a dropped connection restores the same name and seat while the grace window is open. The practice join form takes a name and a seat and checks the microphone and camera.
+
+Code: `web/src/meeting/room/RealMeetingBar.tsx`, `web/src/product/JoinPage.tsx`, `web/src/meeting/room/rejoinSession.ts`, `web/src/meeting/room/JoinForm.tsx`
 
 ### During the meeting (front end)
 
-- The stage shows each person's LiveKit tile, who is speaking, live captions and reaction badges. In a practice meeting, AI colleagues appear as animated orbs. `web/src/meeting/room/MeetingGrid.tsx`, `web/src/meeting/room/CaptionedTile.tsx`, `web/src/meeting/room/Orb.tsx`, `web/src/meeting/room/stageModel.ts`
-- A briefing covers the practice stage until the visitor presses Start. The AI colleagues stay silent before that. `web/src/meeting/room/StartPrompt.tsx`
-- The dock carries the role card, the agenda clock, the transcript, the task board, the private Wingman panel and any private task card. `web/src/meeting/room/Dock.tsx`, `web/src/meeting/room/RoleCard.tsx`, `web/src/meeting/room/WingmanPanel.tsx`, `web/src/meeting/room/ActiveRoleCards.tsx`, `web/src/meeting/room/MeetingPanel.tsx`
-- The real meeting bar has microphone and camera controls, Off the record, Invite, People and Leave, plus End for everyone (owner or admin). An off-the-record banner shows while the room is off the record. `web/src/meeting/room/RealMeetingBar.tsx`, `web/src/meeting/room/RealRoomOverlays.tsx`
-- Microphone and speaker controls show a live level. A phone can tap to start playback when the browser blocks it. `web/src/meeting/room/MediaPreview.tsx`, `web/src/meeting/room/AudioUnlock.tsx`
-- Meetings are speech only: there is no way to type into the room. The only text box in a meeting is the private Ask Kaki box, whose answer goes to that person alone. Narrow screens put the stage above the dock and keep the meeting controls at the bottom. `web/src/meeting/room/WingmanPanel.tsx`, `web/src/meeting/room/practice.css`
-- One hook holds the WebSocket connection, the event window, the task list and the send function. `web/src/kaki/useKaki.ts`
+The stage shows each person's video tile, who is speaking, live captions and reaction badges; in a practice meeting the AI colleagues appear as animated orbs. The dock holds the role card, agenda clock, transcript, task board, the private Wingman panel and any private task card. The meeting bar has microphone and camera controls, Off the record, Invite, People and Leave, plus End for everyone for the owner or an admin, and a banner shows while the room is off the record. Audio controls show a live level, and a phone can tap to start playback when the browser blocks it.
+
+Nobody types into the room. The only text box is the private Ask Kaki box, whose answer goes to that person alone. One hook holds the WebSocket connection, the event window, the task list and the send function.
+
+Code: `web/src/meeting/room/MeetingGrid.tsx`, `web/src/meeting/room/CaptionedTile.tsx`, `web/src/meeting/room/Orb.tsx`, `web/src/meeting/room/stageModel.ts`, `web/src/meeting/room/Dock.tsx`, `web/src/meeting/room/RoleCard.tsx`, `web/src/meeting/room/WingmanPanel.tsx`, `web/src/meeting/room/MeetingPanel.tsx`, `web/src/meeting/room/RealRoomOverlays.tsx`, `web/src/meeting/room/MediaPreview.tsx`, `web/src/meeting/room/AudioUnlock.tsx`, `web/src/meeting/room/practice.css`, `web/src/kaki/useKaki.ts`
 
 ### After the meeting (front end)
 
-- When a real meeting ends, a meeting-ended screen covers the room with a See the meeting minutes button that opens the workspace history (a guest is told who keeps the notes). If the minutes are slow, it says so and offers a retry. `web/src/meeting/room/RealRoomOverlays.tsx`
-- Each follow-up arrives as a card for one person. They can accept or decline, edit the draft and press Approve, or retry a failed write. In a real meeting the card can also offer Do it for me (tool), so Kaki drafts it for the owner. `web/src/meeting/room/ActiveRoleCards.tsx`, `web/src/meeting/room/TaskControls.tsx`
-- The workspace history page shows the minutes and to-dos of an ended meeting, with Copy, Download and a tick for each to-do. `web/src/product/MeetingHistoryPage.tsx`, `web/src/product/EndedMeetingCard.tsx`
-- The minutes arrive as an editable card assigned to a person in the room. The wiki link appears only after that person approves the page. `web/src/meeting/room/ActiveRoleCards.tsx`
+Each follow-up arrives as a card for one person, who can accept or decline it, edit the draft and press Approve, or retry a failed write. In a team meeting the card also offers Do it for me (tool). The minutes arrive the same way, as an editable card for one person, and the wiki link appears only after they approve. When a team meeting ends, a meeting-ended screen links to the minutes in the workspace history (a guest is told who keeps the notes), and says so with a retry if the minutes are slow.
+
+Code: `web/src/meeting/room/ActiveRoleCards.tsx`, `web/src/meeting/room/TaskControls.tsx`, `web/src/meeting/room/RealRoomOverlays.tsx`, `web/src/product/MeetingHistoryPage.tsx`, `web/src/product/EndedMeetingCard.tsx`
 
 ### Practise alone
 
-- `/practice` opens a meeting where AI colleagues fill the other seats. The visitor takes part by speaking, and the AI stops when interrupted. Each visitor gets their own practice meeting. `web/src/meeting/room/Meeting.tsx`, `web/src/meeting/room/MeetingGrid.tsx`
+`/practice` opens a meeting where AI colleagues fill the other seats. A briefing covers the stage until the visitor presses Start, and the AI colleagues stay silent until then. The visitor takes part by speaking, and an AI colleague stops when interrupted. When the visitor goes quiet, the host steps down gently so the meeting never stalls.
+
+<img src="docs/images/diagrams/practice-silence.svg" alt="The practice host's steps when the guest goes quiet: check-in, colleague nudge, one offer, leave it open, move on" width="100%">
+
+*Each silence moves one step down the ladder, and the visitor speaking at any step starts it again.*
+
+Code: `web/src/meeting/room/Meeting.tsx`, `web/src/meeting/room/StartPrompt.tsx`, `server/src/npc/conversation.ts`. More in the [Practice meeting guide](docs/practice-meeting.md).
 
 ## Back-end features
 
 ### Platform
 
-- One route table declares every HTTP path and its access level: public, user, session, host, host-or-practice, service, loopback or dev. An unlisted path returns 404. `server/src/app.ts`, `server/src/http/routes/`
-- One WebSocket hub carries the typed protocol. Each event names its audience, and the server delivers it only to the connections that audience covers. `server/src/core/hub.ts`, `server/src/core/audience.ts`, `shared/src/events.ts`, `shared/src/commands.ts`
-- The meeting registry loads each meeting on demand and gives it its own notes, transcript, tasks and socket audience. It unloads a meeting after 30 idle minutes by default, caps open meetings at `KAKI_MAX_OPEN_MEETINGS` (default 10), and returns a plain busy message when the cap is reached. `server/src/meeting/registry.ts`, `server/src/meeting/instance.ts`, `server/src/meeting/realMeeting.ts`
-- A meeting row moves through scheduled, open and ended. An empty room keeps the same seats for a grace period, and a restored meeting keeps its state. `server/src/meeting/session.ts`, `server/src/meeting/rejoin.ts`, `server/src/persist/`
-- Scenario packs supply roles, attendees, AI profiles, agenda, seed data and a replay transcript. `SCENARIO` names the folder to load. `server/src/core/loadScenario.ts`, `scenarios/README.md`
-- Idempotent seed scripts load the Kopitiam company records into Gitea, Mattermost, Wiki.js, Mailpit, Radicale and Postgres. `docker/seed/index.ts`, `docker/seed/gitea.ts`, `docker/seed/mattermost.ts`, `docker/seed/wiki.ts`, `docker/seed/mail.ts`, `docker/seed/calendar.ts`, `docker/seed/postgres.ts`
-- `npm start` checks Docker and `.env`, starts the seven containers, seeds the company, indexes knowledge, starts the server, web app and AI runner, then runs a preflight. `scripts/live-up.sh`
-- `npm run cloud:up`, `cloud:down` and `cloud:status` manage the Azure VM. `scripts/cloud.sh`
-- An always-on start page on Azure Static Web Apps (free plan) wakes the VM when a visitor picks an option, waits until Kaki answers, then sends them on. Its two small functions can only read the VM's state and start it. `wake/`
-- The VM switches itself off. Every 5 minutes a check reads the server's idle state from a route only the VM itself can reach, and deallocates the VM after 60 minutes with nobody connected or 2 hours with no real person action. If it cannot read the server it stays on, and switches off only after 2 hours of that. `deploy/idle/`, `server/src/core/idle.ts`
+One route table declares every HTTP path and its access level (public, user, session, host, host-or-practice, service, loopback or dev), and an unlisted path returns 404. One WebSocket hub carries the typed protocol: each event names its audience, and the server delivers it only to the connections that audience covers.
+
+The meeting registry unloads a meeting after 30 idle minutes by default and caps open meetings at `KAKI_MAX_OPEN_MEETINGS` (default 10), returning a plain busy message at the cap. A meeting moves through scheduled, open and ended; an empty room keeps its seats for a grace period, and a restored meeting keeps its state.
+
+Scenario packs supply roles, attendees, AI profiles, agenda, seed data and a replay transcript, and `SCENARIO` names the folder to load. Idempotent seed scripts load the Kopitiam company records into every service.
+
+Code: `server/src/app.ts`, `server/src/http/routes/`, `server/src/core/hub.ts`, `server/src/core/audience.ts`, `shared/src/events.ts`, `shared/src/commands.ts`, `server/src/meeting/registry.ts`, `server/src/meeting/instance.ts`, `server/src/meeting/realMeeting.ts`, `server/src/meeting/session.ts`, `server/src/meeting/rejoin.ts`, `server/src/persist/`, `server/src/core/loadScenario.ts`, `scenarios/README.md`, `docker/seed/`
 
 ### Plan the meeting (back end)
 
-- The product creates a real meeting from a workspace, a title and an agenda that was typed, drafted by Tell Kaki or taken from the calendar. The title and every agenda item are checked before the row is written, and a future start time marks the meeting scheduled. `server/src/http/routes/meetings.ts`, `server/src/http/routes/agenda.ts`, `server/src/meeting/agenda.ts`
-- The setup parser checks role ids, unique labels, agenda owners, seat kinds, nudge pace and required fields. `shared/src/setupParse.ts`, `shared/src/setupScenario.ts`
+A meeting is created from a workspace, a title and an agenda. The title and every agenda item are checked before the row is written, and a future start time marks the meeting scheduled. The setup parser checks role ids, unique labels, agenda owners, seat kinds, nudge pace and required fields.
+
+Code: `server/src/http/routes/meetings.ts`, `server/src/http/routes/agenda.ts`, `server/src/meeting/agenda.ts`, `shared/src/setupParse.ts`, `shared/src/setupScenario.ts`
 
 ### Invite and join (back end)
 
-- A real meeting is joined by its meeting id, which is the link, and a name. A signed-in person joins under their Google name without becoming a workspace member. `server/src/http/routes/meetings.ts`, `server/src/auth/module.ts`
-- Meeting-code admission and LiveKit tokens take a seat through the same meeting record. `server/src/auth/module.ts`, `server/src/services/livekit.ts`, `server/src/http/routes/meeting.ts`, `server/src/meeting/session.ts`
-- Meeting codes use six characters from an alphabet without look-alikes, with five attempts per address per minute. `server/src/meeting/meetingCode.ts`
+A team meeting is joined by its meeting id, which is the link, and a name. A signed-in person joins under their Google name without becoming a workspace member. Meeting-code admission and LiveKit tokens both take a seat through the same meeting record. Meeting codes are six characters from an alphabet without look-alike characters, with five attempts per address per minute.
+
+Code: `server/src/http/routes/meetings.ts`, `server/src/http/routes/meeting.ts`, `server/src/auth/module.ts`, `server/src/services/livekit.ts`, `server/src/meeting/session.ts`, `server/src/meeting/meetingCode.ts`
 
 ### During the meeting (back end)
 
-- The agenda clock tracks the current item, elapsed time, overrun, pause and resume, with a replay speed for scripted runs. `server/src/host/clock.ts`
-- The notetaker turns new transcript lines into the meeting record. Separate passes handle questions and tasks, and a verifier judges meaning rather than word overlap. `server/src/host/notetaker.ts`, `server/src/host/notetakerQuestions.ts`, `server/src/host/notetakerTasks.ts`, `server/src/host/notetakerVerifier.ts`, `server/src/host/notetakerPrompt.ts`
-- Suggested tasks are dispatched to their role. In a real meeting the person hosting sees the cards and dispatches from the shared task list. `server/src/host/autoDispatch.ts`
-- Off the record: while it is on, the room's words are not transcribed, analysed or stored. The minutes show the span with no content. Any person in the meeting can turn it on or off. `server/src/meeting/instance.ts`, `shared/src/meetingState.ts`
-- A person can leave and rejoin. The seat is held for a grace window, and rejoining restores the same name and seat. The owner or an admin can end the meeting for everyone, which marks the meeting row ended. `server/src/meeting/rejoin.ts`, `server/src/meeting/session.ts`, `server/src/meeting/registry.ts`
-- The Wingman is private to one seat: it answers "what did I miss?" and other questions from the transcript, record and to-dos first, then the meeting workspace; notes a to-do they were given; pops a direct question they must answer; and stays silent otherwise. A guest gets meeting-only answers. `server/src/wingman/module.ts`, `server/src/wingman/prompts.ts`
-- Company search merges pgvector cosine search with Postgres full-text search using reciprocal rank fusion, then writes a role-aware answer with a source and date for each fact. `server/src/wingman/knowledge/search.ts`, `server/src/wingman/knowledge/gateway.ts`
-- The runner joins every room as a silent listener and recognises each person's speech with Azure STT. In a practice meeting the NPC Director also plays every AI colleague from the scenario profiles, publishes audio, synthesises with Azure TTS, and stops on barge-in. `server/src/npc/director.ts`, `server/src/npc/conversation.ts`, `server/src/npc/runner.ts`, `server/src/npc/vad.ts`, `server/src/npc/speechGate.ts`
+The agenda clock tracks the current item, elapsed time, overrun, pause and resume, with a replay speed for scripted runs. The notetaker turns new transcript lines into the meeting record, with separate passes for questions and tasks and a verifier that judges meaning rather than word overlap. Suggested tasks go to the shared task list, and the person hosting dispatches each one to its owner's seat.
+
+The server decides, per seat, which messages each connection receives.
+
+<img src="docs/images/diagrams/private-cards.svg" alt="Which seats receive shared notes, the shared task list, private task cards and Wingman cards" width="100%">
+
+*Shared notes and the task list go to everyone; a private task card or Wingman card goes to one seat only.*
+
+While the room is off the record, its words are not transcribed, analysed or stored, and the minutes show the span with no content. Anyone in the meeting can turn it on or off. A person who leaves keeps their seat for a grace window, and the owner or an admin can end the meeting for everyone.
+
+The Wingman answers from the transcript, record and to-dos first, then the workspace, and otherwise stays silent. Company search merges pgvector similarity search with Postgres full-text search using reciprocal rank fusion (RRF), then writes a role-aware answer with a source and date for each fact.
+
+The runner recognises each person's speech with Azure STT. In a practice meeting the Director plays every AI colleague from the scenario profiles and speaks through Azure TTS. Voice activity detection (VAD) on the visitor's microphone lets the visitor interrupt.
+
+Code: `server/src/host/clock.ts`, `server/src/host/notetaker.ts`, `server/src/host/notetakerQuestions.ts`, `server/src/host/notetakerTasks.ts`, `server/src/host/notetakerVerifier.ts`, `server/src/host/notetakerPrompt.ts`, `server/src/host/autoDispatch.ts`, `server/src/meeting/tasks.ts`, `shared/src/meetingState.ts`, `server/src/meeting/rejoin.ts`, `server/src/wingman/module.ts`, `server/src/wingman/prompts.ts`, `server/src/wingman/knowledge/search.ts`, `server/src/wingman/knowledge/gateway.ts`, `server/src/npc/director.ts`, `server/src/npc/conversation.ts`, `server/src/npc/runner.ts`, `server/src/npc/vad.ts`, `server/src/npc/speechGate.ts`
 
 ### After the meeting (back end)
 
-- The task store is the only code that changes task state. It enforces `SUGGESTED`, `DISPATCHED`, `CLAIMED`, `DRAFT_READY`, `RUNNING`, `COMPLETED`, `FAILED` and `SYNCED`, and only the assignee can approve. `server/src/meeting/tasks.ts`
-- Kaki Action drafts the artifact for an accepted task, either after Do it for me or when the assignee claims it, and checks the draft against its source before it runs. `server/src/action/runner.ts`, `server/src/action/draft.ts`, `server/src/action/draftGrounding.ts`
-- Five connectors write to Gitea issues, Mattermost posts, Mailpit email, Wiki.js pages (through its GraphQL API) and Radicale calendar events. Each post or email ends with "Posted by Kaki for <name>, approved in <meeting title>". `server/src/action/footer.ts` `server/src/action/gitea.ts`, `server/src/action/mattermost.ts`, `server/src/action/email.ts`, `server/src/action/wiki.ts`, `server/src/action/calendar.ts`
-- On the closing signal, Kaki builds Markdown minutes from the record, tasks and transcript, including any off-the-record span, assigns the card to a person in the room, and writes to Wiki.js only after that person approves. Wiki minutes are the one record of the meeting. `server/src/action/wiki.ts`
-- Kaki keeps its own copy of the minutes and to-dos with the meeting row, so the workspace history can show them and tick to-dos done. `server/src/meeting/registry.ts`, `server/src/http/routes/workspaces.ts`
-- The knowledge indexer reads Wiki.js, Gitea, Mattermost, Mailpit and Postgres, chunks the records and writes 1024-dimension `bge-m3` embeddings. `server/src/wingman/knowledge/indexer.ts`, `server/src/wingman/knowledge/cli.ts`
+The task store is the only code that changes a task's state, and only the assignee can approve. Every move follows this lifecycle:
+
+```mermaid
+stateDiagram-v2
+  [*] --> SUGGESTED
+  SUGGESTED --> DISPATCHED: owner sends it to a seat
+  SUGGESTED --> DISMISSED
+  DISPATCHED --> SUGGESTED: declined
+  DISPATCHED --> DISMISSED
+  DISPATCHED --> CLAIMED: accepted
+  CLAIMED --> DRAFT_READY: Kaki drafts it
+  CLAIMED --> COMPLETED: done by hand
+  CLAIMED --> FAILED
+  DRAFT_READY --> RUNNING: assignee approves
+  RUNNING --> COMPLETED
+  RUNNING --> FAILED
+  FAILED --> RUNNING: retry
+  FAILED --> CLAIMED
+  COMPLETED --> SYNCED: recorded in the meeting
+```
+
+*Task states from `shared/src/task.ts`. Any live state can also become SUPERSEDED when a later card replaces it.*
+
+Kaki Action drafts the artifact for an accepted task and checks the draft against its source before it runs. Five connectors write Gitea issues, Mattermost posts, Mailpit email, Wiki.js pages (through its GraphQL API) and Radicale calendar events. Each post or email ends with "Posted by Kaki for <name>, approved in <meeting title>".
+
+At the end of the meeting Kaki builds Markdown minutes from the record, tasks and transcript, including any off-the-record span, and assigns the card to a person in the room. Wiki.js is written only after that person approves, and the wiki page is the one record of the meeting. Kaki also keeps its own copy of the minutes and to-dos with the meeting row for the workspace history.
+
+The knowledge indexer reads Wiki.js, Gitea, Mattermost, Mailpit and Postgres, splits the records into chunks and stores 1024-dimension `bge-m3` embeddings.
+
+Code: `server/src/meeting/tasks.ts`, `server/src/action/runner.ts`, `server/src/action/draft.ts`, `server/src/action/draftGrounding.ts`, `server/src/action/footer.ts`, `server/src/action/gitea.ts`, `server/src/action/mattermost.ts`, `server/src/action/email.ts`, `server/src/action/wiki.ts`, `server/src/action/calendar.ts`, `server/src/http/routes/workspaces.ts`, `server/src/wingman/knowledge/indexer.ts`, `server/src/wingman/knowledge/cli.ts`
 
 ## Sign-in and sessions
 
-- Sign-in is Google OAuth, and Kaki keeps its own accounts, workspaces and sessions in Postgres. With `KAKI_AUTH=1`, the server also needs `POSTGRES_URL` and `KAKI_SERVICE_TOKEN`; Google sign-in needs `KAKI_GOOGLE_CLIENT_ID`, `KAKI_GOOGLE_CLIENT_SECRET` and `KAKI_PUBLIC_URL`. A first sign-in creates the person's account and personal workspace, and a session cookie keeps the person signed in across pages for 12 hours. `server/src/auth/module.ts`, `server/src/auth/google.ts`, `server/src/auth/store.ts`
-- A guest joins one meeting through its link with a name and no account, and the guest session is bound to that meeting. `server/src/auth/module.ts`, `server/src/http/access.ts`
-- Each workspace stores its tool logins encrypted with AES-256-GCM under `KAKI_SECRET_KEY`; the API returns only the non-secret settings, and an admin can test a connection with the Test button. `server/src/workspace/secrets.ts`, `server/src/workspace/tools.ts`, `server/src/http/routes/workspaces.ts`
-- The built-in Nanyang Kopi sample workspace is read-only, is never a row, and uses the hosted services. `server/src/workspace/sample.ts`
-- Deleting an account (`DELETE /api/account`, confirmed with the word DELETE) first ends the person's meetings, then removes meetings, saved state, tool logins, knowledge chunks, memberships, workspaces, sessions and the user in one database transaction, closes their open sockets and clears the cookie. A failure removes nothing and the person can retry. `server/src/http/routes/account.ts`, `server/src/account/deleteAccountData.ts`
+- Sign-in uses Google OAuth, and Kaki keeps its own accounts, workspaces and sessions in Postgres. A first sign-in creates the account and a personal workspace, and a session cookie keeps the person signed in for 12 hours.
+- A guest joins one meeting through its link with a name and no account, and the guest session is bound to that meeting.
+- Each workspace stores its tool logins encrypted with AES-256-GCM under `KAKI_SECRET_KEY`. The API returns only the non-secret settings, and an admin checks a connection with the Test button.
+- The Nanyang Kopi sample workspace is built in, read-only and never stored as a row; it uses the hosted services.
+- Deleting an account (`DELETE /api/account`, confirmed by typing DELETE) ends the person's meetings, then removes meetings, saved state, tool logins, knowledge chunks, memberships, workspaces, sessions and the user in one database transaction, closes their open sockets and clears the cookie. If anything fails, nothing is removed and the person can retry.
+
+Code: `server/src/auth/module.ts`, `server/src/auth/google.ts`, `server/src/auth/store.ts`, `server/src/http/access.ts`, `server/src/workspace/secrets.ts`, `server/src/workspace/tools.ts`, `server/src/workspace/sample.ts`, `server/src/http/routes/account.ts`, `server/src/account/deleteAccountData.ts`
 
 ## Setup automation
 
-One command sets up the back-end environment, the database and the other services. It requires Node 22+ and Docker Desktop.
-
-Copy `.env.example` to `.env` and fill the five required keys: an OpenAI-compatible LLM gateway (`KAKI_LLM_BASE_URL`, `KAKI_LLM_API_KEY`, `KAKI_LLM_MODEL`) and Azure Speech (`AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION`).
+One command sets up the back end, the database and the other services. It needs Node 22 or later and Docker Desktop.
 
 ```bash
-cp .env.example .env
+cp .env.example .env    # then fill the five required keys
 npm start
 ```
 
-`npm start` installs dependencies if `node_modules` is missing, starts the seven Docker containers, seeds the **Nanyang Kopi & Toast (`kopitiam`)** scenario into Postgres, Wiki.js, Gitea, Mattermost, Mailpit and Radicale Calendar, indexes the knowledge chunks into pgvector, starts the Kaki server on port 3001, the Vite web app on port 5173 and the AI runner, then runs the preflight. It stops with the exact fix if Docker is not running, `.env` is missing or a required key is empty. The seed generates the Gitea and Mattermost tokens in `docker/.env`, and `npm start` passes them to Kaki.
+The required keys are an OpenAI-compatible LLM gateway (`KAKI_LLM_BASE_URL`, `KAKI_LLM_API_KEY`, `KAKI_LLM_MODEL`) and Azure Speech (`AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION`).
 
-Open `http://localhost:5173` in Chrome. The practice meeting is at `/practice`; the product pages are `/signin`, `/new` and `/workspaces/:id`.
+`npm start` installs dependencies if they are missing, starts the seven Docker containers, seeds the Nanyang Kopi & Toast (`kopitiam`) scenario into Postgres, Wiki.js, Gitea, Mattermost, Mailpit and Radicale, indexes the knowledge chunks into pgvector, and starts the Kaki server (port 3001), the web app (port 5173) and the AI runner. It finishes with a preflight check. If Docker is not running, `.env` is missing or a required key is empty, it stops and prints the exact fix. The seed generates the Gitea and Mattermost tokens in `docker/.env`, and `npm start` passes them and `POSTGRES_URL` to Kaki.
 
-To use the product pages locally, set `KAKI_AUTH=1`, `KAKI_GOOGLE_CLIENT_ID`, `KAKI_GOOGLE_CLIENT_SECRET` and `KAKI_PUBLIC_URL` (the address Google returns to), set `KAKI_SERVICE_TOKEN` so the AI runner can reach the meeting, and set `KAKI_SECRET_KEY` to 32 random bytes, base64-encoded, so a workspace can store tool logins. `KAKI_MAX_OPEN_MEETINGS` caps how many meetings run at once (default 10); practice meetings count toward it, so real meetings keep `KAKI_MAX_OPEN_MEETINGS − KAKI_MAX_PRACTICE` slots. `npm start` wires `POSTGRES_URL` from `docker/.env`.
+Open `http://localhost:5173` in Chrome; the practice meeting is at `/practice`. To use the signed-in pages locally, also set `KAKI_AUTH=1`, the Google keys and the other sign-in keys listed in the [Practice meeting guide](docs/practice-meeting.md#sign-in-mode).
 
-```bash
-npm stop              # Stop the Kaki server, web app and AI runner
-npm stop -- --stack   # Also stop the Docker containers
-```
-
-### Commands
+The cloud VM is managed from the same repository, and its wake page and idle check are shown under [Try it](#try-it).
 
 ```bash
-npm start                 # One-command local demo: checks, Docker, seed, index, server + web + AI, preflight
-npm stop                  # Stop local server, web app and AI runner (add -- --stack for Docker)
-npm run cloud:up          # Start the Azure VM and wait for the live site
-npm run cloud:down        # Deallocate the Azure VM ($0/hr compute billing)
-npm run cloud:status      # Check the VM state and live HTTPS health
+npm start                 # Local stack: checks, Docker, seed, index, server, web app, AI runner, preflight
+npm stop                  # Stop the server, web app and AI runner (add -- --stack to stop Docker too)
 npm run stack:up          # Start the seven Docker containers
 npm run stack:down        # Stop the Docker containers
-npm run seed              # Idempotently seed all Docker services with the Kopitiam scenario
-npm run seed:verify       # Run the automated health and content checks against the Docker stack
-npm run index:knowledge   # Embed and index seeded company records into pgvector
-npm run knowledge:check   # Verify live pgvector search and role-filtered facts
+npm run seed              # Seed every service with the Kopitiam scenario (safe to repeat)
+npm run seed:verify       # Health and content checks against the Docker stack
+npm run index:knowledge   # Embed and index the seeded company records into pgvector
+npm run knowledge:check   # Check live pgvector search and role-filtered facts
 npm run npc               # Run the AI runner against a local stack
-npm run playtest:live     # One visitor through the practice meeting
-npm run typecheck         # Type-check all workspaces
+npm run cloud:up          # Start the Azure VM and wait until the site and tools are ready
+npm run cloud:down        # Deallocate the Azure VM (no compute charge while off)
+npm run cloud:status      # Show the VM state and the live HTTPS health check
+npm run typecheck         # Type-check every package
 npm test                  # Run the full Vitest suite
 ```
 
-See [The live demo meeting](docs/live-demo.md) for the practice meeting flow and [Domain glossary](CONTEXT.md) for the project vocabulary.
+Code: `scripts/live-up.sh`, `scripts/cloud.sh`, `docker/docker-compose.yml`, `docker/seed/`, `wake/`, `deploy/idle/`, `deploy/systemd/`, `server/src/core/idle.ts`. The project vocabulary is in the [Domain glossary](CONTEXT.md).
 
 ## Integration with third-party services
 
-All backing services run through [`docker/docker-compose.yml`](docker/docker-compose.yml). Wiki.js, Gitea, Mattermost and Radicale use `demo` / `demo`; the table below gives the Postgres and LiveKit credentials. See [docker/README.md](docker/README.md).
+All backing services run from [`docker/docker-compose.yml`](docker/docker-compose.yml); see [docker/README.md](docker/README.md).
 
 | Integration | Purpose | Local endpoint | Login | Module |
 | --- | --- | --- | --- | --- |
-| Gitea | Creates engineering and ops issues from approved drafts | `http://127.0.0.1:8082` | `demo` / `demo` (or `wei-ling`, `arjun`, `mei`, `daniel` / `demo`) | `server/src/action/gitea.ts` |
-| Mattermost | Posts announcements and updates to team channels | `http://127.0.0.1:8083` | `demo` / `demo` (or `weiling`, `arjun`, `mei`, `daniel` / `demo`) | `server/src/action/mattermost.ts` |
-| Wiki.js | Publishes team wiki pages and approved minutes | `http://127.0.0.1:8081` | `demo` / `demo` | `server/src/action/wiki.ts` |
-| Mailpit | Sends drafted emails over SMTP and serves a web inbox | `http://127.0.0.1:8084` | No login | `server/src/action/email.ts` |
-| Radicale (CalDAV) | Books `.ics` calendar events and serves the seeded calendar | `http://127.0.0.1:5232` | `demo` / `demo` | `server/src/action/calendar.ts` |
-| PostgreSQL + pgvector | Stores company records and 1024-dimension `bge-m3` embeddings | `127.0.0.1:5433` | `kaki` / `kaki_dev_password` | `server/src/wingman/knowledge/` |
-| LiveKit + Azure Speech | WebRTC audio room, server VAD, STT and multi-voice TTS | `ws://127.0.0.1:7880` | `devkey` / `secret` | `server/src/npc/` |
+| Gitea | Creates issues from approved drafts | `http://127.0.0.1:8082` | `demo` / `demo` (or a colleague, see [Try it](#links-and-logins)) | `server/src/action/gitea.ts` |
+| Mattermost | Posts updates to team channels | `http://127.0.0.1:8083` | `demo` / `demo` (or a colleague) | `server/src/action/mattermost.ts` |
+| Wiki.js | Publishes wiki pages and approved minutes | `http://127.0.0.1:8081` | `demo` / `demo` | `server/src/action/wiki.ts` |
+| Mailpit | Receives drafted email over SMTP and shows a web inbox | `http://127.0.0.1:8084` | None | `server/src/action/email.ts` |
+| Radicale | Books calendar events over CalDAV, the calendar protocol on HTTP | `http://127.0.0.1:5232` | `demo` / `demo` | `server/src/action/calendar.ts` |
+| PostgreSQL + pgvector | Company records and 1024-dimension `bge-m3` embeddings | `127.0.0.1:5433` | `kaki` / `kaki_dev_password` | `server/src/wingman/knowledge/` |
+| LiveKit + Azure Speech | WebRTC audio room, VAD, STT and multi-voice TTS | `ws://127.0.0.1:7880` | `devkey` / `secret` | `server/src/npc/` |
 
-When a person joins with their name, Kaki updates the `demo` profile display name in Gitea and Mattermost to match, or posts from the person's own account when it exists. Tasks completed by an AI colleague are posted from that colleague's account (`arjun`, `mei`, `daniel`, `weiling` or `wei-ling`).
+When a person joins, Kaki updates the `demo` profile's display name in Gitea and Mattermost to match, or posts from the person's own account when one exists. Work completed by an AI colleague is posted from that colleague's account.
 
 ## Usability and invalid-input handling
 
-Kaki is built for a hurried user who skips fields or types the wrong thing. The room itself needs no typing: people speak, so there is no chat box to misuse, and the join form asks only for a name (or a meeting code).
+Kaki is built for a hurried user who skips fields or types the wrong thing. The room needs no typing at all, and the join form asks only for a name or a meeting code.
 
-- Submit buttons stay disabled until required fields are valid, and the server's refusal appears next to the input (`web/src/meeting/room/JoinForm.tsx`, `web/src/product/NewMeetingPage.tsx`).
-- A wrong meeting code is refused with a plain message, with five attempts per address per minute. Unknown paths redirect to the landing page, and an ended meeting shows the meeting-ended screen rather than a broken room.
+- Submit buttons stay disabled until the required fields are valid, and the server's refusal appears next to the input.
+- A wrong meeting code gets a plain message, with five attempts per address per minute.
+- Unknown paths redirect to the landing page, and an ended meeting shows the meeting-ended screen instead of a broken room.
 - Deleting an account needs the word DELETE typed to confirm.
 - A reload or dropped connection restores the same seat, and a full server returns a plain busy message.
-- The layout adapts to phone screens, and the click-through journeys include a phone-size run.
+- The layout adapts to phone screens, and the click-through tests include a phone-size run.
 
-Input is checked on both sides. The product checks the meeting title, agenda and tools before a write, and the setup parser checks a plan before it is used. Commands from a socket are validated against the scenario before the hub accepts them. The action connectors reject a draft that adds details its source does not support.
+Input is checked on both sides. The server checks the meeting title, agenda and tools before a write, the setup parser checks a plan before it is used, and commands from a socket are validated against the scenario before the hub accepts them. The action connectors reject a draft that adds details its source does not support.
+
+Code: `web/src/meeting/room/JoinForm.tsx`, `web/src/product/NewMeetingPage.tsx`, `server/src/meeting/meetingCode.ts`, `server/src/action/draftGrounding.ts`
 
 ## Code structure and library components
 
-The repository is a TypeScript workspace with three packages: `shared/`, `server/` and `web/`. `shared/` holds the protocol and the rules both sides must agree on, including events, commands, task states, scenario parsing and setup parsing. The server is split by responsibility (`core`, `http`, `meeting`, `host`, `wingman`, `action`, `npc`, `auth`, `workspace`, `persist`, `services`). The web app is split by page and feature (`product`, `landing`, `auth`, `meeting`, `kaki`, `ui`, `net`), with shared buttons, cards, labels and artifact links in `web/src/ui/`. Every exported function, component and type carries a short comment.
+The repository is a TypeScript workspace with three packages. `shared/` holds the protocol and the rules both sides must agree on: events, commands, task states, scenario parsing and setup parsing. The server is split by responsibility (`core`, `http`, `meeting`, `host`, `wingman`, `action`, `npc`, `auth`, `workspace`, `persist`, `services`), and the web app by page and feature (`product`, `landing`, `auth`, `meeting`, `kaki`, `ui`, `net`). Every exported function, component and type carries a short comment.
 
-Commonly used tasks are shared library components rather than repeated code: the `shared/` protocol package, the `web/src/ui/` components, the `web/src/net/` fetch helper, the LLM and LiveKit clients in `server/src/services/`, and the task store that is the only code that changes task state. See also [Built with React](#built-with-react), [Technology choices](#technology-choices) and [Repository structure](#repository-structure).
+Common work lives in shared components instead of repeated code: the `shared/` protocol package, the `web/src/ui/` buttons, cards, labels and artifact links, the `web/src/net/` fetch helper, the LLM and LiveKit clients in `server/src/services/`, and the task store. The full tree is under [Repository structure](#repository-structure).
 
 ## Built with React
 
 | React idea | Where Kaki uses it | Why |
 | --- | --- | --- |
-| Components and typed props | `MeetingGrid`, `CaptionedTile`, `RoleCard`, `Dock` in `web/src/meeting/room/` | Stage tiles and dock cards take explicit props, so the same card renders for an owner, a participant or a practice visitor. |
-| Side effects with `useEffect` | `web/src/kaki/useKaki.ts`, `web/src/meeting/room/Meeting.tsx` | The WebSocket reconnects and the LiveKit connection and rejoin flow start and stop with the page. |
-| Refs with `useRef` | `web/src/kaki/useKaki.ts`, `web/src/kaki/ScenarioContext.tsx` | Socket handles, meeting identity and load ordering must survive renders without causing another render. |
+| Components and typed props | `MeetingGrid`, `CaptionedTile`, `RoleCard`, `Dock` in `web/src/meeting/room/` | The same card renders for an owner, a participant or a practice visitor. |
+| Side effects with `useEffect` | `web/src/kaki/useKaki.ts`, `web/src/meeting/room/Meeting.tsx` | The WebSocket, the LiveKit connection and the rejoin flow start and stop with the page. |
+| Refs with `useRef` | `web/src/kaki/useKaki.ts`, `web/src/kaki/ScenarioContext.tsx` | Socket handles, meeting identity and load order survive renders without causing another render. |
 | Custom hooks | `useKaki` (`web/src/kaki/useKaki.ts`), `useScenario` and `useRefreshScenario` (`web/src/kaki/ScenarioContext.tsx`), `useMe` (`web/src/auth/useMe.ts`) | Each hook packages one piece of shared behaviour: live events, the active scenario and the sign-in check. |
 | Context with `createContext` | `web/src/kaki/ScenarioContext.tsx` | Every page reads the same scenario without passing it through each component. |
-| Routing with React Router 7 | `web/src/App.tsx`, `useNavigate` in `LandingPage`, `JoinPage` and `AppBar`, `useSearchParams` in `JoinPage` and `SignInPage` | The routes cover the landing, sign-in, new-meeting, workspace, join and meeting flows, and the invite code travels in the URL. |
+| Routing with React Router 7 | `web/src/App.tsx`; `useNavigate` in `LandingPage`, `JoinPage` and `AppBar`; `useSearchParams` in `JoinPage` and `SignInPage` | The routes cover every page, and the invite code travels in the URL. |
 | Controlled forms and validation | `web/src/meeting/room/JoinForm.tsx`, `web/src/product/NewMeetingPage.tsx` | Submit stays disabled until required fields are valid, and the server's refusal appears next to the form. |
 | Error boundary | `web/src/meeting/room/ErrorBoundary.tsx`, used in `Dock` | A broken card shows an error instead of taking down the meeting page. |
 | LiveKit React components | `LiveKitRoom`, `useTracks`, `ParticipantTile`, `RoomAudioRenderer`, `useRoomContext` from `@livekit/components-react` | The room, tiles and audio renderer come from the LiveKit React package. |
-| Plain CSS | `web/src/ui/tokens.css`, `web/src/ui/ui.css`, `web/src/meeting/room/practice.css`, `web/src/product/product.css` | Shared colour and type tokens keep the pages uniform, and media queries restack the meeting room on a phone. |
+| Plain CSS | `web/src/ui/tokens.css`, `web/src/ui/ui.css`, `web/src/meeting/room/practice.css`, `web/src/product/product.css` | Shared tokens keep the pages uniform, and media queries restack the meeting room on a phone. |
 | Vite dev server with proxy | `web/vite.config.ts` | `/api`, `/health`, `/ws` and `/dev` reach the Kaki server during development, and only this machine may call `/dev`. |
 
 Kaki uses React 19, React Router 7 and Vite 8.
 
 ## Technology choices
 
-Kaki uses React with React Router and plain CSS on the front end, a Node and TypeScript server, and GraphQL as a client of Wiki.js. It does not use MongoDB or React Native; the reasons are in the table.
-
 | Choice | What Kaki uses | Why |
 | --- | --- | --- |
-| Front end | React 19, React Router 7, Vite and plain CSS (`web/src/**/*.css`, shared tokens in `web/src/ui/tokens.css`) | One single-page app serves the landing page, the product pages and the meeting room, with no CSS framework to learn or override. |
-| Phones | A responsive web app, not React Native | Guests join from a phone by link or QR code with no install. The same React pages and the same LiveKit WebRTC client run in a phone browser, so there is one code base to test. |
-| GraphQL | Client of the Wiki.js GraphQL API | Wiki.js only exposes pages through GraphQL, so Kaki logs in, reads, searches and writes minutes with GraphQL queries and mutations (`server/src/action/wiki.ts`, `server/src/workspace/connectors/wiki.ts`, `server/src/wingman/knowledge/indexer.ts`). Kaki's own API is not GraphQL. |
-| Live API | REST routes plus a WebSocket hub | Setup, sign-in, meeting codes and approvals are request/response calls, so REST keeps each one small and direct. The meeting also needs live pushes to one seat, so one WebSocket stream carries events with an audience and the server routes each one. GraphQL subscriptions would add a query layer over the same push path. |
-| Database | PostgreSQL with pgvector, not MongoDB | Company records, meeting state, sessions and 1024-dimension embeddings live in one transactional database. Hybrid vector and full-text search runs in the same place, so a search sees the same records the meeting uses. Users, workspaces and meetings are related rows, which suit SQL. A self-hosted MongoDB would need a separate vector index for that search (MongoDB Atlas has vector search built in). |
-| Language | TypeScript end to end with a shared protocol package | `shared/` holds events, commands, task states and parsers that both the server and the web app compile against. |
-| Real-time audio | LiveKit | The meeting room, room tokens and WebRTC audio come from one self-hosted server. |
-| Speech | Azure Speech | Recognition runs server-side for meeting speech, and multi-voice synthesis runs for the AI colleagues in a practice meeting. |
+| Front end | React 19, React Router 7, Vite and plain CSS | One single-page app serves the landing page, the product pages and the meeting room, with no CSS framework to learn or override. |
+| Phones | A responsive web app instead of React Native | Guests join from a phone by link or QR code with nothing to install, and the same pages and WebRTC client run in a phone browser, so there is one code base to test. |
+| GraphQL | Client of the Wiki.js GraphQL API | Wiki.js exposes pages only through GraphQL, so Kaki logs in, reads, searches and writes minutes with GraphQL queries and mutations (`server/src/action/wiki.ts`, `server/src/workspace/connectors/wiki.ts`, `server/src/wingman/knowledge/indexer.ts`). Kaki's own API is not GraphQL. |
+| Live API | REST routes plus a WebSocket hub | Setup, sign-in, meeting codes and approvals are request and response, so REST keeps each one small. Live pushes to one seat travel on one WebSocket stream whose events name their audience; GraphQL subscriptions would add a query layer over the same path. |
+| Database | PostgreSQL with pgvector instead of MongoDB | Records, meeting state, sessions and embeddings live in one transactional database, so hybrid search sees the same records the meeting uses, and users, workspaces and meetings are related rows that suit SQL. Self-hosted MongoDB would need a separate vector index. |
+| Language | TypeScript end to end | `shared/` holds the events, commands, task states and parsers that both the server and the web app compile against. |
+| Real-time audio | LiveKit | The room, room tokens and WebRTC audio come from one self-hosted server. |
+| Speech | Azure Speech | Server-side recognition of meeting speech, and multi-voice synthesis for the AI colleagues. |
 | Local stack | Docker Compose | Seven services start together and seed from the same scenario data. |
 
 ## Testing and evaluation
 
-Web tests sit next to their components. The server, shared and seed tests live in their own test folders (`server/test/`, `shared/test/`, `docker/seed/`), and the playtest helpers are tested in `scripts/`. `npm test` runs the Vitest suite for all of them, including unit tests and integration tests that drive the HTTP and WebSocket API. `npm run typecheck` checks the whole workspace.
+`npm test` runs the Vitest suite for every package: unit tests, and integration tests that drive the HTTP and WebSocket API. Web tests sit next to their components; server, shared and seed tests are in `server/test/`, `shared/test/` and `docker/seed/`, and the playtest helpers are tested in `scripts/`. `npm run typecheck` checks the whole workspace.
 
 Playwright drives the real app in installed Google Chrome:
 
 - `npm run playtest:live` runs one visitor through the practice meeting with the AI colleagues.
-- `npm run playtest:ai` lets a language model play the visitor in one of nine styles, then a second model judges the meeting.
-- The click-through journeys in `scripts/clickthrough/` drive the real product: the sign-in page, a signed-in workspace tool test, a start-now meeting with a guest, off the record, End and the minutes, a scheduled meeting, the sample workspace, the practice page and a phone layout. Each run writes screenshots and a findings report to `.live-logs/clickthrough/`.
+- `npm run playtest:ai` has a language model play the visitor in one of nine styles, then a second model judges the meeting.
+- Twelve click-through journeys (`scripts/clickthrough/journey-a.ts` to `journey-l.ts`) drive the signed-in product: sign-in, a workspace tool test, a meeting with a guest, off the record, ending and the minutes, a scheduled meeting, the sample workspace, the practice page, a phone layout, every in-app link and meeting code, and recovery from a dropped network or a denied microphone. Each run writes screenshots and a findings report to `.live-logs/clickthrough/`.
 
-`npm run eval:notetaker -- --ami` measures the notetaker on real, unscripted recorded meetings from the AMI Meeting Corpus. It replays each transcript, and a model judge pairs what the notetaker found with the corpus's own summary of follow-up actions and open problems. Two of the six meetings (`--holdout`) are kept out of all tuning, to check that changes hold for meetings the notetaker was not adjusted on. The table compares the open-question handling before and after it was made general (two runs per meeting, measured under the same conditions):
+`npm run eval:notetaker -- --ami` measures the notetaker on real, unscripted meetings from the AMI (Augmented Multi-party Interaction) Meeting Corpus. It replays each transcript, and a model judge pairs what the notetaker found with the corpus's own summary of follow-up actions and open problems. Two of the six meetings (`--holdout`) are kept out of all tuning, to check that changes hold for meetings the notetaker was not adjusted on. The table compares the open-question handling before and after it was made general (two runs per meeting under the same conditions):
 
 | Meetings | Open problems caught | Extra questions per meeting | Follow-ups caught | Extra follow-ups per meeting |
 | --- | --- | --- | --- | --- |
@@ -384,17 +411,17 @@ Playwright drives the real app in installed Google Chrome:
 | 2 hold-out meetings, before | 28% | 9.5 | 21% | 0 |
 | 2 hold-out meetings, after | 50% | 3.3 | 14% | 0 |
 
-"Extra" items are ones the corpus summary does not list. Many extra follow-ups are real work the summary leaves out, such as checking whether a feature is technically possible. Known limitation: follow-up detection on the hold-out meetings is lower, because those follow-ups are mostly informal work splits ("you take the interface design") that the notetaker rarely turns into cards.
+"Extra" items are ones the corpus summary does not list. Many extra follow-ups are real work the summary leaves out, such as checking whether a feature is technically possible. Follow-up detection on the hold-out meetings is lower, because those follow-ups are mostly informal work splits ("you take the interface design") that the notetaker rarely turns into cards.
 
-See [How we tested Kaki](docs/testing.md) for the full test map.
+The full test map, including sessions with real people, is in [How we tested Kaki](docs/testing.md).
 
 ## Open source and licensing
 
-Kaki is released under the [GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0). Anyone may use, study, change and self-host it; anyone who offers a modified Kaki to others over a network must publish their changes under the same licence.
+Kaki is released under the [GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0). Anyone may use, study, change and self-host it, and anyone who offers a modified Kaki to others over a network must publish their changes under the same licence.
 
-The main libraries are permissive. React, React DOM, React Router, Vite, `qrcode`, `ws`, `pg`, `tsx` and Vitest are MIT. `nodemailer` is MIT-0. The LiveKit client, React components, server SDK and Node SDK are Apache-2.0. The Microsoft Cognitive Services Speech SDK is MIT. TypeScript and Playwright are Apache-2.0. These licences were read from `node_modules/<package>/package.json`.
+The main libraries are permissive. React, React DOM, React Router, Vite, `qrcode`, `ws`, `pg`, `tsx`, Vitest and the Microsoft Cognitive Services Speech SDK are MIT, and `nodemailer` is MIT-0. The LiveKit client, React components, server SDK and Node SDK, TypeScript and Playwright are Apache-2.0. These licences were read from `node_modules/<package>/package.json`.
 
-The Docker services run as unmodified images next to the code, not inside it.
+The Docker services run as unmodified images beside the code:
 
 | Service | Licence |
 | --- | --- |
@@ -406,87 +433,72 @@ The Docker services run as unmodified images next to the code, not inside it.
 | Mailpit | MIT |
 | LiveKit server | Apache-2.0 |
 
-The copyleft terms do not reach Kaki's own code because each service runs as a separate process and talks to Kaki over HTTP or its own protocol. A change made inside one of those projects would be covered by that project's licence; calling the service does not relicense the caller. This is our reading, not legal advice.
+Each service runs as a separate process and talks to Kaki over HTTP or its own protocol, so their copyleft terms do not reach Kaki's own code. A change made inside one of those projects would fall under that project's licence. This is our reading, not legal advice.
 
-Meeting audio and transcripts are personal data. A real deployment would need every attendee's consent, a retention limit and a decision on where transcripts are kept. In the demo, the live meeting carries audio through LiveKit and sends speech to Azure Speech for recognition; transcript text goes to the LLM gateway set in `.env`. With `KAKI_REPLAY=1` the host reads a scripted transcript instead of live audio. Debug audio capture is off unless `NPC_DEBUG_AUDIO_DIR` is set, and that folder is gitignored.
+Meeting audio and transcripts are personal data. A real deployment would need every attendee's consent, a retention limit and a decision on where transcripts are kept. Live audio travels through LiveKit and speech goes to Azure Speech for recognition; transcript text goes to the LLM gateway set in `.env`. With `KAKI_REPLAY=1` the host reads a scripted transcript instead of live audio. Debug audio capture is off unless `NPC_DEBUG_AUDIO_DIR` is set, and that folder is git-ignored.
 
-Nanyang Kopi & Toast, its people, records, email addresses and credentials are fictional and exist only for the demo. The `demo` / `demo` logins on Wiki.js, Gitea, Mattermost and Radicale are local development values.
+Nanyang Kopi & Toast, its people, records, email addresses and credentials are fictional. The `demo` / `demo` logins are local development values.
 
-No keys are committed. `.env` is gitignored, `.env.example` lists the required key names with empty values, and the seed writes generated Gitea and Mattermost tokens to the gitignored `docker/.env`. The browser never receives an LLM, Azure or service token.
+No keys are committed. `.env` is git-ignored, `.env.example` lists the key names with empty values, and the seed writes the generated Gitea and Mattermost tokens to the git-ignored `docker/.env`. The browser never receives an LLM, Azure or service token.
 
 ## Borrowed code and credits
 
-External services and APIs:
+No code was copied from other projects, tutorials or repositories. The team wrote the code with the help of AI coding assistants (Claude Code and others), and all design decisions and final code are our own responsibility. Kaki uses the open-source libraries and services listed in [Open source and licensing](#open-source-and-licensing) under their licences.
 
-| What | Used for |
+| External service or data | Used for |
 | --- | --- |
-| OpenAI-compatible LLM gateway | Notetaker, verifier, action drafts, the NPC Director and conversation, and the final company-search answer |
-| `bge-m3` embeddings through the same gateway | 1024-dimension company-record vectors for pgvector |
-| Azure Speech | Server-side speech recognition for meeting speech and multi-voice text-to-speech for the AI colleagues in a practice meeting |
+| OpenAI-compatible LLM gateway | Notetaker, verifier, action drafts, the Director and the company-search answer |
+| `bge-m3` embeddings through the same gateway | 1024-dimension vectors for company records |
+| Azure Speech | Speech recognition for meetings and multi-voice speech for the AI colleagues |
 | LiveKit | WebRTC audio room for the meeting and the NPC runner |
-| Wiki.js, Gitea, Mattermost, Mailpit, Radicale | Self-hosted company systems used as search sources and action targets; Wiki.js is reached through its GraphQL API |
+| Wiki.js, Gitea, Mattermost, Mailpit, Radicale | Self-hosted company systems used as search sources and action targets |
+| [AMI Meeting Corpus](https://groups.inf.ed.ac.uk/ami/corpus/) (Carletta et al., 2005), [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) | Notetaker evaluation; the transcripts in `scenarios/ami-eval/meetings/` are converted from the corpus word files, with speakers named by their role |
 
-The notetaker evaluation uses meetings from the [AMI Meeting Corpus](https://groups.inf.ed.ac.uk/ami/corpus/) (Carletta et al., 2005), licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). The transcripts in `scenarios/ami-eval/meetings/` are converted from the corpus word files, with speakers named by their role.
-
-The reciprocal rank fusion in `server/src/wingman/knowledge/search.ts` implements the published RRF formula with `k = 60`.
-
-Kaki was built for IT5007 at the National University of Singapore.
-
-No code was copied from other projects, tutorials or repositories, so nothing is borrowed. The team wrote the code with the help of AI coding assistants (Claude Code and others), and all design decisions and final code are our own responsibility. Kaki uses the open-source libraries and services listed in [Open source and licensing](#open-source-and-licensing) under their licences.
+The reciprocal rank fusion in `server/src/wingman/knowledge/search.ts` implements the published RRF formula with `k = 60`. Kaki was built for IT5007 at the National University of Singapore.
 
 ## Competitors
 
-Checked on 1 November 2026. Every source below is vendor-authored, either a press release, product page or help article. Dates are the page's own publication or update date where shown, or "live page" where the page carries no date.
+Every competitor source is vendor-authored: a press release, product page or help article.
 
-| Product | What its own source describes | Actions and approval | Source |
-| --- | --- | --- | --- |
-| Kaki | A host, a private wingman per seat and an action module in one meeting; live agenda clock, private fact cards, grounded notetaker and minutes | Drafts a Gitea issue, Mattermost post, Wiki.js page, email or calendar event. The assignee reviews and approves each draft before it runs; minutes wait for a person's approval before the wiki write | This repository |
-| Zoom AI Companion 3.0 | Agentic retrieval across Zoom and connected apps; a follow-up template that drafts tasks and emails; personal workflows (beta) that auto-execute follow-ups; My Notes transcription | Follow-ups are drafted inside Zoom, and personal workflows can execute them automatically | [Zoom newsroom](https://news.zoom.com/zoom-launches-ai-companion-3-0/) |
-| Microsoft Copilot in Teams | Real-time summary and suggested action items in a private per-person chat; catch-up for late joiners; intelligent recap needs Teams Premium or a Copilot licence | Suggested action items and recaps live inside Microsoft 365 | [Microsoft Support](https://support.microsoft.com/en-us/office/get-started-with-copilot-in-microsoft-teams-meetings-0bf9dd3c-96f7-44e2-8bb8-790bedf066b1) |
-| Otter.ai | Live Assist gives private real-time coaching tips; Work Mode produces pre-meeting briefs and follow-ups such as CRM updates and emails, ready to review and send; a Jira connector auto-creates issues and can query Jira through AI Chat | Prepared inside Otter for a person to review and send; the Jira connector creates issues from detected action items | [Otter press release](https://otter.ai/blog/otter-rethinks-the-meeting-new-ai-preps-you-coaches-you-and-follows-through), [Otter Jira connector](https://help.otter.ai/hc/en-us/articles/40485786582551-Connect-Jira-to-Otter-ai) |
-| Fireflies.ai | Transcription and summaries; Live Assist for real-time suggestions, coaching and answers; speaker talk-time analytics; AI Skills for follow-up work; Voice Agents | Follow-up work runs through AI Skills and integrations | [fireflies.ai](https://fireflies.ai/) |
-| Read.ai | Ask Read actions: update a CRM deal, send email, create calendar events, scheduled email updates | A draft email is reviewed and then sent on the user's command; other actions run from Ask Read | [Read Help Center](https://support.read.ai/hc/en-us/articles/48863788829971-Using-Ask-Read-actions) |
+| Product | Private help in the meeting | Writes to other tools | Approval before a write | Source |
+| --- | --- | --- | --- | --- |
+| Kaki | Per seat, with sources and dates | Gitea, Mattermost, Wiki.js, email, calendar | Every draft and the minutes | This repository |
+| Zoom AI Companion 3.0 | My Notes and agentic retrieval | Drafted tasks and emails | Drafted for review; personal workflows (beta) can run them automatically | [Zoom newsroom](https://news.zoom.com/zoom-launches-ai-companion-3-0/) |
+| Microsoft Copilot in Teams | Private per-person chat with summary and catch-up | Suggested action items inside Microsoft 365 | Suggestions only | [Microsoft Support](https://support.microsoft.com/en-us/office/get-started-with-copilot-in-microsoft-teams-meetings-0bf9dd3c-96f7-44e2-8bb8-790bedf066b1) |
+| Otter.ai | Live Assist coaching tips | Emails, CRM updates, Jira issues | Prepared for review and send; the Jira connector creates issues from detected action items | [Otter press release](https://otter.ai/blog/otter-rethinks-the-meeting-new-ai-preps-you-coaches-you-and-follows-through), [Otter Jira connector](https://help.otter.ai/hc/en-us/articles/40485786582551-Connect-Jira-to-Otter-ai) |
+| Fireflies.ai | Live Assist suggestions, coaching and answers | Through AI Skills and integrations | Not described | [fireflies.ai](https://fireflies.ai/) |
+| Read.ai | Not described | CRM deals, email, calendar events through Ask Read | A draft email is sent on the user's command | [Read Help Center](https://support.read.ai/hc/en-us/articles/48863788829971-Using-Ask-Read-actions) |
 
-Several competitors offer private in-meeting tips and write-back to connected tools. Kaki gives one person private, sourced help without addressing the room, and asks the task owner to approve a draft before anything is written. Competitors are stronger in meeting-platform coverage, transcription at scale, ready-made integrations and enterprise security certification. Kaki aims at small teams that already self-host their issue tracker, chat and wiki.
+Zoom's retrieval works across Zoom and connected apps, and Read.ai can also send scheduled email updates. Copilot's intelligent recap needs Teams Premium or a Copilot licence. Otter's Work Mode also prepares pre-meeting briefs and can query Jira through AI Chat, and Fireflies adds transcription, summaries, speaker talk-time analytics and Voice Agents.
+
+Several competitors offer private in-meeting tips and write-back to connected tools. Kaki gives one person private, sourced help without addressing the room, and asks the task owner to approve a draft before anything is written. Competitors are stronger in meeting-platform coverage, transcription at scale, ready-made integrations and enterprise security certification. Kaki is aimed at small teams that already self-host their issue tracker, chat and wiki.
 
 ## Business model
 
 The recommended model is open core.
 
-- Publish the meeting protocol, host, wingman and web client under AGPL-3.0. Keep the hosted service, support and enterprise connectors commercial. AGPL requires anyone who offers a modified Kaki over a network to publish its source, so a closed hosted fork would need the commercial licence. Apache-2.0 is easier for adoption but allows a closed fork.
-- Customers are small teams that already self-host or pay for Gitea, Mattermost or similar tools, and lose follow-ups after meetings.
-- Charge a per-host monthly subscription with a free tier for a few meetings a month. The self-hosted version is free; the managed service, support and team features are paid.
-- Cost drivers are speech recognition and synthesis minutes, LLM calls for the notetaker, verifier, search and conversation, and hosting for the meeting server and NPC runner.
-- Register the Kaki name and logo as trademarks. Require a contributor licence agreement so all code can be relicensed commercially. Keep proprietary features such as SSO, audit logs and an admin console out of the open repository.
+- Publish the meeting protocol, host, wingman and web client under AGPL-3.0, and keep the hosted service, support and enterprise connectors commercial. AGPL requires anyone who offers a modified Kaki over a network to publish its source, so a closed hosted fork would need the commercial licence. Apache-2.0 would ease adoption but allow a closed fork.
+- Customers are small teams that already self-host or pay for Gitea, Mattermost or similar tools and lose follow-ups after meetings.
+- Charge a monthly subscription per host, with a free tier of a few meetings a month. Self-hosting is free; the managed service, support and team features are paid.
+- The main costs are speech recognition and synthesis minutes, LLM calls for the notetaker, verifier, search and conversation, and hosting for the meeting server and NPC runner.
+- Register the Kaki name and logo as trademarks, require a contributor licence agreement so all code can be relicensed commercially, and keep proprietary features such as SSO, audit logs and an admin console out of the open repository.
 
 ## Project management
 
-Work is tracked in GitHub issues for `IT5007-2610/it5007-courseproject-group-14`, read and updated with the `gh` CLI. The labels follow five triage roles: `ready-for-agent`, `needs-triage`, `needs-info`, `ready-for-human` and `wontfix`.
+Work is tracked in GitHub issues for `IT5007-2610/it5007-courseproject-group-14`, read and updated with the `gh` CLI. Labels follow five triage roles: `ready-for-agent`, `needs-triage`, `needs-info`, `ready-for-human` and `wontfix`. Commit messages carry the issue number.
 
-The repository has more than 650 commits (`git rev-list --count HEAD`), made continuously through the semester.
-
-The plan runs in phases: the core stack and protocol first, then the three agents, then the live meeting and demo. Each phase closes with review rounds on architecture, security and how real people use the product; findings become issues and fix commits, and notes from testers become issues and then automated playtests, described in [How we tested Kaki](docs/testing.md).
+The plan ran in phases: the core stack and protocol, then the three agents, then the live meeting. Each phase closed with review rounds on architecture, security and how real people use the product. Findings became issues and fixes, and notes from testers became issues and then automated playtests, as described in [How we tested Kaki](docs/testing.md).
 
 | Issue | Title |
 | --- | --- |
 | [#2](https://github.com/IT5007-2610/it5007-courseproject-group-14/issues/2) | [Core] Docker Compose Stack & Mock Multi-Source Knowledge Bases |
 | [#6](https://github.com/IT5007-2610/it5007-courseproject-group-14/issues/6) | [Wingman] Multi-Role Participant Client & Role-Based Private Nudge Engine |
-| [#7](https://github.com/IT5007-2610/it5007-courseproject-group-14/issues/7) | [Wingman] Private Fact Retrieval Interface via pgvector |
 | [#8](https://github.com/IT5007-2610/it5007-courseproject-group-14/issues/8) | [Action] Background Worker Runtime & Gitea Issue Creation Tool |
-| [#9](https://github.com/IT5007-2610/it5007-courseproject-group-14/issues/9) | [Action] Mattermost Notification Tool & Async Lifecycle Reporting |
 | [#10](https://github.com/IT5007-2610/it5007-courseproject-group-14/issues/10) | [Integration] Human-in-the-Loop Task Dispatch to Sync-Back Flow |
-| [#11](https://github.com/IT5007-2610/it5007-courseproject-group-14/issues/11) | [Demo] Scripted Replay, Demo Video & Demo Day |
-| [#12](https://github.com/IT5007-2610/it5007-courseproject-group-14/issues/12) | [Core] Shared skeleton & message contract |
-| [#13](https://github.com/IT5007-2610/it5007-courseproject-group-14/issues/13) | [Action] Email tool (Mailpit) |
 | [#14](https://github.com/IT5007-2610/it5007-courseproject-group-14/issues/14) | [Core] Live meeting: LiveKit room, speech recognition and Kaki's voice (was: Zoom) |
 | [#16](https://github.com/IT5007-2610/it5007-courseproject-group-14/issues/16) | [Core] Sign-in & sessions |
-| [#18](https://github.com/IT5007-2610/it5007-courseproject-group-14/issues/18) | [Core] One-command start |
 | [#39](https://github.com/IT5007-2610/it5007-courseproject-group-14/issues/39) | [Host] Keep meeting state across a server restart |
 | [#44](https://github.com/IT5007-2610/it5007-courseproject-group-14/issues/44) | [Wingman] Upgrade Knowledge Search to Hybrid RAG (Vector + Full-Text) |
-| [#63](https://github.com/IT5007-2610/it5007-courseproject-group-14/issues/63) | [Docs] Repo clean-up before submission |
-| [#64](https://github.com/IT5007-2610/it5007-courseproject-group-14/issues/64) | [Core] Code organisation before submission |
-
-Commit messages carry the issue number, for example `docs(code): a plain-language comment on every exported function, component and type (#64)` and `fix(meeting): review follow-ups: echo after barge-in, settle without an id, Kopitiam copy as scenario data, moves follow the agenda clock (#62)`.
 
 ## Repository structure
 
@@ -497,43 +509,43 @@ Commit messages carry the issue number, for example `docs(code): a plain-languag
 │   ├── src/action/         # Kaki Action connectors (Gitea, Mattermost, email, Wiki.js, calendar)
 │   ├── src/auth/           # Google sign-in, sessions, guest joins and meeting-code admission
 │   ├── src/core/           # Hub, audience routing, event projection, scenario loading
-│   ├── src/host/           # Kaki Host (agenda clock, grounded notetaker, auto-dispatch, replay)
+│   ├── src/host/           # Kaki Host (agenda clock, notetaker, dispatch, replay)
 │   ├── src/http/           # Access levels, HTTP helpers and one route file per area
-│   ├── src/meeting/        # Meeting registry, real meetings, codes, sessions, rejoin, tasks
-│   ├── src/npc/            # Room listener for every meeting; in practice, NPC Director, VAD, barge-in, Azure STT/TTS
+│   ├── src/meeting/        # Meeting registry, team meetings, codes, sessions, rejoin, tasks
+│   ├── src/npc/            # Room listener for every meeting; in practice, the Director, VAD, barge-in, Azure STT/TTS
 │   ├── src/persist/        # Meeting persistence and reset
 │   ├── src/services/       # Shared LiveKit and LLM clients
 │   ├── src/wingman/        # Kaki Wingman (private meeting help, pgvector search, knowledge indexer)
-│   ├── src/workspace/      # Workspaces, per-workspace tools and encrypted tool secrets
+│   ├── src/workspace/      # Workspaces, per-workspace tools and encrypted tool logins
 │   └── test/               # Integration tests and fixtures
 ├── web/
 │   ├── src/auth/           # Sign-in check hook and session API
 │   ├── src/kaki/           # Scenario context, WebSocket hook and topic speech
 │   ├── src/landing/        # Public landing page
 │   ├── src/meeting/        # Shared meeting overlays
-│   ├── src/meeting/room/   # Meeting stage, dock, captions, real-meeting bar, task cards and phone layout
+│   ├── src/meeting/room/   # Meeting stage, dock, captions, meeting bar, task cards and phone layout
 │   ├── src/net/            # Fetch timeout helper
-│   ├── src/product/        # Sign-in, new meeting, workspace, join, real room and meeting history
+│   ├── src/product/        # Sign-in, new meeting, workspace, join, team room and meeting history
 │   └── src/ui/             # Shared buttons, cards, labels and artifact links
 ├── scenarios/kopitiam/     # Nanyang Kopi & Toast scenario, seed data and replay fixtures
-├── docker/                 # Docker Compose stack and idempotent multi-service seed scripts
+├── docker/                 # Docker Compose stack and idempotent seed scripts
 ├── scripts/                # Local and cloud launchers, preflight, playtests and click-through journeys
-├── wake/                   # Always-on waking page and its start/status API (Azure Static Web Apps)
-├── deploy/idle/            # VM idle check that switches the cloud VM off when nobody uses it
-├── deploy/systemd/         # the cloud VM's server and AI-colleague services, in production mode
-└── docs/                   # Live demo guide, testing guide, screenshots and STePS poster
+├── wake/                   # Always-on wake page and its start/status API (Azure Static Web Apps)
+├── deploy/idle/            # Idle check that switches the cloud VM off when nobody uses it
+├── deploy/systemd/         # The cloud VM's server and AI-colleague services, in production mode
+└── docs/                   # Practice meeting guide, testing guide, diagrams, screenshots and the poster for STePS (School of Computing Term Project Showcase)
 ```
 
 ## Sources
 
-Competitor rows (all vendor-authored; see the table for dates and status):
+Competitor sources, all vendor-authored:
 
-- [Zoom AI Companion 3.0 press release](https://news.zoom.com/zoom-launches-ai-companion-3-0/) (15 Dec 2025)
-- [Copilot in Microsoft Teams meetings](https://support.microsoft.com/en-us/office/get-started-with-copilot-in-microsoft-teams-meetings-0bf9dd3c-96f7-44e2-8bb8-790bedf066b1) (live page)
-- [Otter Work Mode and Live Assist press release](https://otter.ai/blog/otter-rethinks-the-meeting-new-ai-preps-you-coaches-you-and-follows-through) (27 Oct 2026)
-- [Connect Jira to Otter.ai](https://help.otter.ai/hc/en-us/articles/40485786582551-Connect-Jira-to-Otter-ai) (updated 15 May 2026)
-- [fireflies.ai homepage](https://fireflies.ai/) (live page)
-- [Using Ask Read actions](https://support.read.ai/hc/en-us/articles/48863788829971-Using-Ask-Read-actions) (updated 26 Oct 2026)
+- [Zoom AI Companion 3.0 press release](https://news.zoom.com/zoom-launches-ai-companion-3-0/) (2025)
+- [Copilot in Microsoft Teams meetings](https://support.microsoft.com/en-us/office/get-started-with-copilot-in-microsoft-teams-meetings-0bf9dd3c-96f7-44e2-8bb8-790bedf066b1) (undated live page)
+- [Otter Work Mode and Live Assist press release](https://otter.ai/blog/otter-rethinks-the-meeting-new-ai-preps-you-coaches-you-and-follows-through) (2026)
+- [Connect Jira to Otter.ai](https://help.otter.ai/hc/en-us/articles/40485786582551-Connect-Jira-to-Otter-ai) (2026)
+- [fireflies.ai homepage](https://fireflies.ai/) (undated live page)
+- [Using Ask Read actions](https://support.read.ai/hc/en-us/articles/48863788829971-Using-Ask-Read-actions) (2026)
 
 Other sources:
 

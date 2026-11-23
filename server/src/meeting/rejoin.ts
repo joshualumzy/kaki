@@ -1,4 +1,4 @@
-/** How long an empty live-demo meeting is kept for the same person to return. */
+/** How long an empty meeting is kept for the same person to return. */
 const DEFAULT_REJOIN_GRACE_MS = 120_000;
 
 /** What an arriving person gets: carry on the meeting, start the next one, or join the occupied room. */
@@ -76,7 +76,7 @@ interface RejoinGuardOptions {
   log?: (message: string) => void;
 }
 
-/** How often the app server checks who is in the live-demo room. */
+/** How often the app server checks who is in the meeting room. */
 export const REJOIN_POLL_MS = 5_000;
 
 /**
@@ -245,7 +245,7 @@ interface RoomPoll {
 }
 
 /**
- * Watch the live-demo room while a meeting exists, so the app server sees the room empty on its
+ * Watch the meeting room while a meeting exists, so the app server sees the room empty on its
  * own instead of waiting for a message from the NPC process (whose ordering it cannot rely on).
  */
 export function createRoomPoll({

@@ -23,7 +23,7 @@ These drive the real app in installed Google Chrome through Playwright, against 
 
 ### Click-through journeys (real product)
 
-Robot visitors for the signed-in product live in `scripts/clickthrough/journey-a.ts` to `journey-j.ts`. Each signs in test
+Robot visitors for the signed-in product live in `scripts/clickthrough/journey-a.ts` to `journey-l.ts`. Each signs in test
 people, drives real Chrome through one path and writes screenshots and a findings file (errors, dead ends, confusing or slow
 steps) to `.live-logs/clickthrough/<journey>/`.
 
@@ -39,11 +39,13 @@ steps) to `.live-logs/clickthrough/<journey>/`.
 | h | Several people speaking and the People list, including after a refresh. |
 | i | The owner leaves and rejoins while a guest stays; ending and the minutes. |
 | j | Two meetings at once in separate workspaces stay apart. |
+| k | Every way in: the front-page links and team meeting button, a right and a wrong meeting code, old addresses, and an audit that every in-app link points to a page the app serves. |
+| l | Recovery: a guest's network drops in a team meeting and in a practice meeting, and the room and captions come back; a denied microphone explains how to allow it in the browser's site settings. |
 
 Run one against a stack started in sign-in mode with drafts only:
 
 ```
-KAKI_AUTH=1 ... KAKI_DRAFT_ONLY=1 npm run live:up     # the ... are the sign-in keys from docs/live-demo.md
+KAKI_AUTH=1 ... KAKI_DRAFT_ONLY=1 npm run live:up     # the ... are the sign-in keys in docs/practice-meeting.md
 npx tsx scripts/clickthrough/journey-a.ts
 ```
 
