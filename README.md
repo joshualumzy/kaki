@@ -520,6 +520,7 @@ Commit messages carry the issue number, for example `docs(code): a plain-languag
 ├── scripts/                # Local and cloud launchers, preflight, playtests and click-through journeys
 ├── wake/                   # Always-on waking page and its start/status API (Azure Static Web Apps)
 ├── deploy/idle/            # VM idle check that switches the cloud VM off when nobody uses it
+├── deploy/systemd/         # the cloud VM's server and AI-colleague services, in production mode
 └── docs/                   # Live demo guide, testing guide, screenshots and STePS poster
 ```
 

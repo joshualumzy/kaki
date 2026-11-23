@@ -1,0 +1,17 @@
+# Installed on the VM as /etc/systemd/system/kaki-server.service (see deploy/systemd/README.md).
+[Unit]
+Description=Kaki API server
+After=network.target docker.service
+
+[Service]
+Type=simple
+User=azureuser
+WorkingDirectory=/home/azureuser/app
+# Production refuses development-only switches such as scripted fake speech.
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/npm run --workspace @kaki/server start
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
