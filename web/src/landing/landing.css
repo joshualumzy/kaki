@@ -162,3 +162,19 @@
   text-decoration: underline;
   text-underline-offset: 3px;
 }
+
+/* Phone widths: 44px targets and labels no smaller than 12px. */
+@media (max-width: 480px) {
+  .landing-go,
+  .landing-signin {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: var(--tap-target);
+  }
+
+  .landing-invite label,
+  .landing-hint {
+    font-size: var(--phone-text-min);
+  }
+}

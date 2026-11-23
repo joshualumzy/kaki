@@ -890,3 +890,32 @@
   max-height: 60vh;
   overflow: auto;
 }
+
+/* Phone widths: 44px targets and labels no smaller than 12px. */
+@media (max-width: 480px) {
+  .product-link,
+  .product-menu-item,
+  .product-account-pill,
+  .product-open,
+  .signin-google {
+    min-height: var(--tap-target);
+  }
+
+  .product-todo label {
+    min-height: var(--tap-target);
+    align-items: center;
+  }
+
+  .product-link,
+  .product-account-pill,
+  .product-menu-item,
+  .product-field > span,
+  .product-label,
+  .product-field > .product-field-hint,
+  .product-hint,
+  .product-pill,
+  .product-note,
+  .product-error {
+    font-size: var(--phone-text-min);
+  }
+}

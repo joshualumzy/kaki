@@ -1,20 +1,22 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  isKakiEvent,
-  MEETING_ENDED_MESSAGE,
   type KakiCommand,
   type KakiEvent,
   type MeetingStateSnapshot,
-  type Role,
   type Task,
   type WingmanNotePayload,
 } from '@kaki/shared';
-import { fetchMe } from '../auth/api';
 import { meetingApiPath, useMeetingScope } from './meetingScope';
-import { useScenario } from './ScenarioContext';
+import {
+  useKakiConnection,
+  useKakiLink,
+  wantsAudienceEvent,
+  type KakiAudience,
+} from './connection';
 import { invalidateScenario, noteMeetingIdentity } from './scenarioRevision';
 import { addTopicSpeech, type TopicSpeech } from './topicSpeech';
 
+export type { KakiAudience } from './connection';
 export type { TopicSpeech } from './topicSpeech';
 
 /** A command the server refused, with the reason to show the user. */
@@ -61,20 +63,17 @@ export interface UseKakiResult {
   askWingman(question: string): boolean;
 }
 
-/** Which feed to follow: a role's own seat, or one of the read-only shared feeds. */
-export type KakiAudience =
-  | { kind: 'role'; role: Role }
-  | { kind: 'screen' }
-  | { kind: 'lifecycle' }
-  | { kind: 'participant' };
-
 /** Subscribe to the server for one audience and keep the task list up to date. */
 export function useKaki(audience: KakiAudience): UseKakiResult {
-  const scenario = useScenario();
   const { meetingId: scopeMeetingId } = useMeetingScope();
-  /** The scenario is only used to validate messages; a new plan must not tear down a live socket. */
-  const scenarioRef = useRef(scenario);
-  scenarioRef.current = scenario;
+  // One page owns one socket: a page-level provider shares its link with every consumer here.
+  // Outside such a page (a hook used on its own) the hook still opens exactly one link itself.
+  const shared = useKakiConnection();
+  const own = useKakiLink(shared === null ? [audience] : undefined);
+  const link = shared?.link ?? own.link;
+  const connected = shared?.connected ?? own.connected;
+  const ended = shared?.ended ?? own.ended;
+  const pageSeat = shared?.seat;
   const audienceKind = audience.kind;
   const audienceRole = audience.kind === 'role' ? audience.role : undefined;
   const [events, setEvents] = useState<KakiEvent[]>([]);
@@ -83,17 +82,12 @@ export function useKaki(audience: KakiAudience): UseKakiResult {
   const [tasks, setTasks] = useState<Map<string, Task>>(() => new Map());
   const [wingmanNotes, setWingmanNotes] = useState<WingmanNotePayload[]>([]);
   const [rejections, setRejections] = useState<KakiRejection[]>([]);
-  const [connected, setConnected] = useState(false);
   const [restoredAt, setRestoredAt] = useState<string | undefined>(undefined);
   const [started, setStarted] = useState<boolean | undefined>(undefined);
   /** The lifecycle value this socket last saw, so a retained START on reconnect is not a new transition. */
   const startedRef = useRef<boolean | undefined>(undefined);
   const [meetingIdentity, setMeetingIdentity] = useState<string | undefined>(undefined);
   const [meetingState, setMeetingState] = useState<MeetingStateSnapshot | undefined>(undefined);
-  const [ended, setEnded] = useState<string | undefined>(undefined);
-  const socketRef = useRef<WebSocket | undefined>(undefined);
-  const reconnectTimer = useRef<number | undefined>(undefined);
-  const attempts = useRef(0);
   /** Bumped by every lifecycle event so a slow state fetch cannot overwrite newer news. */
   const lifecycleRevision = useRef(0);
   /** The newest meeting the browser has seen, so an answer for an older one is thrown away. */
@@ -108,105 +102,13 @@ export function useKaki(audience: KakiAudience): UseKakiResult {
     setTasks(new Map());
     setWingmanNotes([]);
     setRejections([]);
-    setConnected(false);
     setRestoredAt(undefined);
     setMeetingIdentity(undefined);
     setMeetingState(undefined);
-    setEnded(undefined);
-    attempts.current = 0;
     let closed = false;
-    let endedForGood = false;
-    let opened = false;
-    let socket: WebSocket | undefined;
 
-    function connect(): void {
-      if (closed || endedForGood) return;
-      opened = false;
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      // Roles and shared feeds travel on separate channels: a role id may be any word, including
-      // `participant`, so it can never be mistaken for the projection by its spelling.
-      const channel =
-        audienceRole === undefined
-          ? `audience=${encodeURIComponent(audienceKind)}`
-          : `role=${encodeURIComponent(audienceRole)}`;
-      const meetingQuery =
-        scopeMeetingId === undefined || scopeMeetingId === ''
-          ? ''
-          : `&meeting=${encodeURIComponent(scopeMeetingId)}`;
-      const url = `${protocol}//${window.location.host}/ws?${channel}${meetingQuery}`;
-      const current = new WebSocket(url);
-      socket = current;
-      socketRef.current = current;
-
-      current.addEventListener('open', () => {
-        if (closed) return;
-        opened = true;
-        attempts.current = 0;
-        // The server is the source of truth: drop local state and rebuild from its catch-up,
-        // so a restarted server never leaves stale task cards on screen.
-        setEvents([]);
-        setLatestRecord(undefined);
-        latestRecordRef.current = undefined;
-        setTasks(new Map());
-        setWingmanNotes([]);
-        setRestoredAt(undefined);
-        setMeetingIdentity(undefined);
-        setMeetingState(undefined);
-        setEnded(undefined);
-        setConnected(true);
-        // A reset may have happened while this tab was disconnected, so ask instead of guessing.
-        const askedOn = current;
-        const askedAtRevision = lifecycleRevision.current;
-        if (audienceKind === 'lifecycle') meetingId.current = undefined;
-        void fetch(meetingApiPath(scopeMeetingId, '/api/meeting/state'))
-          .then(async (response) => {
-            const body = (await response.json().catch(() => ({}))) as {
-              meetingId?: unknown;
-              started?: unknown;
-              kind?: unknown;
-            };
-            if (!response.ok || typeof body.started !== 'boolean') return;
-            if (typeof body.meetingId !== 'string' || body.meetingId === '') return;
-            // Only the connection that is still current may apply an answer, and only for the
-            // newest meeting: a fetch from a closed or replaced socket belongs to the past.
-            if (closed || socketRef.current !== askedOn || askedOn.readyState !== WebSocket.OPEN) return;
-            // A start/reset event that arrived while this answer was in flight is newer.
-            if (lifecycleRevision.current !== askedAtRevision) return;
-            if (
-              audienceKind === 'lifecycle' &&
-              meetingId.current !== undefined &&
-              meetingId.current !== body.meetingId
-            ) {
-              return;
-            }
-            meetingId.current = body.meetingId;
-            if (audienceKind === 'lifecycle') {
-              noteMeetingIdentity({
-                meetingId: body.meetingId,
-                ...(body.kind === 'real' || body.kind === 'practice' ? { kind: body.kind } : {}),
-              });
-              startedRef.current = body.started;
-              setStarted(body.started);
-            }
-          })
-          .catch((error: unknown) => {
-            console.warn('kaki web: could not read the meeting lifecycle state', error);
-          });
-      });
-
-      current.addEventListener('message', (message) => {
-        if (typeof message.data !== 'string') return;
-        let parsed: unknown;
-        try {
-          parsed = JSON.parse(message.data) as unknown;
-        } catch {
-          console.warn('kaki web: ignored a non-JSON message');
-          return;
-        }
-        if (!isKakiEvent(parsed, scenarioRef.current)) {
-          console.warn('kaki web: ignored an invalid event', parsed);
-          return;
-        }
+    const unsubscribe = link.subscribe((parsed) => {
+        if (closed || !wantsAudienceEvent(parsed, audience, pageSeat)) return;
 
         if (parsed.type === 'TASK_UPDATED') {
           const task = parsed.payload.task;
@@ -314,82 +216,69 @@ export function useKaki(audience: KakiAudience): UseKakiResult {
           setSpeechByTopic((previous) => addTopicSpeech(previous, agendaIndex, parsed));
         }
 
-        setEvents((previous) => [...previous, Object.assign(parsed, { receivedAt: Date.now() })].slice(-50));
-      });
+        setEvents((previous) => [...previous, parsed].slice(-50));
+    });
 
-      current.addEventListener('close', (event) => {
-        if (closed || endedForGood) return;
-        setConnected(false);
-        const closeEvent = event as CloseEvent | undefined;
-        if (closeEvent?.code === 4001) {
-          endedForGood = true;
-          if (reconnectTimer.current !== undefined) {
-            window.clearTimeout(reconnectTimer.current);
-            reconnectTimer.current = undefined;
+    const unsubscribeOpen = link.onOpen((generation) => {
+      if (closed) return;
+      // The server is the source of truth: drop local state and rebuild from its catch-up,
+      // so a restarted server never leaves stale task cards on screen.
+      setEvents([]);
+      setLatestRecord(undefined);
+      latestRecordRef.current = undefined;
+      setTasks(new Map());
+      setWingmanNotes([]);
+      setRestoredAt(undefined);
+      setMeetingIdentity(undefined);
+      setMeetingState(undefined);
+      // A reset may have happened while this tab was disconnected, so ask instead of guessing.
+      if (audienceKind === 'lifecycle') meetingId.current = undefined;
+      if (audienceKind !== 'lifecycle') return;
+      const askedAtRevision = lifecycleRevision.current;
+      void fetch(meetingApiPath(scopeMeetingId, '/api/meeting/state'))
+        .then(async (response) => {
+          const body = (await response.json().catch(() => ({}))) as {
+            meetingId?: unknown;
+            started?: unknown;
+            kind?: unknown;
+          };
+          if (!response.ok || typeof body.started !== 'boolean') return;
+          if (typeof body.meetingId !== 'string' || body.meetingId === '') return;
+          // Only the connection that is still current may apply an answer, and only for the
+          // newest meeting: a fetch from a closed or replaced socket belongs to the past.
+          if (closed || !link.isCurrent(generation)) return;
+          // A start/reset event that arrived while this answer was in flight is newer.
+          if (lifecycleRevision.current !== askedAtRevision) return;
+          if (meetingId.current !== undefined && meetingId.current !== body.meetingId) {
+            return;
           }
-          setEnded(closeEvent.reason === '' ? MEETING_ENDED_MESSAGE : closeEvent.reason);
-          return;
-        }
-        if (!opened) {
-          // A reconnect was refused before it opened. Ask whether this phone's meeting is gone;
-          // otherwise the backoff below keeps retrying at a bounded pace.
-          void fetchMe()
-            .then((me) => {
-              if (closed || endedForGood) return;
-              if (me.authEnabled && me.kind === null && me.ended === true) {
-                endedForGood = true;
-                if (reconnectTimer.current !== undefined) {
-                  window.clearTimeout(reconnectTimer.current);
-                  reconnectTimer.current = undefined;
-                }
-                socket?.close();
-                setEnded(MEETING_ENDED_MESSAGE);
-              }
-            })
-            .catch((error: unknown) => {
-              console.warn('kaki web: could not re-check the session after a failed reconnect', error);
-            });
-        }
-        if (endedForGood) return;
-        const delay = Math.min(5000, 500 * 2 ** attempts.current);
-        attempts.current += 1;
-        reconnectTimer.current = window.setTimeout(connect, delay);
-      });
-
-      current.addEventListener('error', () => current.close());
-    }
-
-    connect();
+          meetingId.current = body.meetingId;
+          noteMeetingIdentity({
+            meetingId: body.meetingId,
+            ...(body.kind === 'real' || body.kind === 'practice' ? { kind: body.kind } : {}),
+          });
+          startedRef.current = body.started;
+          setStarted(body.started);
+        })
+        .catch((error: unknown) => {
+          console.warn('kaki web: could not read the meeting lifecycle state', error);
+        });
+    });
 
     return () => {
       closed = true;
-      if (reconnectTimer.current !== undefined) {
-        window.clearTimeout(reconnectTimer.current);
-        reconnectTimer.current = undefined;
-      }
-      socket?.close();
-      socketRef.current = undefined;
+      unsubscribe();
+      unsubscribeOpen();
     };
-  }, [audienceKind, audienceRole, scopeMeetingId]);
+  }, [link, audienceKind, audienceRole, pageSeat, scopeMeetingId]);
 
   const send = useCallback((command: KakiCommand): boolean => {
-    const socket = socketRef.current;
-    if (socket === undefined || socket.readyState !== WebSocket.OPEN) {
-      setRejections((previous) =>
-        [...previous, { commandType: command.type, reason: 'not connected' }].slice(-5),
-      );
-      return false;
-    }
-    try {
-      socket.send(JSON.stringify(command));
-    } catch {
-      setRejections((previous) =>
-        [...previous, { commandType: command.type, reason: 'not connected' }].slice(-5),
-      );
-      return false;
-    }
-    return true;
-  }, []);
+    if (link.send(command, audience)) return true;
+    setRejections((previous) =>
+      [...previous, { commandType: command.type, reason: 'not connected' }].slice(-5),
+    );
+    return false;
+  }, [link, audienceKind, audienceRole]);
 
   const askWingman = useCallback(
     (question: string): boolean => send({ type: 'ASK_WINGMAN', question }),

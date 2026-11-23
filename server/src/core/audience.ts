@@ -31,6 +31,61 @@ export function audienceLabel(audience: ClientAudience): string {
   return audience.kind === 'role' ? audience.role : audience.kind;
 }
 
+/** A stable key for one audience, so a socket's subscriptions compare and de-duplicate by value. */
+export function audienceKey(audience: ClientAudience): string {
+  return audience.kind === 'role' ? `role:${audience.role}` : audience.kind;
+}
+
+/**
+ * Read the audiences one page follows from repeated `?audiences=screen&audiences=role:<role>`. A
+ * page opens one socket and subscribes to all the feeds its parts read, instead of one per part.
+ * Absent means the older single-audience socket that `audienceFor` describes.
+ */
+export function audiencesFor(scenario: Scenario, url: URL): ClientAudience[] | undefined {
+  const tokens = url.searchParams.getAll('audiences');
+  if (tokens.length === 0) return undefined;
+  // The two forms never mix: one socket either names one channel or its whole page's channels.
+  if (url.searchParams.get('audience') !== null || url.searchParams.get('role') !== null) {
+    return undefined;
+  }
+  const audiences: ClientAudience[] = [];
+  const seen = new Set<string>();
+  for (const token of tokens) {
+    let audience: ClientAudience | undefined;
+    if (token.startsWith('role:')) {
+      const role = token.slice('role:'.length);
+      if (!isRoleIn(scenario, role)) return undefined;
+      audience = roleAudience(role);
+    } else if (token === 'screen') {
+      audience = { kind: 'screen' };
+    } else if (token === 'participant') {
+      audience = { kind: 'participant' };
+    } else if (token === 'lifecycle') {
+      audience = { kind: 'lifecycle' };
+    } else {
+      return undefined;
+    }
+    const key = audienceKey(audience);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    audiences.push(audience);
+  }
+  return audiences.length === 0 ? undefined : audiences;
+}
+
+/**
+ * Read the audience a page socket names for one command. A page socket follows several feeds, so
+ * each command says which of them it acts as; anything else is refused.
+ */
+export function audienceFromValue(scenario: Scenario, value: unknown): ClientAudience | undefined {
+  if (typeof value !== 'object' || value === null) return undefined;
+  const kind = (value as { kind?: unknown }).kind;
+  if (kind === 'screen' || kind === 'participant' || kind === 'lifecycle') return { kind };
+  if (kind !== 'role') return undefined;
+  const role = (value as { role?: unknown }).role;
+  return typeof role === 'string' && isRoleIn(scenario, role) ? roleAudience(role) : undefined;
+}
+
 /** Reads the requested audience from a socket URL, or undefined when the request is malformed. */
 export function audienceFor(scenario: Scenario, url: URL): ClientAudience | undefined {
   const rawAudience = url.searchParams.get('audience');

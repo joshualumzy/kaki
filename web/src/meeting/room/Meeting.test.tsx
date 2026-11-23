@@ -18,6 +18,7 @@ vi.mock('../../kaki', () => ({
   useScenario: mocks.useScenario,
   useRefreshScenario: () => mocks.refreshScenario,
   useKaki: () => ({ events: mocks.events, started: mocks.lifecycleStarted }),
+  KakiConnectionProvider: ({ children }: { children: ReactNode }) => children,
   meetingApiPath: (id: string | undefined, path: string) =>
     id === undefined ? path : `/api/meetings/${id}${path.slice(4)}`,
 }));
