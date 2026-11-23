@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import type { MeUser } from '../auth/api';
-import { logout, type WorkspaceSummary } from './api';
+import { Button, Card } from '../ui';
+import { deleteAccount, logout, type WorkspaceSummary } from './api';
 
 interface AppBarProps {
   user: MeUser;
@@ -13,6 +14,10 @@ export function AppBar({ user, workspaces }: AppBarProps) {
   const [open, setOpen] = useState(false);
   const [leaving, setLeaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [confirmText, setConfirmText] = useState('');
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const wrap = useRef<HTMLDivElement | null>(null);
   const navigate = useNavigate();
 
@@ -24,7 +29,10 @@ export function AppBar({ user, workspaces }: AppBarProps) {
     }
 
     function onKeyDown(event: KeyboardEvent): void {
-      if (event.key === 'Escape') setOpen(false);
+      if (event.key === 'Escape' && !deleting) {
+        setOpen(false);
+        setDeleteOpen(false);
+      }
     }
 
     document.addEventListener('mousedown', onPointerDown);
@@ -33,7 +41,7 @@ export function AppBar({ user, workspaces }: AppBarProps) {
       document.removeEventListener('mousedown', onPointerDown);
       document.removeEventListener('keydown', onKeyDown);
     };
-  }, [open]);
+  }, [open, deleting]);
 
   async function signOut(): Promise<void> {
     if (leaving) return;
@@ -47,6 +55,35 @@ export function AppBar({ user, workspaces }: AppBarProps) {
       setError(signOutError instanceof Error ? signOutError.message : 'Could not sign out.');
     } finally {
       setLeaving(false);
+    }
+  }
+
+  function openDelete(): void {
+    setConfirmText('');
+    setDeleteError(null);
+    setDeleteOpen(true);
+  }
+
+  function cancelDelete(): void {
+    if (deleting) return;
+    setDeleteOpen(false);
+  }
+
+  async function removeAccount(): Promise<void> {
+    if (deleting || confirmText !== 'DELETE') return;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await deleteAccount('DELETE');
+      setDeleteOpen(false);
+      setOpen(false);
+      navigate('/signin?deleted=1', { replace: true });
+    } catch (deleteFailure) {
+      setDeleteError(
+        deleteFailure instanceof Error ? deleteFailure.message : 'Could not delete the account.',
+      );
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -110,11 +147,64 @@ export function AppBar({ user, workspaces }: AppBarProps) {
             >
               {leaving ? 'Signing out…' : 'Sign out'}
             </button>
+            <button
+              type="button"
+              className="product-menu-item product-menu-item-danger"
+              role="menuitem"
+              onClick={openDelete}
+            >
+              Delete account
+            </button>
             {error === null ? null : (
               <p className="product-menu-error" role="alert">
                 {error}
               </p>
             )}
+          </div>
+        ) : null}
+        {deleteOpen ? (
+          <div className="product-dialog-backdrop">
+            <div
+              className="product-dialog"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Delete your account"
+            >
+              <Card title="Delete your account">
+                <p>
+                  Deleting your account removes your workspaces, meetings, minutes, to-dos and tool
+                  logins. Any open meetings end now. This cannot be undone.
+                </p>
+                <label className="product-dialog-field">
+                  <span>Type DELETE to confirm</span>
+                  <input
+                    type="text"
+                    value={confirmText}
+                    onChange={(event) => setConfirmText(event.target.value)}
+                    autoComplete="off"
+                    autoFocus
+                    disabled={deleting}
+                  />
+                </label>
+                {deleteError === null ? null : (
+                  <p className="product-error" role="alert">
+                    {deleteError}
+                  </p>
+                )}
+                <div className="product-dialog-actions">
+                  <Button variant="ghost" onClick={cancelDelete} disabled={deleting}>
+                    Keep my account
+                  </Button>
+                  <Button
+                    variant="danger"
+                    onClick={() => void removeAccount()}
+                    disabled={deleting || confirmText !== 'DELETE'}
+                  >
+                    {deleting ? 'Deleting…' : 'Delete my account'}
+                  </Button>
+                </div>
+              </Card>
+            </div>
           </div>
         ) : null}
       </div>

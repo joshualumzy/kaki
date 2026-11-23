@@ -83,4 +83,11 @@ describe('SignInPage', () => {
     expect(screen.getByRole('alert').textContent).toContain('Could not reach the server.');
     expect(screen.getByRole('button', { name: 'Try again' })).toBeTruthy();
   });
+
+  it('confirms that the account was deleted', () => {
+    renderPage('/signin?deleted=1');
+    expect(screen.getByRole('status').textContent).toBe(
+      'Your account has been deleted, along with everything in it.',
+    );
+  });
 });

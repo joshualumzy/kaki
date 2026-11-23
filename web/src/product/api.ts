@@ -464,6 +464,14 @@ export async function logout(): Promise<void> {
   await request('/api/auth/logout', { method: 'POST' });
 }
 
+export async function deleteAccount(confirm: string): Promise<void> {
+  await request('/api/account', {
+    method: 'DELETE',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ confirm }),
+  });
+}
+
 
 function historyItemFrom(value: unknown): MeetingHistoryItem | undefined {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined;
