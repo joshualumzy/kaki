@@ -120,6 +120,7 @@ export function WingmanPanel({
           </span>
         )}
       </div>
+      <p className="kd-wingman-hint">Private to you. Answers come from company records, with a source.</p>
       <form className="kd-wingman-ask" onSubmit={submit}>
         <label className="kd-label" htmlFor="kd-wingman-question">
           Ask Kaki about this meeting

@@ -38,7 +38,7 @@ vi.mock('./realRoom', () => ({
 const info = vi.hoisted(() => ({ get: vi.fn() }));
 vi.mock('../../product/api', () => ({ getMeetingInfo: info.get }));
 
-import { RealEndedPanel, RealRoomBanners, RealWaitingOverlay } from './RealRoomOverlays';
+import { RealEndedOverlay, RealRoomBanners, RealWaitingOverlay } from './RealRoomOverlays';
 
 beforeEach(() => {
   info.get.mockReset();
@@ -175,7 +175,7 @@ describe('ended real meeting', () => {
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
     render(
       <MemoryRouter>
-        <RealEndedPanel meetingId="mtg-1" />
+        <RealEndedOverlay meetingId="mtg-1" />
       </MemoryRouter>,
     );
     expect((await screen.findByRole('alert')).textContent).toContain('Minutes are taking longer than usual');
@@ -186,7 +186,11 @@ describe('ended real meeting', () => {
 
   it('says the meeting ended while the guest was away', async () => {
     mocks.endedWhileAway = 'This meeting has ended; scan the new code.';
-    render(<RealEndedPanel meetingId="mtg-1" />);
+    render(
+      <MemoryRouter>
+        <RealEndedOverlay meetingId="mtg-1" />
+      </MemoryRouter>,
+    );
     expect(screen.getByText('This meeting ended while you were away')).toBeTruthy();
     await waitFor(() => expect(screen.getByText(/Thanks for joining/)).toBeTruthy());
     mocks.endedWhileAway = undefined;
@@ -194,9 +198,13 @@ describe('ended real meeting', () => {
 
   it('thanks a guest and says the owner keeps the notes', async () => {
     mocks.meetingState.phase = 'ended';
-    render(<RealEndedPanel meetingId="mtg-1" />);
+    render(
+      <MemoryRouter>
+        <RealEndedOverlay meetingId="mtg-1" />
+      </MemoryRouter>,
+    );
 
-    expect(screen.getByText('Meeting ended')).toBeTruthy();
+    expect(screen.getByText('The meeting has ended')).toBeTruthy();
     await waitFor(() => expect(screen.getByText(/Thanks for joining. The notes are kept by Ada/)).toBeTruthy());
     expect(screen.queryByText(/Syncing/)).toBeNull();
     mocks.meetingState.phase = 'lobby';

@@ -12,6 +12,7 @@
 .kd-join { min-height: 100vh; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 24px max(16px, env(safe-area-inset-left, 0px)); font-family: var(--font-sans); color: var(--color-text); }
 .kd-join-systems { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; padding: 8px 16px; border-radius: 999px; background: color-mix(in srgb, var(--color-surface) 88%, transparent); border: 1px solid var(--color-border); font-size: 12px; color: var(--color-muted); }
 .kd-join-systems-label { margin-right: 2px; }
+.kd-join-systems-note { flex: 1 1 100%; text-align: center; font-size: 11.5px; line-height: 1.4; }
 .kd-join-systems a { padding: 3px 10px; border-radius: 999px; background: var(--color-bg-raised); border: 1px solid var(--color-border); color: var(--color-text); font-weight: 600; text-decoration: none; transition: border-color 140ms, background 140ms; }
 .kd-join-systems a:hover { border-color: var(--color-accent); background: var(--color-accent-soft); color: var(--color-accent); }
 .kd-card { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 34px; width: min(980px, 100%); box-sizing: border-box; padding: 28px; animation: kd-rise 520ms cubic-bezier(.2,.8,.2,1) both;
@@ -24,11 +25,14 @@
 .kd-field { width: 100%; box-sizing: border-box; padding: 12px 14px; background: var(--color-surface); border: 1px solid var(--color-border-strong); border-radius: 12px; color: var(--color-text); font: inherit; font-size: 15px; outline: none; transition: box-shadow 140ms, border-color 140ms; }
 .kd-field:focus { border-color: var(--color-accent); box-shadow: 0 0 0 4px var(--color-accent-soft); }
 select.kd-field { appearance: none; cursor: pointer; background-image: linear-gradient(45deg, transparent 50%, var(--color-muted) 50%), linear-gradient(135deg, var(--color-muted) 50%, transparent 50%); background-position: calc(100% - 20px) 50%, calc(100% - 14px) 50%; background-size: 6px 6px; background-repeat: no-repeat; }
-.kd-go { position: relative; overflow: hidden; width: 100%; padding: 14px; border: 0; border-radius: 13px; background: var(--color-ink); color: var(--color-bg); font: inherit; font-weight: 700; font-size: 15px; cursor: pointer; transition: transform 160ms, box-shadow 160ms; box-shadow: 0 14px 30px -12px var(--color-ink); }
+.kd-go { position: relative; overflow: hidden; display: block; box-sizing: border-box; width: 100%; padding: 14px; border: 0; border-radius: 13px; background: var(--color-ink); color: var(--color-bg); font: inherit; font-weight: 700; font-size: 15px; text-align: center; text-decoration: none; cursor: pointer; transition: transform 160ms, box-shadow 160ms; box-shadow: 0 14px 30px -12px var(--color-ink); }
 .kd-go::after { content: ""; position: absolute; inset: 0; background: linear-gradient(105deg, transparent 35%, color-mix(in srgb, var(--color-host) 70%, transparent) 50%, transparent 65%); transform: translateX(-120%); }
 .kd-go:not(:disabled):hover { transform: translateY(-2px); }
 .kd-go:not(:disabled):hover::after { transform: translateX(120%); transition: transform 700ms ease; }
 .kd-go:disabled { background: var(--color-border); color: var(--color-faint); box-shadow: none; cursor: not-allowed; }
+.kd-go-secondary, .kd-go-secondary:not(:disabled):hover { background: var(--color-surface); color: var(--color-text); border: 1px solid var(--color-border-strong); box-shadow: none; }
+.kd-go-secondary:not(:disabled):hover { background: var(--color-bg-raised); }
+.kd-go-secondary + .kd-go-secondary { margin-top: 8px; }
 .kd-hint { color: var(--color-faint); font-size: 12.5px; margin: 12px 0 0; }
 
 /* Over the stage until the person has read their briefing and starts the meeting. */
@@ -37,6 +41,9 @@ select.kd-field { appearance: none; cursor: pointer; background-image: linear-gr
 .kd-start-card h2 { margin: 0 0 10px; font-size: 22px; letter-spacing: -0.03em; color: var(--color-text); }
 .kd-start-card p { margin: 0 0 12px; font-size: 14px; line-height: 1.5; color: var(--color-muted); }
 .kd-start-card .kd-go { margin-top: 8px; }
+.kd-ended-overlay { z-index: 64; }
+.kd-ended-card { margin: 0; }
+.kd-ended-title { margin: 0 0 10px; font-size: 22px; line-height: 1.2; letter-spacing: -0.03em; color: var(--color-text); }
 .kd-alert { color: var(--color-danger); font-size: 13px; font-weight: 600; margin: 0 0 14px; }
 
 .kd-preview { position: relative; aspect-ratio: 16 / 10; border-radius: 18px; overflow: hidden; background: radial-gradient(circle at 50% 40%, color-mix(in srgb, var(--orb-a) 16%, var(--stage)), var(--stage) 70%); border: 1px solid var(--color-border); }
@@ -114,6 +121,7 @@ select.kd-field { appearance: none; cursor: pointer; background-image: linear-gr
 .kd-wingman { margin: 10px 0 6px; }
 .kd-wingman-head { display: flex; align-items: center; gap: 8px; }
 .kd-wingman-head .kd-role-eyebrow { margin: 0; }
+.kd-wingman-hint { margin: 4px 0 2px; color: var(--color-muted); font-size: 12px; line-height: 1.4; }
 .kd-wingman-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: var(--color-accent-soft); color: var(--color-accent); font-family: var(--font-mono); font-size: 10.5px; font-weight: 700; }
 .kd-wingman-ask { margin: 8px 0 10px; }
 .kd-wingman-ask-row { display: flex; align-items: center; gap: 6px; }
@@ -196,13 +204,14 @@ select.kd-field { appearance: none; cursor: pointer; background-image: linear-gr
   .kd-sub { margin: 0 0 14px; }
   .kd-preview { aspect-ratio: 16 / 9; max-height: 160px; }
   .kd-meeting { display: flex; flex-direction: column; gap: 6px; padding: 6px max(6px, env(safe-area-inset-left, 0px)) max(6px, env(safe-area-inset-bottom, 0px)); height: 100dvh; min-height: 100dvh; overflow: hidden; box-sizing: border-box; }
-  .kd-stage { flex: 0 0 44dvh; height: 44dvh; min-height: 205px; gap: 4px; }
+  .kd-stage { flex: 0 0 38dvh; height: 38dvh; min-height: 205px; gap: 4px; }
   .kd-dock { flex: 1 1 0; width: auto; min-height: 0; border-radius: 16px; }
   .kd-dock-head { padding: 8px 12px 0; }
   .kd-dock-sub { padding: 4px 2px 4px; font-size: 11.5px; }
   .kd-dock .phone, .kd-dock .page { padding: 4px 10px 10px; }
   .kd-briefing { margin: 2px 10px 4px; }
   .kd-panes { display: none !important; }
+  .kd-role-eyebrow, .kd-label { font-family: var(--font-sans); letter-spacing: 0; text-transform: none; font-size: 12.5px; }
   .kd-stage .lk-grid-layout { gap: 5px; grid-template-columns: 1fr 1fr !important; grid-auto-rows: 1fr !important; }
   .kd-who { left: 5px; top: 5px; padding: 2px 6px 2px 4px; font-size: 10px; max-width: calc(100% - 54px); border-radius: 10px; }
   .kd-who i { width: 12px; height: 12px; }
@@ -321,7 +330,7 @@ select.kd-field { appearance: none; cursor: pointer; background-image: linear-gr
   .kd-stage { flex: 0 1 auto; height: auto; min-height: 0; }
   .kd-dock { flex: 1 0 26dvh; }
   .kd-stage-col > * { flex: none; }
-  .kd-stage-col > .kd-grid-wrap { flex: 0 1 26dvh; position: relative; min-height: 110px; padding: 4px; }
+  .kd-stage-col > .kd-grid-wrap { flex: 0 1 22dvh; position: relative; min-height: 110px; padding: 4px; }
   .kd-stage-toast { flex-wrap: wrap; row-gap: 3px; }
   .kd-stage-toast-badge { font-size: 9px; padding: 2px 7px; }
   .kd-stage-toast-close { margin-left: auto; }
@@ -335,11 +344,10 @@ select.kd-field { appearance: none; cursor: pointer; background-image: linear-gr
   .kd-tile[data-ai="true"] .kd-who { max-width: calc(100% - 76px); }
   .kd-who-role { display: none; }
   .kd-who-line { white-space: normal; overflow-wrap: anywhere; }
-  /* The fixed banner ratio is too short for the badge plus a two-line title, so the text clipped off the top:
-     let the text set the height and keep the picture behind it. */
-  .kd-story-hero { aspect-ratio: auto; }
-  .kd-story-hero-img { position: absolute; inset: 0; }
-  .kd-story-hero-overlay { position: relative; min-height: 130px; }
+  /* Stack the picture above its words on a phone: a heading over the artwork clips and overlaps. */
+  .kd-story-hero { aspect-ratio: auto; display: flex; flex-direction: column; }
+  .kd-story-hero-img { position: static; width: 100%; height: 116px; object-fit: cover; flex: none; }
+  .kd-story-hero-overlay { position: static; inset: auto; min-height: 0; padding: 10px 12px; background: linear-gradient(180deg, rgba(10, 20, 28, 0.92), rgba(10, 20, 28, 0.98)); }
   .kd-story-badge { font-size: 9px; letter-spacing: 0.04em; max-width: 68%; }
 }
 
@@ -502,6 +510,7 @@ select.kd-field { appearance: none; cursor: pointer; background-image: linear-gr
   width: 100%;
 }
 
+.kd-media-problem { top: auto; bottom: 58px; z-index: 40; max-width: min(92%, 34rem); text-align: center; }
 .kd-reconnect-banner {
   position: absolute;
   top: 10px;
@@ -573,6 +582,7 @@ select.kd-field { appearance: none; cursor: pointer; background-image: linear-gr
 .kd-bar-btn[data-tone='leave'] { color: var(--color-danger); }
 .kd-bar-count { font-family: var(--font-mono); font-size: 10px; padding: 1px 5px; border-radius: 999px; background: var(--color-accent-soft); }
 .kd-real-bar-problem { margin: 0; color: var(--color-danger); font-size: 12px; font-weight: 600; }
+.kd-bar-hint { margin: 0; text-align: center; color: var(--color-muted); font-size: 11.5px; line-height: 1.3; }
 .kd-real-pop { position: absolute; right: 6px; bottom: calc(100% + 8px); z-index: 20; width: min(360px, calc(100vw - 24px)); padding: 13px; border-radius: 14px; background: var(--color-surface); border: 1px solid var(--color-border-strong); box-shadow: 0 22px 50px -24px rgba(0, 0, 0, 0.5); }
 .kd-real-link { margin: 0 0 8px; font-size: 12.5px; overflow-wrap: anywhere; }
 .kd-real-pop-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; }

@@ -172,7 +172,7 @@ export async function handleMattermostOpen(call: RouteCall): Promise<void> {
       request,
       response,
       403,
-      'The shared demo sign-in is only available in the sample workspace.',
+      'Mattermost can only be connected in the sample workspace.',
     );
     return;
   }

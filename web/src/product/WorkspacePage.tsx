@@ -2,6 +2,7 @@ import { ErrorText } from './ErrorText';
 import { useEffect, useState } from 'react';
 import { Link, Navigate, useParams } from 'react-router-dom';
 import { useMe } from '../auth/useMe';
+import { SIGN_IN_ENDED } from '../net/plainFailure';
 import { Button, Card } from '../ui';
 import {
   getWorkspace,
@@ -108,6 +109,12 @@ export function WorkspacePage() {
   }
 
   if (!auth.me.authEnabled || auth.me.kind !== 'user') {
+    return (
+      <Navigate to={`/signin?next=${encodeURIComponent(`/workspaces/${id}`)}`} replace />
+    );
+  }
+
+  if (loadError === SIGN_IN_ENDED) {
     return (
       <Navigate to={`/signin?next=${encodeURIComponent(`/workspaces/${id}`)}`} replace />
     );
@@ -293,8 +300,8 @@ export function WorkspacePage() {
                 )}
               </section>
 
-              <section className="card product-section" aria-label="Information">
-                <h2 className="product-section-title">Information</h2>
+              <section className="card product-section" aria-label="Activity">
+                <h2 className="product-section-title">Activity</h2>
                 <dl className="product-stats">
                   <div className="product-stat">
                     <dt>Meetings</dt>
@@ -303,10 +310,6 @@ export function WorkspacePage() {
                   <div className="product-stat">
                     <dt>To-dos</dt>
                     <dd>{detail.counts.todos}</dd>
-                  </div>
-                  <div className="product-stat">
-                    <dt>Records</dt>
-                    <dd>{detail.counts.records}</dd>
                   </div>
                 </dl>
               </section>

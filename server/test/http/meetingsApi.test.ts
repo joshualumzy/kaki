@@ -478,7 +478,7 @@ describe('meetings API', () => {
     expect(denied.headers.get('content-type')).toContain('text/html');
     const page = await denied.text();
     expect(page).toContain('sample workspace');
-    expect(page).toContain('Back to Kaki');
+    expect(page).toContain('Back to the workspace');
   });
 
   it('refuses a guest join for an ended meeting without giving a name cookie', async () => {

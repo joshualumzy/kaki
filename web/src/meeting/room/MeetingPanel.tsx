@@ -8,7 +8,6 @@ import {
   type Task,
 } from '@kaki/shared';
 import { useKaki, useScenario } from '../../kaki';
-import { RealEndedPanel } from './RealRoomOverlays';
 import { useRealRoom } from './realRoom';
 import { clearAllStoredJoins } from './rejoinSession';
 import { Avatar, artifactLinkText, resolveArtifactUrl, taskStatusText } from '../../ui';
@@ -342,7 +341,6 @@ export function MeetingPanel({
           )}
         </div>
       )}
-      {real && <RealEndedPanel meetingId={realRoom?.meetingId ?? ''} />}
       {meetingEnded && !real && (
         <section id="minutes" className="kd-role kd-topic-card" aria-label="End-of-meeting minutes">
           <p className="kd-role-eyebrow">

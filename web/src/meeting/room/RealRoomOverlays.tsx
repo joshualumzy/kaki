@@ -110,17 +110,27 @@ export function RealWaitingOverlay({ meetingId }: { meetingId: string }) {
   );
 }
 
-/** The one panel a real meeting shows after it ends: where the minutes are, or a thank-you. */
-export function RealEndedPanel({ meetingId }: { meetingId: string }) {
+/**
+ * The same end-of-meeting news over the stage, so the room never looks live after it ends. The
+ * owner's screen and every participant see it; the meeting bar keeps Leave within reach.
+ */
+export function RealEndedOverlay({ meetingId }: { meetingId: string }) {
   const room = useRealRoom();
   const endedWhileAway = room?.endedWhileAway !== undefined && room.meetingState?.phase !== 'ended';
   if (room === null || (room.meetingState?.phase !== 'ended' && !endedWhileAway)) return null;
   return (
-    <EndedPanelBody
-      meetingId={meetingId}
-      ownerName={room.meetingState?.ownerName?.trim() ?? ''}
-      title={endedWhileAway ? 'This meeting ended while you were away' : 'Meeting ended'}
-    />
+    <div className="kd-start kd-ended-overlay" role="region" aria-label="Meeting ended">
+      <div className="kd-start-card">
+        <EndedPanelBody
+          meetingId={meetingId}
+          ownerName={room.meetingState?.ownerName?.trim() ?? ''}
+          title={endedWhileAway ? 'This meeting ended while you were away' : 'The meeting has ended'}
+        />
+        <Link className="kd-go kd-go-secondary" to="/">
+          Back to Kaki
+        </Link>
+      </div>
+    </div>
   );
 }
 
@@ -157,14 +167,14 @@ function EndedPanelBody({
     };
   }, [meetingId, attempt]);
   return (
-    <section className="kd-role kd-topic-card" aria-label="Meeting ended">
-      <p className="kd-role-eyebrow">{title}</p>
+    <section className="kd-role kd-topic-card kd-ended-card" aria-label="Meeting ended">
+      <h2 className="kd-ended-title">{title}</h2>
       {typeof workspaceId === 'string' ? (
         <Link
-          className="artifact-link"
+          className="kd-go"
           to={`/workspaces/${encodeURIComponent(workspaceId)}/meetings/${encodeURIComponent(meetingId)}`}
         >
-          Read the meeting notes
+          See the meeting minutes
         </Link>
       ) : workspaceId === null ? (
         <p>

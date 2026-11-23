@@ -446,7 +446,7 @@ export default function Meeting({
     return (
       <LeftScreen
         meetingTitle={scenario.meetingTitle}
-        minutesHref={realMeetingId === undefined ? '#minutes' : `/m/${encodeURIComponent(realMeetingId)}/room#minutes`}
+        minutesHref={realMeetingId === undefined ? '#minutes' : `/m/${encodeURIComponent(realMeetingId)}`}
         onRejoin={() => {
           const target = leftSession;
           setLeft(false);
@@ -630,8 +630,8 @@ export default function Meeting({
           data-lk-theme="default"
           style={{ height: '100%' }}
         >
-          {mediaProblem === undefined ? null : (
-            <div className="kd-reconnect-banner" role="alert">
+          {mediaProblem === undefined || real ? null : (
+            <div className="kd-reconnect-banner kd-media-problem" role="alert">
               {mediaProblem}
             </div>
           )}
@@ -644,6 +644,8 @@ export default function Meeting({
               {...(session.meetingCode === undefined ? {} : { meetingCode: session.meetingCode })}
               onOpenKaki={() => setPane('kaki')}
               onKakiBadgeChange={setKakiBadgeCount}
+              {...(mediaProblem === undefined ? {} : { mediaProblem })}
+              onMediaProblemCleared={() => setMediaProblem(undefined)}
             />
           </ErrorBoundary>
           <CleanDisconnectOnUnload />
@@ -845,9 +847,9 @@ function LeftScreen({
         <button type="button" className="kd-go" onClick={onRejoin}>
           Rejoin
         </button>
-        <p className="kd-hint">
-          <a href={minutesHref}>See the meeting minutes</a>
-        </p>
+        <a className="kd-go kd-go-secondary" href={minutesHref}>
+          See the meeting minutes
+        </a>
       </div>
     </div>
   );

@@ -21,7 +21,7 @@ import {
 import { useKaki, useScenario } from '../../kaki';
 import { CaptionedTile, PendingTile, StageContext } from './CaptionedTile';
 import { RealMeetingBar } from './RealMeetingBar';
-import { RealRoomBanners, RealWaitingOverlay } from './RealRoomOverlays';
+import { RealEndedOverlay, RealRoomBanners, RealWaitingOverlay } from './RealRoomOverlays';
 import { MutedHint } from './MutedHint';
 import { useRealRoom } from './realRoom';
 import { distinctDisplayNames, peopleNotInRoom } from './people';
@@ -38,6 +38,8 @@ export function MeetingGrid({
   real = false,
   meetingId,
   meetingCode,
+  mediaProblem,
+  onMediaProblemCleared,
 }: {
   role: string;
   onOpenKaki?: () => void;
@@ -48,6 +50,9 @@ export function MeetingGrid({
   real?: boolean;
   meetingId?: string;
   meetingCode?: string;
+  /** A device failure reported by the room, shown once in the real meeting's bar. */
+  mediaProblem?: string;
+  onMediaProblemCleared?(): void;
 }) {
   const scenario = useScenario();
   const realRoom = useRealRoom();
@@ -358,6 +363,7 @@ export function MeetingGrid({
             <CaptionedTile />
           </GridLayout>
           {real && meetingId !== undefined ? <RealWaitingOverlay meetingId={meetingId} /> : null}
+          {real && meetingId !== undefined ? <RealEndedOverlay meetingId={meetingId} /> : null}
         </div>
         {pendingPeople.length > 0 && (
           <div className="kd-pending-tiles" aria-label="Joining the meeting">
@@ -412,6 +418,8 @@ export function MeetingGrid({
           <RealMeetingBar
             meetingId={meetingId ?? ''}
             {...(meetingCode === undefined ? {} : { meetingCode })}
+            {...(mediaProblem === undefined ? {} : { mediaProblem })}
+            {...(onMediaProblemCleared === undefined ? {} : { onMediaProblemCleared })}
           />
         ) : (
           <ControlBar controls={{ screenShare: false, chat: false }} />

@@ -190,18 +190,32 @@ export function JoinForm({ meetingTitle, roles, agenda, busy = false, error, ask
             </>
           )}
 
-          <button type="submit" className="kd-go" disabled={!ready}>
+          <button
+            type="submit"
+            className="kd-go"
+            disabled={!ready}
+            {...(name.trim() === '' ? { 'aria-describedby': 'join-name-needed' } : {})}
+          >
             {busy ? 'Joining…' : media.microphone ? 'Join with mic' : 'Join with mic off'}
           </button>
-          <p className="kd-hint">
-            Headphones work best. You take part by speaking: turn the microphone on here or in the meeting.
-          </p>
+          {name.trim() === '' ? (
+            <p className="kd-hint" id="join-name-needed">
+              Enter your name to join.
+            </p>
+          ) : (
+            <p className="kd-hint">
+              Headphones work best. You take part by speaking: turn the microphone on here or in the meeting.
+            </p>
+          )}
         </div>
       </form>
 
       {toolUrls === undefined ? null : (
         <nav className="kd-join-systems" aria-label="Company systems">
           <span className="kd-join-systems-label">Company systems (login: <code>demo</code> / <code>demo</code>):</span>
+          <span className="kd-join-systems-note">
+            These tools are already signed in for this practice, so you can open the records Kaki uses.
+          </span>
           <a href={toolLink(toolUrls.wiki, '/en/home')} target="_blank" rel="noreferrer">Wiki</a>
           <a href={toolLink(toolUrls.gitea, '/kopitiam/kopitiam-pos/issues')} target="_blank" rel="noreferrer">Gitea</a>
           <a href={resolveArtifactUrl(toolLink(toolUrls.mattermost, '/kopitiam/channels/kopitiam-launch'), 'mattermost_post', toolUrls)} target="_blank" rel="noreferrer">Mattermost</a>

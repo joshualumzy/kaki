@@ -13,9 +13,14 @@ import { distinctDisplayNames } from './people';
 export function RealMeetingBar({
   meetingId,
   meetingCode,
+  mediaProblem,
+  onMediaProblemCleared,
 }: {
   meetingId: string;
   meetingCode?: string;
+  /** A device failure the room reported, shown here instead of a floating banner over the tiles. */
+  mediaProblem?: string;
+  onMediaProblemCleared?(): void;
 }) {
   const livekitRoom = useRoomContext();
   const { localParticipant, isMicrophoneEnabled, isCameraEnabled } = useLocalParticipant();
@@ -45,6 +50,8 @@ export function RealMeetingBar({
     if (localParticipant === undefined) return;
     try {
       await localParticipant.setMicrophoneEnabled(!isMicrophoneEnabled);
+      setProblem(undefined);
+      onMediaProblemCleared?.();
     } catch (error) {
       console.error('kaki web: the microphone change failed', error);
       setProblem(MIC_BLOCKED_PROBLEM);
@@ -55,6 +62,8 @@ export function RealMeetingBar({
     if (localParticipant === undefined) return;
     try {
       await localParticipant.setCameraEnabled(!isCameraEnabled);
+      setProblem(undefined);
+      onMediaProblemCleared?.();
     } catch (error) {
       console.error('kaki web: the camera change failed', error);
       setProblem(CAMERA_BLOCKED_PROBLEM);
@@ -76,11 +85,12 @@ export function RealMeetingBar({
     void livekitRoom.disconnect().catch(() => undefined);
   }
 
+  const shownProblem = problem ?? mediaProblem;
   return (
     <div className="kd-real-bar" role="toolbar" aria-label="Meeting controls">
-      {problem === undefined ? null : (
+      {shownProblem === undefined ? null : (
         <p className="kd-real-bar-problem" role="alert">
-          {problem}
+          {shownProblem}
         </p>
       )}
       <div className="kd-real-bar-row">
@@ -111,6 +121,8 @@ export function RealMeetingBar({
               className="kd-bar-btn"
               data-on={offTheRecord}
               aria-pressed={offTheRecord}
+              aria-describedby="kd-off-record-hint"
+              title="Stop Kaki writing anything down until you resume"
               disabled={waiting}
               onClick={() => send({ type: 'SET_OFF_THE_RECORD', on: !offTheRecord })}
             >
@@ -152,6 +164,11 @@ export function RealMeetingBar({
           </button>
         ) : null}
       </div>
+      {ended ? null : (
+        <p className="kd-bar-hint" id="kd-off-record-hint">
+          Off the record pauses all notes until you resume.
+        </p>
+      )}
 
       {inviteOpen && !ended ? (
         <div className="kd-real-pop" role="dialog" aria-label="Invite people">
