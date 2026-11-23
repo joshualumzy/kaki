@@ -1,11 +1,20 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { KakiEvent } from '@kaki/shared';
-import { createApp, type KakiApp } from '../../src/app';
 import { createMeetingModule, openingLine } from '../../src/host/meeting';
 import { liveOpeningLine } from '../../src/host/opening';
 import { createFakeLlm } from '../../src/services/llm';
 import { testScenario } from '../fixtures/scenario';
-import { connectClient, createTestApp, portOf, settle, waitFor, waitForEvent, type TestClient } from '../helpers';
+import {
+  connectMeetingClient,
+  createPracticeTestApp,
+  portOf,
+  practiceModulesWith,
+  settle,
+  waitFor,
+  waitForEvent,
+  type TestAppWithMeeting,
+  type TestClient,
+} from '../helpers';
 
 // A test verifier: trust the extraction model's suggested owner for the cards it extracted.
 function verifierLlm() {
@@ -31,7 +40,7 @@ function isRecord(event: KakiEvent): event is Extract<KakiEvent, { type: 'MEETIN
   return event.type === 'MEETING_RECORD_UPDATED';
 }
 
-let app: KakiApp | undefined;
+let app: TestAppWithMeeting | undefined;
 const clients: TestClient[] = [];
 
 afterEach(async () => {
@@ -42,7 +51,7 @@ afterEach(async () => {
 });
 
 async function connect(role: string): Promise<TestClient> {
-  const client = await connectClient(portOf(app!), role);
+  const client = await connectMeetingClient(portOf(app!), app!.meetingId, role);
   clients.push(client);
   return client;
 }
@@ -51,7 +60,7 @@ function startMeeting(): void {
   app!.hub.publish({
     type: 'MEETING_STARTED',
     audience: { kind: 'all' },
-    payload: { meetingId: 'meeting-1', startedAt: new Date().toISOString() },
+    payload: { meetingId: app!.meetingId, startedAt: new Date().toISOString() },
   });
 }
 
@@ -82,8 +91,8 @@ describe('host meeting module', () => {
           })
         : reply({}),
     );
-    app = await createTestApp({
-      modules: [
+    app = await createPracticeTestApp({
+      practiceModules: practiceModulesWith([
         createMeetingModule({
           llm,
           verifier: verifierLlm(),
@@ -94,7 +103,7 @@ describe('host meeting module', () => {
             { at: 0, speaker: 'Bao (Cashier)', text: 'Ada, can you call the oven repair man today?' },
           ],
         }),
-      ],
+      ]),
     });
     const screen = await connect('screen');
     const chef = await connect('chef');
@@ -136,7 +145,7 @@ describe('host meeting module', () => {
   });
 
   it('publishes nothing until the meeting has started', async () => {
-    app = await createTestApp({ modules: [createMeetingModule({ notetakerIntervalMs: 50 })] });
+    app = await createPracticeTestApp({ practiceModules: practiceModulesWith([createMeetingModule({ notetakerIntervalMs: 50 })]) });
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     const screen = await connect('screen');
 
@@ -149,8 +158,11 @@ describe('host meeting module', () => {
   });
 
   it('confirms a pause once a text-only first line has started the meeting', async () => {
-    app = await createTestApp({ modules: [createMeetingModule({ notetakerIntervalMs: 50 })] });
+    app = await createPracticeTestApp({ practiceModules: practiceModulesWith([createMeetingModule({ notetakerIntervalMs: 50 })]) });
     const screen = await connect('screen');
+    const chef = await connect('chef');
+    // A practice screen cannot pause the room; the person seated there can.
+    app.session.addHolder({ name: 'Ada', seat: 'chef' });
     startMeeting();
     app.hub.publish({
       type: 'TRANSCRIPT_CHUNK',
@@ -164,7 +176,7 @@ describe('host meeting module', () => {
     });
     await waitForEvent(screen, isRecord, 'first record', 2_000);
 
-    screen.ws.send(JSON.stringify({ type: 'SET_PAUSED', paused: true }));
+    chef.ws.send(JSON.stringify({ type: 'SET_PAUSED', paused: true }));
     const paused = await waitForEvent(
       screen,
       (event) => isRecord(event) && event.payload.paused === true,
@@ -180,7 +192,7 @@ describe('host meeting module', () => {
     const llm = createFakeLlm(() => {
       throw new Error('gateway unreachable');
     });
-    app = await createTestApp({ modules: [createMeetingModule({ llm, verifier: verifierLlm(), notetakerIntervalMs: 50 })] });
+    app = await createPracticeTestApp({ practiceModules: practiceModulesWith([createMeetingModule({ llm, verifier: verifierLlm(), notetakerIntervalMs: 50 })]) });
     const screen = await connect('screen');
 
     // Ada talks for over a minute; Bao says nothing.
@@ -198,7 +210,7 @@ describe('host meeting module', () => {
   it('holds back unchanged records but sends a heartbeat', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     // At 20x, the 30 s heartbeat comes every 1.5 real seconds.
-    app = await createTestApp({ modules: [createMeetingModule({ speed: 20 })] });
+    app = await createPracticeTestApp({ practiceModules: practiceModulesWith([createMeetingModule({ speed: 20 })]) });
     const screen = await connect('screen');
     say('Let us begin.');
 
@@ -213,10 +225,9 @@ describe('host meeting module', () => {
   it('welcomes the room before the first agenda item is announced', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     vi.spyOn(console, 'log').mockImplementation(() => {});
-    app = await createApp({
-      speechRecognition: 'browser',
+    app = await createPracticeTestApp({
       scenario: { ...testScenario, agenda: [...testScenario.agenda, { title: 'Till', minutes: 2, canWait: false, deadline: 'before doors open at 8', ownerRole: 'cashier' }] },
-      modules: [
+      practiceModules: practiceModulesWith([
         createMeetingModule({
           llm: createFakeLlm(() => reply({ agendaIndex: 0 })),
           speed: 20,
@@ -226,7 +237,7 @@ describe('host meeting module', () => {
             { at: 2, speaker: 'Bao (Cashier)', text: 'On to the till then.', agendaIndex: 1 },
           ],
         }),
-      ],
+      ]),
     });
     const screen = await connect('screen');
     await waitForEvent(
@@ -245,10 +256,9 @@ describe('host meeting module', () => {
     vi.spyOn(console, 'log').mockImplementation(() => {});
     // The LLM keeps saying item 0; a replay goes by its own markers instead.
     const llm = createFakeLlm(() => reply({ agendaIndex: 0 }));
-    app = await createApp({
-      speechRecognition: 'browser',
+    app = await createPracticeTestApp({
       scenario: { ...testScenario, agenda: [...testScenario.agenda, { title: 'Till', minutes: 2, canWait: false, deadline: 'before doors open at 8', ownerRole: 'cashier' }] },
-      modules: [
+      practiceModules: practiceModulesWith([
         createMeetingModule({
           llm,
           speed: 20,
@@ -258,7 +268,7 @@ describe('host meeting module', () => {
             { at: 2, speaker: 'Bao (Cashier)', text: 'On to the till then.', agendaIndex: 1 },
           ],
         }),
-      ],
+      ]),
     });
     const screen = await connect('screen');
 
@@ -278,7 +288,7 @@ describe('host meeting module', () => {
   it('logs a failing record publish instead of crashing the server', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     const error = vi.spyOn(console, 'error').mockImplementation(() => {});
-    app = await createTestApp({ modules: [createMeetingModule({ notetakerIntervalMs: 50 })] });
+    app = await createPracticeTestApp({ practiceModules: practiceModulesWith([createMeetingModule({ notetakerIntervalMs: 50 })]) });
     const publish = app.hub.publish.bind(app.hub);
     app.hub.publish = (event, options) => {
       if (isRecord(event)) throw new Error('refused');
@@ -295,7 +305,7 @@ describe('host meeting module', () => {
 
   describe('ending a meeting', () => {
     it('freezes the record on END_MEETING and starts a clean meeting on the next line', async () => {
-      app = await createTestApp({ modules: [createMeetingModule({ speed: 50 })] });
+      app = await createPracticeTestApp({ practiceModules: practiceModulesWith([createMeetingModule({ speed: 50 })]) });
       app.tasks.suggest({ title: 'Old task', context: 'From the last visitor', suggestedAssignee: 'chef' });
       const screen = await connect('screen');
       say('Hello everyone.');
@@ -314,16 +324,17 @@ describe('host meeting module', () => {
       const after = screen.messages.filter(isRecord);
       expect(after.at(-1)!.payload.elapsedSeconds).toBe(frozen);
 
-      const before = screen.messages.length;
+      // The next line resets the practice meeting, which retires this visitor's sockets; the new
+      // practice screen sees the fresh meeting's retained opening and record.
       say('Hello again, new visitor.');
-      await waitFor(() => (screen.messages.slice(before).some((e) => e.type === 'MEETING_RESET') ? true : undefined), 'reset');
-      expect(app.tasks.list()).toHaveLength(0);
+      await waitFor(() => (app!.tasks.list().length === 0 ? true : undefined), 'the practice to reset');
+      const freshScreen = await connect('screen');
       const opening = await waitFor(
-        () => screen.messages.slice(before).find((e) => e.type === 'HOST_SPEECH_TRIGGERED' && e.payload.kind === 'OPENING'),
+        () => freshScreen.messages.find((e) => e.type === 'HOST_SPEECH_TRIGGERED' && e.payload.kind === 'OPENING'),
         'a fresh opening',
       );
       expect(opening).toBeDefined();
-      const fresh = await waitFor(() => screen.messages.slice(before).filter(isRecord).at(0), 'fresh record');
+      const fresh = await waitFor(() => freshScreen.messages.filter(isRecord).at(0), 'fresh record');
       expect(fresh.payload.agendaIndex).toBe(0);
     });
 
@@ -336,11 +347,11 @@ describe('host meeting module', () => {
           { name: 'Mia', role: 'host', displayName: 'Mia (Host)' },
         ],
       };
-      app = await createApp({ speechRecognition: 'browser', scenario: hosted, modules: [createMeetingModule()] });
+      app = await createPracticeTestApp({ scenario: hosted, practiceModules: practiceModulesWith([createMeetingModule()]) });
       const screen = await connect('screen');
       const phone = await connect(testScenario.roles[0]!.id);
 
-      // The command is still accepted from the screen but no longer owns host mode.
+      // Neither a phone nor a practice screen can claim host mode: it follows the seat holders.
       phone.ws.send(JSON.stringify({ type: 'SET_HOST_MODE', human: true }));
       await waitFor(() => phone.messages.find((e) => e.type === 'COMMAND_REJECTED'), 'a rejection for the phone');
       screen.ws.send(JSON.stringify({ type: 'SET_HOST_MODE', human: true }));
@@ -358,7 +369,7 @@ describe('host meeting module', () => {
     });
 
     it('skips the spoken closing when silent, and only the screen may end a meeting', async () => {
-      app = await createTestApp({ modules: [createMeetingModule()] });
+      app = await createPracticeTestApp({ practiceModules: practiceModulesWith([createMeetingModule()]) });
       const screen = await connect('screen');
       const phone = await connect(testScenario.roles[0]!.id);
       say('Hello.');
@@ -377,7 +388,7 @@ describe('host meeting module', () => {
 
     it('moves to the next agenda item when the screen asks, and refuses a phone or a meeting that has not started', async () => {
       const scenario = { ...testScenario, agenda: [...testScenario.agenda, { title: 'Till', minutes: 2, canWait: false, deadline: 'before doors open at 8', ownerRole: 'cashier' }] };
-      app = await createApp({ speechRecognition: 'browser', scenario, modules: [createMeetingModule()] });
+      app = await createPracticeTestApp({ scenario, practiceModules: practiceModulesWith([createMeetingModule()]) });
       const screen = await connect('screen');
       const phone = await connect(testScenario.roles[0]!.id);
 
@@ -399,7 +410,7 @@ describe('host meeting module', () => {
     });
 
     it('ignores END_MEETING when no meeting is running', async () => {
-      app = await createTestApp({ modules: [createMeetingModule()] });
+      app = await createPracticeTestApp({ practiceModules: practiceModulesWith([createMeetingModule()]) });
       const screen = await connect('screen');
       screen.ws.send(JSON.stringify({ type: 'END_MEETING' }));
       await settle(300);

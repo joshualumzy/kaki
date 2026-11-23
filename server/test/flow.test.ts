@@ -5,9 +5,10 @@ import { createGiteaModule } from '../src/action/gitea';
 import { createMattermostModule } from '../src/action/mattermost';
 import { createFakeLlm } from '../src/services/llm';
 import {
-  connectClient,
-  createTestApp,
+  connectMeetingClient,
+  createPracticeTestApp,
   portOf,
+  practiceModulesWith,
   settle,
   taskStatuses,
   waitForEvent,
@@ -31,15 +32,15 @@ function isStatus(taskId: string, status: string) {
 }
 
 describe('task flows', () => {
-  let app: Awaited<ReturnType<typeof createTestApp>>;
+  let app: Awaited<ReturnType<typeof createPracticeTestApp>>;
   let port: number;
   let clients: TestClient[];
   let sentEmails: EmailMessage[];
 
   beforeEach(async () => {
     sentEmails = [];
-    app = await createTestApp({
-      modules: [
+    app = await createPracticeTestApp({
+      practiceModules: practiceModulesWith([
         createGiteaModule({
           llm: createFakeLlm(() =>
             JSON.stringify({ title: 'Fix the oven', body: 'The oven trips the fuse after ten minutes.' }),
@@ -92,7 +93,7 @@ describe('task flows', () => {
               headers: { 'content-type': 'application/json' },
             }),
         }),
-      ],
+      ]),
     });
     port = portOf(app);
     clients = [];
@@ -104,7 +105,7 @@ describe('task flows', () => {
   });
 
   async function connect(role: string): Promise<TestClient> {
-    const client = await connectClient(port, role);
+    const client = await connectMeetingClient(port, app.meetingId, role);
     clients.push(client);
     return client;
   }
@@ -122,7 +123,7 @@ describe('task flows', () => {
     });
     await waitForEvent(screen, isStatus(task.id, 'SUGGESTED'), 'suggestion');
 
-    send(screen, { type: 'DISPATCH_TASK', taskId: task.id, assignee: 'chef' });
+    app.tasks.transition(task.id, 'DISPATCHED', { assignee: 'chef' });
     await waitForEvent(chef, isStatus(task.id, 'DISPATCHED'), 'dispatch');
 
     send(chef, { type: 'CLAIM_TASK', taskId: task.id, mode: 'ACTION_AGENT' });
@@ -178,7 +179,7 @@ describe('task flows', () => {
     });
     await waitForEvent(screen, isStatus(task.id, 'SUGGESTED'), 'suggestion');
 
-    send(screen, { type: 'DISPATCH_TASK', taskId: task.id, assignee: 'chef' });
+    app.tasks.transition(task.id, 'DISPATCHED', { assignee: 'chef' });
     await waitForEvent(chef, isStatus(task.id, 'DISPATCHED'), 'dispatch');
     send(chef, { type: 'CLAIM_TASK', taskId: task.id, mode: 'MANUAL' });
     await waitForEvent(chef, isStatus(task.id, 'CLAIMED'), 'claim');
@@ -201,7 +202,7 @@ describe('task flows', () => {
       actionKind: 'gitea_issue',
     });
     await waitForEvent(screen, isStatus(task.id, 'SUGGESTED'), 'suggestion');
-    send(screen, { type: 'DISPATCH_TASK', taskId: task.id, assignee: 'chef' });
+    app.tasks.transition(task.id, 'DISPATCHED', { assignee: 'chef' });
     await waitForEvent(chef, isStatus(task.id, 'DISPATCHED'), 'dispatch');
 
     send(cashier, { type: 'CLAIM_TASK', taskId: task.id, mode: 'ACTION_AGENT' });
@@ -238,7 +239,7 @@ describe('task flows', () => {
       actionKind: 'gitea_issue',
     });
     await waitForEvent(screen, isStatus(task.id, 'SUGGESTED'), 'suggestion');
-    send(screen, { type: 'DISPATCH_TASK', taskId: task.id, assignee: 'chef' });
+    app.tasks.transition(task.id, 'DISPATCHED', { assignee: 'chef' });
     await waitForEvent(chef, isStatus(task.id, 'DISPATCHED'), 'dispatch');
 
     send(chef, { type: 'SYNC_TASK', taskId: task.id });
@@ -263,7 +264,7 @@ describe('task flows', () => {
       actionKind: 'email',
     });
     await waitForEvent(screen, isStatus(task.id, 'SUGGESTED'), 'suggestion');
-    send(screen, { type: 'DISPATCH_TASK', taskId: task.id, assignee: 'chef' });
+    app.tasks.transition(task.id, 'DISPATCHED', { assignee: 'chef' });
     await waitForEvent(chef, isStatus(task.id, 'DISPATCHED'), 'dispatch');
     send(chef, { type: 'CLAIM_TASK', taskId: task.id, mode: 'ACTION_AGENT' });
 

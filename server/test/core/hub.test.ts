@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { KakiEvent } from '@kaki/shared';
 import {
-  connectClient,
-  createTestApp,
+  connectMeetingClient,
+  createPracticeTestApp,
   portOf,
   settle,
   taskStatuses,
@@ -48,12 +48,12 @@ function isTaskUpdate(event: KakiEvent, taskId: string, status: string): boolean
 }
 
 describe('hub delivery', () => {
-  let app: Awaited<ReturnType<typeof createTestApp>>;
+  let app: Awaited<ReturnType<typeof createPracticeTestApp>>;
   let port: number;
   let clients: TestClient[];
 
   beforeEach(async () => {
-    app = await createTestApp();
+    app = await createPracticeTestApp();
     port = portOf(app);
     clients = [];
   });
@@ -64,7 +64,7 @@ describe('hub delivery', () => {
   });
 
   async function connect(role: string): Promise<TestClient> {
-    const client = await connectClient(port, role);
+    const client = await connectMeetingClient(port, app.meetingId, role);
     clients.push(client);
     return client;
   }
@@ -102,7 +102,8 @@ describe('hub delivery', () => {
       suggestedAssignee: 'cashier',
     });
 
-    screen.ws.send(JSON.stringify({ type: 'DISPATCH_TASK', taskId: first.id, assignee: 'chef' }));
+    // The visitor's screen is read-only in a practice meeting; the store records the change.
+    app.tasks.transition(first.id, 'DISPATCHED', { assignee: 'chef' });
     await waitForEvent(screen, (event) => isTaskUpdate(event, first.id, 'DISPATCHED'), 'dispatch');
     app.hub.publish(recordUpdate, { retainKey: 'record' });
 

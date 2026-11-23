@@ -123,8 +123,10 @@ async function main(): Promise<void> {
       expected: (status, url) => status === 403 && url.includes('/meeting-code'),
     });
     let invite = '';
+    let meetingId = '';
     await step(run, owner.page, 'real meeting setup', async () => {
       const link = await createMeeting(owner.page, `Network drop ${suffix}`);
+      meetingId = /\/m\/([^/?#]+)/.exec(link)?.[1] ?? '';
       await enterOwnRoom(owner.page, link);
       invite = await inviteLink(owner.page);
       // Close the invite popover again so it cannot sit over the controls used later.
@@ -187,15 +189,17 @@ async function main(): Promise<void> {
       await owner.page.getByRole('button', { name: 'End for everyone' }).click();
       await owner.page.getByRole('button', { name: 'End the meeting' }).click();
       await owner.page.getByRole('region', { name: 'Meeting ended' }).waitFor({ timeout: 30_000 });
-      const response = await owner.page.request.post(`${BASE}/api/meeting/close`);
-      // A 409 here means the ended room was already released for practice (the empty-room watch
-      // finished the review first); anything else is a real failure.
+      const response = await owner.page.request.post(
+        `${BASE}/api/meetings/${encodeURIComponent(meetingId)}/meeting/close`,
+      );
+      // A 409 here means the ended room was already released (the empty-room watch finished the
+      // review first); anything else is a real failure.
       if (!response.ok() && response.status() !== 409) {
         throw new Error(`closing the meeting answered HTTP ${response.status()}`);
       }
       run.pass(
         response.status() === 409
-          ? 'The real meeting ended, and the server had already released the room for practice.'
+          ? 'The real meeting ended, and the server had already released the room.'
           : 'The real meeting was ended and closed.',
       );
     });
