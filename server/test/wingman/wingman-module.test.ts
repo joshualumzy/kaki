@@ -162,9 +162,15 @@ function start(
     scenario?: Scenario;
     sealed?: MeetingSetup;
     offTheRecord?: () => boolean;
+    /** Who a room read shows connected; null means the roster could not be checked. */
+    presentRoles?: ReadonlySet<Role> | null;
   },
 ): () => void {
   const tasks = options.tasks ?? [];
+  const holders = options.holders ?? [
+    { name: 'Ada', seat: 'chef' },
+    { name: 'Bao', seat: 'cashier' },
+  ];
   const module = createWingmanModule({
     env: {},
     ...(options.llm === undefined ? {} : { llm: options.llm }),
@@ -180,14 +186,15 @@ function start(
     hub: options.hub.hub,
     tasks: taskStore,
     activeScenario: () => options.scenario ?? scenario,
-    meetingDetails: () =>
-      meetingDetails(
-        options.holders ?? [
-          { name: 'Ada', seat: 'chef' },
-          { name: 'Bao', seat: 'cashier' },
-        ],
-        options.sealed,
-      ),
+    meetingDetails: () => meetingDetails(holders, options.sealed),
+    ...(options.meetingKind !== 'real'
+      ? {}
+      : {
+          presentRoles: () =>
+            options.presentRoles === null
+              ? undefined
+              : (options.presentRoles ?? new Set(holders.map((holder) => holder.seat))),
+        }),
     ...(options.sealed === undefined && options.offTheRecord === undefined
       ? {}
       : {
@@ -1319,6 +1326,186 @@ describe('wingman real-meeting pace cues', () => {
         .map((event) => event.payload.id);
       expect(cleared).toEqual(expect.arrayContaining([catchup.payload.id, upNext.payload.id]));
       expect(activeNotes(fake.published, 'nudge')).toEqual([]);
+    } finally {
+      stop();
+    }
+  });
+
+  it('treats a retained holder who left as absent for the lead, catch-ups and up-next', async () => {
+    const fake = fakeHub();
+    // Item one is the host's, item two names Raj, who has left: no up-next may reach his old seat.
+    const leftScenario: Scenario = {
+      ...cueScenario,
+      agenda: [
+        { ...cueScenario.agenda[0]!, ownerRole: 'host' },
+        { ...cueScenario.agenda[1]!, ownerRole: 'raj' },
+      ],
+    };
+    const stop = start({
+      hub: fake,
+      llm: catchupLlm(noPointReply),
+      search: async () => [],
+      holders: cueHolders,
+      meetingKind: 'real',
+      presentRoles: new Set<Role>(['host', 'mei']),
+      scenario: leftScenario,
+      sealed: sealedCue({ scenario: leftScenario }),
+    });
+    try {
+      fake.emit(cueRecord({ elapsedSeconds: 121, speakerTalkSeconds: { host: 40 } }));
+      const leads = activeNotes(fake.published, 'lead');
+      expect(leads).toHaveLength(1);
+      expect(leads[0]?.payload.text).toBe('Not heard from yet: Mei');
+
+      const rajsCatchup = (): NoteEvent[] =>
+        activeNotes(fake.published, 'nudge').filter(
+          (event) => event.payload.id === 'catchup:raj:0',
+        );
+      await waitFor(
+        () =>
+          activeNotes(fake.published, 'nudge').find(
+            (event) => event.payload.id === 'catchup:mei:0',
+          ),
+        'the present person’s catch-up',
+      );
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(rajsCatchup()).toEqual([]);
+
+      // The item is about to end, but its next owner is not in the room.
+      fake.emit(cueRecord({ elapsedSeconds: 540, speakerTalkSeconds: { host: 40 } }));
+      expect(
+        activeNotes(fake.published, 'nudge').filter(
+          (event) => event.payload.title === 'Your next item',
+        ),
+      ).toEqual([]);
+    } finally {
+      stop();
+    }
+  });
+
+  it('stays silent when it cannot check who is present', () => {
+    const fake = fakeHub();
+    const stop = start({
+      hub: fake,
+      llm: catchupLlm(noPointReply),
+      search: async () => [],
+      holders: cueHolders,
+      meetingKind: 'real',
+      presentRoles: null,
+      scenario: cueScenario,
+      sealed: sealedCue(),
+    });
+    try {
+      fake.emit(cueRecord({ elapsedSeconds: 540, speakerTalkSeconds: { host: 40 } }));
+      expect(activeNotes(fake.published, 'lead')).toEqual([]);
+      expect(activeNotes(fake.published, 'nudge')).toEqual([]);
+    } finally {
+      stop();
+    }
+  });
+
+  it('does not duplicate a catch-up when an old request finishes after a reset', async () => {
+    const fake = fakeHub();
+    const releases: Array<(reply: string) => void> = [];
+    const llm = createFakeLlm((messages) => {
+      if (messages[0]?.content.includes('[KAKI_WINGMAN_CATCHUP]')) {
+        return new Promise<string>((resolve) => releases.push(resolve));
+      }
+      return noPointReply;
+    });
+    const stop = start({
+      hub: fake,
+      llm,
+      search: async () => [],
+      holders: cueHolders,
+      meetingKind: 'real',
+      scenario: cueScenario,
+      sealed: sealedCue(),
+    });
+    try {
+      fake.emit(cueRecord({ elapsedSeconds: 121, speakerTalkSeconds: { host: 40, mei: 6 } }));
+      await waitFor(() => (releases.length === 1 ? true : undefined), 'the first catch-up call');
+
+      fake.emit({ type: 'MEETING_RESET', audience: { kind: 'all' }, payload: { meetingId: 'meeting-2' } });
+
+      fake.emit(cueRecord({ elapsedSeconds: 121, speakerTalkSeconds: { host: 40, mei: 6 } }));
+      await waitFor(() => (releases.length === 2 ? true : undefined), 'the second catch-up call');
+
+      // The old request finishes late: it must not clear the new request's guard.
+      releases[0]!(noPointReply);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+
+      fake.emit(cueRecord({ elapsedSeconds: 122, speakerTalkSeconds: { host: 40, mei: 6 } }));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(releases).toHaveLength(2);
+
+      releases[1]!(noPointReply);
+      await waitFor(
+        () =>
+          activeNotes(fake.published, 'nudge').find(
+            (event) => event.payload.id === 'catchup:raj:0',
+          ),
+        'the surviving catch-up',
+      );
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(
+        wingmanNotes(fake.published).filter(
+          (event) => event.payload.id === 'catchup:raj:0' && event.payload.clears !== true,
+        ),
+      ).toHaveLength(1);
+    } finally {
+      stop();
+    }
+  });
+
+  it('verifies the shortened point it will actually show, never the untruncated sentence', async () => {
+    const longSuggestion =
+      'We should settle the numbers first. '.repeat(8) +
+      'only after finance approves the guarantee.';
+    const checks: ChatMessage[][] = [];
+    const llm = createFakeLlm((messages) => {
+      if (messages[0]?.content.includes('[KAKI_WINGMAN_CATCHUP]')) {
+        return JSON.stringify({
+          suggestion: longSuggestion,
+          basis: 'meeting',
+          evidence: 'We need the budget figure before we decide.',
+          source: '',
+        });
+      }
+      if (messages[0]?.content.includes('[KAKI_WINGMAN_CATCHUP_CHECK]')) {
+        checks.push(messages);
+        return JSON.stringify({ supported: true });
+      }
+      return noPointReply;
+    });
+    const fake = fakeHub();
+    const stop = start({
+      hub: fake,
+      llm,
+      search: async () => [],
+      holders: cueHolders,
+      meetingKind: 'real',
+      scenario: cueScenario,
+      sealed: sealedCue(),
+    });
+    try {
+      fake.emit(transcriptLine('We need the budget figure before we decide.', { speaker: 'Ada', role: 'host' }));
+      fake.emit(cueRecord({ elapsedSeconds: 121, speakerTalkSeconds: { host: 40, mei: 6 } }));
+      const note = await waitFor(
+        () =>
+          activeNotes(fake.published, 'nudge').find(
+            (event) => event.payload.id === 'catchup:raj:0',
+          ),
+        'the catch-up note',
+      );
+      expect(checks).toHaveLength(1);
+      const shown = note.payload.text.split('One point you could add: ')[1];
+      expect(shown).toBeDefined();
+      expect(shown).not.toContain('guarantee');
+      expect(shown?.endsWith('…')).toBe(true);
+      // The model judged exactly the text the note will show, conditions included.
+      expect(checks[0]?.[1]?.content).toContain(shown!);
+      expect(checks[0]?.[1]?.content).not.toContain('guarantee');
     } finally {
       stop();
     }

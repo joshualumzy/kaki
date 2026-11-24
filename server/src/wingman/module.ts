@@ -588,15 +588,18 @@ export function createWingmanModule(options: WingmanModuleOptions = {}): KakiMod
           const hostRole = hostSeat();
           if (hostRole !== undefined) updateLead(payload, hostRole, agendaIndex);
           const question = payload.openQuestions.find((entry) => entry.agendaIndex === agendaIndex)?.text;
-          for (const person of peopleInMeeting(ctx)) {
+          for (const person of presentPeople()) {
             if ((payload.speakerTalkSeconds[person.role] ?? 0) > 0) continue;
             const key = catchupKey(person.role, agendaIndex);
             if (catchupSent.has(key) || catchupInFlight.has(key)) continue;
-            catchupInFlight.add(key);
+            // Each request owns a token. Only the request that still holds the key may clear it, so
+            // an older request that finishes after a reset cannot drop a newer one's guard.
+            const token = Symbol(key);
+            catchupInFlight.set(key, token);
             // Mark the catch-up sent only once it is actually published. If the model finishes
             // during a pause, the result is discarded and resume asks for it again.
-            void fireCatchup(agendaIndex, item.title, person, question).finally(() => {
-              catchupInFlight.delete(key);
+            void fireCatchup(agendaIndex, item.title, person, question, key, token).finally(() => {
+              if (catchupInFlight.get(key) === token) catchupInFlight.delete(key);
             });
           }
         }

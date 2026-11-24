@@ -276,6 +276,75 @@ describe('real meeting seats', () => {
     ).toHaveLength(1);
   });
 
+  it('withholds retained workspace facts when the meeting owner reconnects after losing membership', async () => {
+    const { app, base, store } = await build();
+    const owner = await signIn(store, 'Ada');
+    const workspace = await store.createWorkspace({ name: 'Owner workspace', createdBy: owner.userId });
+    const meeting = await app.registry.create({
+      workspaceId: workspace.workspace.id,
+      ownerUserId: owner.userId,
+      title: 'Owner privacy',
+      agenda: [{ title: 'Budget', minutes: 10 }],
+    });
+    const ownerSeat = await seat(base, meeting.id, owner.cookie);
+    expect(ownerSeat.status).toBe(200);
+    const instance = await app.registry.get(meeting.id);
+    if (instance === undefined) throw new Error('Meeting did not load');
+    const fact = {
+      text: 'The delivery window is 10:00 to 16:00.',
+      source: 'Wiki: Delivery',
+      date: '2026-11-01',
+    };
+    const note: KakiEvent = {
+      type: 'WINGMAN_NOTE',
+      audience: { kind: 'role', role: ownerSeat.seat },
+      payload: {
+        id: 'catchup:owner-privacy',
+        kind: 'nudge',
+        urgency: 'quiet',
+        title: 'Catch-up: Budget',
+        text: 'Now: "Budget".',
+        facts: [fact],
+        sources: ['Wiki: Delivery (2026-11-01)'],
+      },
+    };
+    instance.hub.publish(note, { retainKey: 'wingman:catchup:owner-privacy' });
+    const received = (view: Socket): KakiEvent[] =>
+      view.messages.filter((event) => event.type === 'WINGMAN_NOTE');
+
+    // While the owner is a workspace member, their reconnect keeps the workspace fact.
+    const ownerView = await connect(base, meeting.id, 'participant', ownerSeat.cookie);
+    sockets.push(ownerView);
+    await waitFor(() => received(ownerView).length === 1 ? true : undefined);
+    await settle();
+    expect(received(ownerView)).toEqual([{ ...note, replayed: true }]);
+
+    // The owner loses its workspace membership: the same host principal must fail closed too.
+    const membership = vi.spyOn(store, 'getMembership').mockResolvedValue(undefined);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const revoked = await connect(base, meeting.id, 'participant', ownerSeat.cookie);
+    sockets.push(revoked);
+    await waitFor(() => received(revoked).length === 1 ? true : undefined);
+    await settle();
+    const [replayed] = received(revoked);
+    if (replayed?.type !== 'WINGMAN_NOTE') throw new Error('expected a Wingman note');
+    expect(replayed.payload.text).toBe('Now: "Budget".');
+    expect(replayed.payload.facts).toBeUndefined();
+    expect(replayed.payload.sources).toBeUndefined();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('withheld workspace facts'));
+
+    // A membership check the server cannot make also fails closed.
+    membership.mockRejectedValue(new Error('membership store down'));
+    const unreadable = await connect(base, meeting.id, 'participant', ownerSeat.cookie);
+    sockets.push(unreadable);
+    await waitFor(() => received(unreadable).length === 1 ? true : undefined);
+    await settle();
+    const [unchecked] = received(unreadable);
+    if (unchecked?.type !== 'WINGMAN_NOTE') throw new Error('expected a Wingman note');
+    expect(unchecked.payload.facts).toBeUndefined();
+    expect(unchecked.payload.sources).toBeUndefined();
+  });
+
   it('withholds workspace facts from a live clear after a seat loses membership', async () => {
     const { app, base, store } = await build();
     const owner = await signIn(store, 'Ada');

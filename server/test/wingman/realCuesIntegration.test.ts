@@ -142,6 +142,7 @@ describe('real-meeting pace cues on the live clock', () => {
         offTheRecordSince: () => undefined,
       } as unknown as MeetingSession,
       seatIsGuest: () => false,
+      presentRoles: () => new Set(holders.map((holder) => holder.seat)),
     } as KakiContext;
 
     const host = createMeetingModule({ llm, notetakerIntervalMs: 1_000_000 }).start(ctx);
