@@ -16,7 +16,7 @@ These drive the real app in installed Google Chrome through Playwright, against 
 
 | Command | What it checks |
 | --- | --- |
-| `npm run playtest:live` | One visitor in the practice meeting with the AI colleagues, from joining to the end of the agenda. The robot speaks through the fake recogniser, so start the AI runner with `KAKI_FAKE_STT=1`. |
+| `npm run playtest:live` | One visitor in the practice meeting with the AI colleagues, from joining to the end of the agenda. The robot speaks through the test recogniser, so start the AI runner with `KAKI_FAKE_STT=1`. |
 | `npm run playtest:ai` | A language model plays the visitor in one of nine styles (hesitant, terse, off-topic, interrupter, silent and others), then a second model judges the meeting for natural talk, contradictions and made-up facts. |
 | `npm run playtest:dialogue` | The conversation engine on its own, without a browser, across every agenda item. |
 | `npm run eval:notetaker` | Runs a recorded meeting through the notetaker and compares the decisions, tasks and open questions it finds with the expected list. |
@@ -59,7 +59,6 @@ model judge each topic against the answer key `scenarios/kopitiam/eval/answer-ke
 
 ## 3. Real people
 
-Friends and classmates played the practice meeting on their own devices, by voice. We watched each
-session, noted where people got stuck or where an AI colleague said something odd, and turned those notes into
-GitHub issues (for example #55 and #62). The robot playtests above were then extended so the same problem would be
-caught automatically next time.
+Friends and classmates played the practice meeting by voice on their own devices while we watched. Each place
+someone got stuck or an AI colleague said something odd became a GitHub issue (for example #55 and #62), and the
+robot playtests were extended to catch it automatically.
