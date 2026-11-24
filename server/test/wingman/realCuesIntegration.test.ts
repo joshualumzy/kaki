@@ -120,7 +120,9 @@ describe('real-meeting pace cues on the live clock', () => {
     const { hub, published } = deliveringHub();
     const setup = sealedSetup();
     const saved = details(setup);
-    const llm = createFakeLlm(() => JSON.stringify({ suggestion: '', evidence: '' }));
+    const llm = createFakeLlm(() =>
+      JSON.stringify({ suggestion: '', basis: 'none', evidence: '', source: '' }),
+    );
     const tasks = {
       list: () => [],
       onChange: () => () => undefined,
@@ -166,7 +168,7 @@ describe('real-meeting pace cues on the live clock', () => {
       const leads = published.filter(isNote).filter((event) => event.payload.kind === 'lead');
       expect(leads).toHaveLength(1);
       expect(leads[0]?.audience).toEqual({ kind: 'role', role: 'host' });
-      expect(leads[0]?.payload.text).toBe("Raj owns this item but hasn't spoken yet.");
+      expect(leads[0]?.payload.text).toBe('Not heard from yet: Ada, Raj, Mei');
       await vi.advanceTimersByTimeAsync(1_000);
       expect(published.filter(isNote).filter((event) => event.payload.kind === 'lead')).toHaveLength(1);
 

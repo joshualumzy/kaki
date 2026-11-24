@@ -187,8 +187,8 @@ export function MeetingPanel({
     if (started) setBriefingOpen(false);
   }, [started]);
 
-  // A real meeting's owner sees one quiet line about a silent item owner on their own dock. It is
-  // not an ordinary Wingman card, so it stays out of that panel and its history.
+  // A real meeting's owner sees one quiet line naming who has not spoken on the current item. It
+  // is not an ordinary Wingman card, so it stays out of that panel and its history.
   const lead = real && isHost ? wingmanNotes.find((note) => note.kind === 'lead') : undefined;
   const wingmanVisibleNotes = useMemo(
     () => wingmanNotes.filter((note) => note.kind !== 'lead'),

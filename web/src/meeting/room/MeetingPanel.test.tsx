@@ -1412,8 +1412,8 @@ describe('MeetingPanel real-meeting pace cues', () => {
     id: 'lead:0',
     kind: 'lead',
     urgency: 'quiet',
-    title: 'Quiet agenda item',
-    text: "Raj owns this item but hasn't spoken yet.",
+    title: 'Not heard from yet',
+    text: 'Not heard from yet: Raj, Mei',
     at: '2026-11-24T10:02:00.000Z',
   };
 
@@ -1478,13 +1478,13 @@ describe('MeetingPanel real-meeting pace cues', () => {
     expect(screen.queryByText(lead.text)).toBeNull();
   });
 
-  it('shows the private nudge and coming-up notes as ordinary Wingman cards', () => {
+  it('shows the private catch-up and coming-up notes as ordinary Wingman cards', () => {
     const nudge: WingmanNotePayload = {
-      id: 'nudge:operations_director:0',
+      id: 'catchup:operations_director:0',
       kind: 'nudge',
       urgency: 'quiet',
-      title: 'Your item: Budget',
-      text: 'You own "Budget".',
+      title: 'Catch-up: Budget',
+      text: 'Now: "Budget".',
       at: '2026-11-24T10:02:00.000Z',
     };
     const upcoming: WingmanNotePayload = {
@@ -1498,8 +1498,8 @@ describe('MeetingPanel real-meeting pace cues', () => {
     renderPanel({ notes: [nudge, upcoming], real: true, isHost: true });
 
     const wingman = within(screen.getByLabelText('Wingman'));
-    expect(wingman.getByText('Your item: Budget')).toBeTruthy();
-    expect(wingman.getByText('You own "Budget".')).toBeTruthy();
+    expect(wingman.getByText('Catch-up: Budget')).toBeTruthy();
+    expect(wingman.getByText('Now: "Budget".')).toBeTruthy();
     expect(wingman.getByText('Your next item')).toBeTruthy();
     expect(wingman.getByText("Up next in about 1 min: Hiring, it's yours.")).toBeTruthy();
   });

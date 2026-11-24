@@ -169,7 +169,7 @@ export function createMeetingModule({
 
       // Clients keep every record they receive, so publish only when something people see has
       // changed, plus a heartbeat; between records, clients count elapsedSeconds up themselves.
-      // A real meeting is the exception: Wingman's quiet-owner and coming-up cues must fire on the
+      // A real meeting is the exception: Wingman's silent-seat and coming-up cues must fire on the
       // owner's exact second, so its record is published every tick and never held back.
       function publishRecord(): void {
         const now = clock.snapshot();

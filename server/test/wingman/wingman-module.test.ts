@@ -712,6 +712,8 @@ function sealedCue(options: { pace?: MeetingPace; scenario?: Scenario } = {}): M
   };
 }
 
+type NoteEvent = Extract<KakiEvent, { type: 'WINGMAN_NOTE' }>;
+
 function cueRecord(
   payload: Partial<{
     agendaIndex: number;
@@ -735,131 +737,79 @@ function cueRecord(
   };
 }
 
-function cueLlm(): ReturnType<typeof createFakeLlm> {
-  return createFakeLlm((messages) => {
-    const system = messages[0]?.content ?? '';
-    if (system.includes('[KAKI_WINGMAN_NUDGE]')) {
-      return JSON.stringify({
-        suggestion: 'Ask whether the budget still covers the new plan.',
-        evidence: 'We need the budget figure before we decide.',
-      });
-    }
-    if (system.includes('[KAKI_WINGMAN_ASKED]')) {
-      return JSON.stringify({ direct: false, question: '', evidence: '' });
-    }
-    if (system.includes('[KAKI_WINGMAN_RECORD]')) {
-      return JSON.stringify({ verdict: 'none', snippet: '', source: '' });
-    }
-    return JSON.stringify({ parts: [] });
-  });
+function notesOfKind(events: readonly KakiEvent[], kind: 'lead' | 'nudge'): NoteEvent[] {
+  return events.filter(
+    (event): event is NoteEvent => event.type === 'WINGMAN_NOTE' && event.payload.kind === kind,
+  );
+}
+
+function activeNotes(events: readonly KakiEvent[], kind: 'lead' | 'nudge'): NoteEvent[] {
+  // A note with the same id replaces the earlier one, and a clear retracts it.
+  const byId = new Map<string, NoteEvent>();
+  for (const event of notesOfKind(events, kind)) byId.set(event.payload.id, event);
+  return [...byId.values()].filter((event) => event.payload.clears !== true);
+}
+
+const noPointReply = JSON.stringify({ suggestion: '', basis: 'none', evidence: '', source: '' });
+
+function catchupLlm(reply: string): ReturnType<typeof createFakeLlm> {
+  return createFakeLlm((messages) =>
+    messages[0]?.content.includes('[KAKI_WINGMAN_CATCHUP]') ? reply : noPointReply,
+  );
 }
 
 describe('wingman real-meeting pace cues', () => {
-  it.each([false, true])('delivers delayed cues to the second Raj seat only (guest=%s)', async (guest) => {
-    let release!: (reply: string) => void;
-    const llm = createFakeLlm((messages) => {
-      if (messages[0]?.content.includes('[KAKI_WINGMAN_NUDGE]')) {
-        return new Promise<string>((resolve) => {
-          release = resolve;
-        });
-      }
-      return JSON.stringify({ direct: false, verdict: 'none', question: '', evidence: '' });
-    });
-    const fake = fakeHub();
-    const holders = cueHolders.map((holder) => holder.seat === 'mei' ? { ...holder, name: 'Raj' } : holder);
-    const owned = { ...cueScenario, agenda: [
-      { ...cueScenario.agenda[0]!, ownerRole: 'mei' },
-      { ...cueScenario.agenda[1]!, ownerRole: 'raj' },
-    ] };
-    const search = vi.fn<SearchCompanyData>(async () => [factA]);
-    const stop = start({ hub: fake, llm, search, holders, seatIsGuest: (role) => guest && role === 'mei',
-      meetingKind: 'real', scenario: owned, sealed: sealedCue({ scenario: owned }) });
-    try {
-      fake.emit(transcriptLine('We need the budget figure before we decide.', { speaker: 'Ada', role: 'host' }));
-      fake.emit(cueRecord({ elapsedSeconds: 121 }));
-      await waitFor(() => release === undefined ? undefined : true);
-      // The first Raj speaking must neither clear the lead nor discard the second Raj's suggestion.
-      fake.emit(transcriptLine('Here is my update.', { speaker: 'Raj', role: 'raj' }));
-      release(JSON.stringify({ suggestion: 'Ask for the budget figure.', evidence: 'We need the budget figure before we decide.' }));
-      await waitFor(() => wingmanNotes(fake.published).find((event) => event.payload.kind === 'nudge'));
-      fake.emit(cueRecord({ elapsedSeconds: 570 }));
-      const notes = wingmanNotes(fake.published);
-      expect(notes.filter((event) => event.payload.clears)).toEqual([]);
-      const lead = notes.find((event) => event.payload.kind === 'lead');
-      const prompt = notes.find((event) => event.payload.title === 'Your item: Budget');
-      const upcoming = notes.find((event) => event.payload.title === 'Your next item');
-      expect(lead?.audience).toEqual({ kind: 'role', role: 'host' });
-      expect(prompt?.audience).toEqual({ kind: 'role', role: 'mei' });
-      expect(upcoming?.audience).toEqual({ kind: 'role', role: 'raj' });
-      expect(lead?.payload.facts).toBeUndefined();
-      expect(upcoming?.payload.facts).toBeUndefined();
-      expect(lead?.payload.sources).toBeUndefined();
-      expect(upcoming?.payload.sources).toBeUndefined();
-      if (guest) {
-        expect(prompt?.payload.facts).toBeUndefined();
-        expect(prompt?.payload.sources).toBeUndefined();
-        expect(search.mock.calls.every(([, role]) => role !== 'mei')).toBe(true);
-      } else {
-        expect(prompt?.payload.facts).toEqual([factA]);
-      }
-    } finally {
-      stop();
-    }
-  });
-
-  it.each([
-    { speaker: 'Raj', role: 'mei' },
-    { speaker: 'Raj' },
-    { speaker: 'Raj (2)', role: 'mei' },
-  ])('keeps the owner cue when another Raj speaks: %j', async (speaker) => {
-    const fake = fakeHub();
-    const holders = cueHolders.map((holder) => holder.seat === 'mei' ? { ...holder, name: 'Raj' } : holder);
-    const stop = start({ hub: fake, llm: cueLlm(), search: async () => [], holders,
-      meetingKind: 'real', scenario: cueScenario, sealed: sealedCue() });
-    try {
-      fake.emit(cueRecord({ elapsedSeconds: 121 }));
-      await waitFor(() => wingmanNotes(fake.published).find((event) => event.payload.kind === 'nudge'));
-      fake.emit(transcriptLine('Here is my update.', speaker));
-      expect(wingmanNotes(fake.published).filter((event) => event.payload.clears)).toEqual([]);
-      fake.emit(transcriptLine('My budget update.', { speaker: 'Renamed Raj', role: 'raj' }));
-      expect(wingmanNotes(fake.published).filter((event) => event.payload.clears && event.payload.kind === 'lead')).toHaveLength(1);
-    } finally {
-      stop();
-    }
-  });
-
-  it.each(['ambiguous', 'absent', 'unassigned', 'unregistered'] as const)('suppresses cues and logs once per item: %s', async (state) => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    const fake = fakeHub();
-    const holders = state === 'ambiguous' ? [...cueHolders, { name: 'Raj', seat: 'raj' }]
-      : state === 'absent' ? cueHolders.filter((holder) => holder.seat !== 'raj') : cueHolders;
-    const sameOwner = { ...cueScenario,
-      roles: state === 'unregistered' ? cueScenario.roles.filter((role) => role.id !== 'raj') : cueScenario.roles,
-      agenda: cueScenario.agenda.map((item) => ({ ...item, ownerRole: state === 'unassigned' ? 'everyone' : 'raj' })),
-    };
-    const stop = start({ hub: fake, llm: cueLlm(), search: async () => [], holders,
-      meetingKind: 'real', scenario: sameOwner, sealed: sealedCue({ scenario: sameOwner }) });
-    try {
-      fake.emit(cueRecord({ elapsedSeconds: 121 }));
-      fake.emit(cueRecord({ elapsedSeconds: 570 }));
-      fake.emit(cueRecord({ elapsedSeconds: 571 }));
-      await new Promise((resolve) => setTimeout(resolve, 20));
-      expect(wingmanNotes(fake.published).filter((event) => ['lead', 'nudge'].includes(event.payload.kind))).toEqual([]);
-      const warnings = warn.mock.calls.filter(([message]) => String(message).includes('agenda cues skipped'));
-      expect(warnings).toHaveLength(2);
-      const reason = { ambiguous: 'multiple holders', absent: 'absent',
-        unassigned: 'no uniquely resolved owner seat assigned', unregistered: 'not a unique scenario role' }[state];
-      expect(warnings.every(([message]) => String(message).includes(reason))).toBe(true);
-    } finally {
-      stop();
-    }
-  });
-
-  it('shows one quiet lead line to the meeting owner screen only, then clears it when the owner speaks', () => {
+  it('shows the owner who has not spoken, updates that line, and clears it when everyone has spoken', () => {
     const fake = fakeHub();
     const stop = start({
       hub: fake,
-      llm: cueLlm(),
+      llm: catchupLlm(noPointReply),
+      search: async () => [],
+      holders: cueHolders,
+      meetingKind: 'real',
+      scenario: cueScenario,
+      sealed: sealedCue(),
+    });
+    try {
+      fake.emit(cueRecord({ elapsedSeconds: 119, speakerTalkSeconds: { host: 40 } }));
+      expect(activeNotes(fake.published, 'lead')).toEqual([]);
+
+      fake.emit(cueRecord({ elapsedSeconds: 120, speakerTalkSeconds: { host: 40 } }));
+      let leads = activeNotes(fake.published, 'lead');
+      expect(leads).toHaveLength(1);
+      expect(leads[0]?.audience).toEqual({ kind: 'role', role: 'host' });
+      expect(leads[0]?.payload.text).toBe('Not heard from yet: Raj, Mei');
+
+      // As Raj starts talking the same line shrinks, without a second note id.
+      fake.emit(cueRecord({ elapsedSeconds: 130, speakerTalkSeconds: { host: 40, raj: 12 } }));
+      leads = activeNotes(fake.published, 'lead');
+      expect(leads).toHaveLength(1);
+      expect(leads[0]?.payload.id).toBe('lead:0');
+      expect(leads[0]?.payload.text).toBe('Not heard from yet: Mei');
+
+      // Once everyone has spoken the line goes away.
+      fake.emit(cueRecord({ elapsedSeconds: 140, speakerTalkSeconds: { host: 40, raj: 12, mei: 8 } }));
+      expect(activeNotes(fake.published, 'lead')).toEqual([]);
+      expect(
+        notesOfKind(fake.published, 'lead').filter((event) => event.payload.clears === true),
+      ).toHaveLength(1);
+    } finally {
+      stop();
+    }
+  });
+
+  it('sends one catch-up with the item, open question and a meeting-grounded point, then removes it when they speak', async () => {
+    const fake = fakeHub();
+    const stop = start({
+      hub: fake,
+      llm: catchupLlm(
+        JSON.stringify({
+          suggestion: 'Ask whether the launch budget still covers the new plan.',
+          basis: 'meeting',
+          evidence: 'We need the budget figure before we decide.',
+          source: '',
+        }),
+      ),
       search: async () => [],
       holders: cueHolders,
       meetingKind: 'real',
@@ -868,263 +818,160 @@ describe('wingman real-meeting pace cues', () => {
     });
     try {
       fake.emit(transcriptLine('We need the budget figure before we decide.', { speaker: 'Ada', role: 'host' }));
-      fake.emit(cueRecord({ elapsedSeconds: 120 }));
-
-      const leads = wingmanNotes(fake.published).filter((event) => event.payload.kind === 'lead');
-      expect(leads).toHaveLength(1);
-      expect(leads[0]?.audience).toEqual({ kind: 'role', role: 'host' });
-      expect(leads[0]?.payload.text).toBe("Raj owns this item but hasn't spoken yet.");
-
-      // A later record on the same item does not repeat it.
-      fake.emit(cueRecord({ elapsedSeconds: 150 }));
-      expect(wingmanNotes(fake.published).filter((event) => event.payload.kind === 'lead')).toHaveLength(1);
-
-      fake.emit(transcriptLine('I have the figure here.', { speaker: 'Raj', role: 'raj' }));
-      const cleared = wingmanNotes(fake.published).filter(
-        (event) => event.payload.kind === 'lead' && event.payload.clears === true,
-      );
-      expect(cleared).toHaveLength(1);
-    } finally {
-      stop();
-    }
-  });
-
-  it('says the owner has said little when they have spoken but stayed under the quiet threshold', () => {
-    const fake = fakeHub();
-    const stop = start({
-      hub: fake,
-      llm: cueLlm(),
-      holders: cueHolders,
-      meetingKind: 'real',
-      scenario: cueScenario,
-      sealed: sealedCue(),
-    });
-    try {
-      fake.emit(transcriptLine('A quick word from me.', { speaker: 'Raj', role: 'raj' }));
-      fake.emit(cueRecord({ elapsedSeconds: 120, speakerTalkSeconds: { raj: 12 } }));
-
-      const lead = wingmanNotes(fake.published).find((event) => event.payload.kind === 'lead');
-      expect(lead?.payload.text).toBe('Raj owns this item but has said little so far.');
-    } finally {
-      stop();
-    }
-  });
-
-  it('clears the quiet lead when the item owner is no longer in the room', () => {
-    const fake = fakeHub();
-    const holders = [...cueHolders];
-    const stop = start({
-      hub: fake,
-      llm: cueLlm(),
-      holders,
-      meetingKind: 'real',
-      scenario: cueScenario,
-      sealed: sealedCue(),
-    });
-    try {
-      fake.emit(cueRecord({ elapsedSeconds: 120 }));
-      expect(wingmanNotes(fake.published).filter((event) => event.payload.kind === 'lead')).toHaveLength(1);
-
-      const raj = holders.findIndex((holder) => holder.seat === 'raj');
-      holders.splice(raj, 1);
-      fake.emit(cueRecord({ elapsedSeconds: 121 }));
-
-      const cleared = wingmanNotes(fake.published).filter(
-        (event) => event.payload.kind === 'lead' && event.payload.clears === true,
-      );
-      expect(cleared).toHaveLength(1);
-    } finally {
-      stop();
-    }
-  });
-
-  it('drops workspace facts that finish loading after the owner became a guest', async () => {
-    let release!: (facts: Fact[]) => void;
-    const search = vi.fn<SearchCompanyData>(
-      () => new Promise<Fact[]>((resolve) => { release = resolve; }),
-    );
-    let guest = false;
-    const fake = fakeHub();
-    const stop = start({
-      hub: fake,
-      llm: cueLlm(),
-      search,
-      holders: cueHolders,
-      meetingKind: 'real',
-      seatIsGuest: (role) => (role === 'raj' ? guest : false),
-      scenario: cueScenario,
-      sealed: sealedCue(),
-    });
-    try {
-      fake.emit(transcriptLine('We need the budget figure before we decide.', { speaker: 'Ada', role: 'host' }));
-      fake.emit(cueRecord({ elapsedSeconds: 121 }));
-      await waitFor(() => (release === undefined ? undefined : true), 'the workspace lookup');
-
-      // The seat is a guest by the time the lookup answers, so no record may reach the note.
-      guest = true;
-      release([factA]);
+      fake.emit(cueRecord({ elapsedSeconds: 119, speakerTalkSeconds: { host: 40, mei: 6 } }));
       await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(activeNotes(fake.published, 'nudge')).toEqual([]);
 
-      const note = wingmanNotes(fake.published).find((event) => event.payload.kind === 'nudge');
-      expect(note?.payload.text).toContain('You own "Budget".');
-      expect(note?.payload.facts).toBeUndefined();
-      expect(note?.payload.sources).toBeUndefined();
-    } finally {
-      stop();
-    }
-  });
-
-  it('writes a private quiet-owner note with the item title, open question and a grounded suggestion', async () => {
-    const fake = fakeHub();
-    const search = vi.fn<SearchCompanyData>(async () => [factA]);
-    const stop = start({
-      hub: fake,
-      llm: cueLlm(),
-      search,
-      holders: cueHolders,
-      meetingKind: 'real',
-      seatIsGuest: () => false,
-      scenario: cueScenario,
-      sealed: sealedCue(),
-    });
-    try {
-      fake.emit(transcriptLine('We need the budget figure before we decide.', { speaker: 'Ada', role: 'host' }));
       fake.emit(
         cueRecord({
           elapsedSeconds: 121,
+          speakerTalkSeconds: { host: 40, mei: 6 },
           openQuestions: [{ id: 'q-1', text: 'Do we still have launch budget?', agendaIndex: 0 }],
         }),
       );
-      await waitFor(() =>
-        wingmanNotes(fake.published).find((event) => event.payload.kind === 'nudge') ?? undefined,
+      const note = await waitFor(
+        () => wingmanNotes(fake.published).find((event) => event.payload.id === 'catchup:raj:0'),
+        'the catch-up note',
       );
+      expect(note.audience).toEqual({ kind: 'role', role: 'raj' });
+      expect(note.payload.kind).toBe('nudge');
+      expect(note.payload.text).toContain('Now: "Budget".');
+      expect(note.payload.text).toContain('Open question: Do we still have launch budget?');
+      expect(note.payload.text).toContain(
+        'One point you could add: Ask whether the launch budget still covers the new plan.',
+      );
+      expect(note.payload.sources).toEqual(['Ada · 2026-11-22T10:00:00.000Z']);
+      expect(note.payload.facts).toBeUndefined();
+      expect(note.payload.text).not.toMatch(/expected|haven't spoken|have not spoken/i);
 
-      const note = wingmanNotes(fake.published).find((event) => event.payload.kind === 'nudge');
-      expect(note?.audience).toEqual({ kind: 'role', role: 'raj' });
-      expect(note?.payload.text).toContain('You own "Budget".');
-      expect(note?.payload.text).toContain('Open question: Do we still have launch budget?');
-      expect(note?.payload.text).toContain('Suggestion: Ask whether the budget still covers the new plan.');
-      expect(note?.payload.facts?.[0]?.text).toBe(factA.text);
-      expect(search).toHaveBeenCalled();
+      // One per item, however many records follow.
+      fake.emit(cueRecord({ elapsedSeconds: 130, speakerTalkSeconds: { host: 40, mei: 6 } }));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(
+        wingmanNotes(fake.published).filter((event) => event.payload.id === 'catchup:raj:0'),
+      ).toHaveLength(1);
+
+      // Speaking removes it.
+      fake.emit(transcriptLine('I have the figure here.', { speaker: 'Raj', role: 'raj' }));
+      expect(
+        wingmanNotes(fake.published).some(
+          (event) => event.payload.id === 'catchup:raj:0' && event.payload.clears === true,
+        ),
+      ).toBe(true);
     } finally {
       stop();
     }
   });
 
-  it('does not nudge an owner placeholder or an absent owner', () => {
-    const noOwnerScenario: Scenario = {
-      ...cueScenario,
-      agenda: [{ ...cueScenario.agenda[0]!, ownerRole: 'everyone' }],
-    };
-    for (const scenario of [
-      noOwnerScenario,
-      { ...cueScenario, agenda: [{ ...cueScenario.agenda[0]!, ownerRole: 'absent' }] },
-    ]) {
+  it('adds no suggestion when the model finds nothing worth adding', async () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
       const fake = fakeHub();
       const stop = start({
         hub: fake,
-        llm: cueLlm(),
+        llm: catchupLlm(noPointReply),
+        search: async () => [factA],
         holders: cueHolders,
         meetingKind: 'real',
-        scenario,
-        sealed: sealedCue({ scenario }),
+        scenario: cueScenario,
+        sealed: sealedCue(),
       });
       try {
-        fake.emit(transcriptLine('We need the budget figure before we decide.', { speaker: 'Ada', role: 'host' }));
-        fake.emit(cueRecord({ elapsedSeconds: 130 }));
-        expect(
-          wingmanNotes(fake.published).filter(
-            (event) => event.payload.kind === 'lead' || event.payload.kind === 'nudge',
-          ),
-        ).toEqual([]);
+        fake.emit(cueRecord({ elapsedSeconds: 121, speakerTalkSeconds: { host: 40, mei: 6 } }));
+        const note = await waitFor(
+          () => wingmanNotes(fake.published).find((event) => event.payload.id === 'catchup:raj:0'),
+          'the plain catch-up',
+        );
+        expect(note.payload.text).toBe('Now: "Budget".');
+        expect(note.payload.text).not.toContain('One point you could add');
+        expect(note.payload.facts).toBeUndefined();
+        expect(note.payload.sources).toBeUndefined();
+        expect(errors).not.toHaveBeenCalledWith(expect.stringContaining('catch-up'));
+      } finally {
+        stop();
+      }
+    } finally {
+      errors.mockRestore();
+    }
+  });
+
+  it('adds one workspace point with its source for a member, never for a guest or with search off', async () => {
+    for (const mode of ['member', 'guest', 'off'] as const) {
+      const search = vi.fn<SearchCompanyData>(async () => [factA]);
+      const fake = fakeHub();
+      const stop = start({
+        hub: fake,
+        llm: catchupLlm(
+          JSON.stringify({
+            suggestion: 'Ask about the delivery window.',
+            basis: 'workspace',
+            evidence: factA.text,
+            source: factA.source,
+          }),
+        ),
+        ...(mode === 'off' ? {} : { search }),
+        holders: cueHolders,
+        meetingKind: 'real',
+        seatIsGuest: (role) => mode === 'guest' && role === 'raj',
+        scenario: cueScenario,
+        sealed: sealedCue(),
+      });
+      try {
+        fake.emit(cueRecord({ elapsedSeconds: 121, speakerTalkSeconds: { host: 40, mei: 6 } }));
+        const note = await waitFor(
+          () => wingmanNotes(fake.published).find((event) => event.payload.id === 'catchup:raj:0'),
+          `the ${mode} catch-up`,
+        );
+        if (mode === 'member') {
+          expect(search).toHaveBeenCalledWith('Budget', 'raj');
+          expect(note.payload.facts).toEqual([{ ...factA, text: 'Ask about the delivery window.' }]);
+          expect(note.payload.sources).toEqual(['Wiki: Delivery (2026-11-01)']);
+          // A workspace point stays in its fact, ready to be withheld on a reconnect.
+          expect(note.payload.text).not.toContain('Ask about the delivery window.');
+        } else {
+          expect(note.payload.facts).toBeUndefined();
+          expect(note.payload.sources).toBeUndefined();
+          expect(note.payload.text).toBe('Now: "Budget".');
+          if (mode === 'guest') expect(search).not.toHaveBeenCalled();
+        }
       } finally {
         stop();
       }
     }
   });
 
-  it('never reads the workspace for a guest who owns the quiet item', async () => {
-    const fake = fakeHub();
-    const search = vi.fn<SearchCompanyData>(async () => [factA]);
-    const stop = start({
-      hub: fake,
-      llm: cueLlm(),
-      search,
-      holders: cueHolders,
-      meetingKind: 'real',
-      seatIsGuest: (role) => role === 'raj',
-      scenario: cueScenario,
-      sealed: sealedCue(),
-    });
-    try {
-      fake.emit(transcriptLine('We need the budget figure before we decide.', { speaker: 'Ada', role: 'host' }));
-      fake.emit(cueRecord({ elapsedSeconds: 121 }));
-      await waitFor(() =>
-        wingmanNotes(fake.published).find((event) => event.payload.kind === 'nudge') ?? undefined,
-      );
-      const note = wingmanNotes(fake.published).find((event) => event.payload.kind === 'nudge');
-      expect(note?.payload.facts).toBeUndefined();
-      expect(search.mock.calls.every(([, role]) => role !== 'raj')).toBe(true);
-    } finally {
-      stop();
-    }
-  });
-
-  it('uses no workspace retrieval when search is disabled', async () => {
-    const fake = fakeHub();
-    const stop = start({
-      hub: fake,
-      llm: cueLlm(),
-      holders: cueHolders,
-      meetingKind: 'real',
-      scenario: cueScenario,
-      sealed: sealedCue(),
-    });
-    try {
-      fake.emit(transcriptLine('We need the budget figure before we decide.', { speaker: 'Ada', role: 'host' }));
-      fake.emit(cueRecord({ elapsedSeconds: 121 }));
-      await waitFor(() =>
-        wingmanNotes(fake.published).find((event) => event.payload.kind === 'nudge') ?? undefined,
-      );
-      const note = wingmanNotes(fake.published).find((event) => event.payload.kind === 'nudge');
-      expect(note?.payload.text).toContain('You own "Budget".');
-      expect(note?.payload.facts).toBeUndefined();
-    } finally {
-      stop();
-    }
-  });
-
-  it('publishes the plain item and question note when the model is missing or fails, and logs loudly', async () => {
+  it('sends the plain catch-up and logs loudly when there is no model or it fails', async () => {
     const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     try {
       for (const llm of [undefined, createFakeLlm(() => { throw new Error('model down'); })]) {
         const fake = fakeHub();
-        const search = vi.fn<SearchCompanyData>(async () => [factA]);
         const stop = start({
           hub: fake,
           ...(llm === undefined ? {} : { llm }),
-          search,
+          search: async () => [factA],
           holders: cueHolders,
           meetingKind: 'real',
           scenario: cueScenario,
           sealed: sealedCue(),
         });
         try {
-          fake.emit(cueRecord({
-            elapsedSeconds: 121,
-            openQuestions: [{ id: 'q-1', text: 'Do we still have launch budget?', agendaIndex: 0 }],
-          }));
-          await waitFor(() =>
-            wingmanNotes(fake.published).find((event) => event.payload.kind === 'nudge') ?? undefined,
+          fake.emit(
+            cueRecord({
+              elapsedSeconds: 121,
+              speakerTalkSeconds: { host: 40, mei: 6 },
+              openQuestions: [{ id: 'q-1', text: 'Do we still have launch budget?', agendaIndex: 0 }],
+            }),
           );
-          const note = wingmanNotes(fake.published).find((event) => event.payload.kind === 'nudge');
-          expect(note?.payload.text).toContain('You own "Budget".');
-          expect(note?.payload.text).toContain('Open question: Do we still have launch budget?');
-          expect(note?.payload.text).not.toContain('Suggestion:');
-          // With no usable suggestion there is nothing to ground a record in: no lookup at all.
-          expect(search).not.toHaveBeenCalled();
+          const note = await waitFor(
+            () => wingmanNotes(fake.published).find((event) => event.payload.id === 'catchup:raj:0'),
+            'the plain catch-up',
+          );
+          expect(note.payload.text).toContain('Now: "Budget".');
+          expect(note.payload.text).toContain('Open question: Do we still have launch budget?');
+          expect(note.payload.text).not.toContain('One point you could add');
+          expect(note.payload.facts).toBeUndefined();
           expect(errors).toHaveBeenCalledWith(
-            expect.stringContaining('quiet-owner'),
+            expect.stringContaining('catch-up'),
             ...(llm === undefined ? [] : [expect.any(Error)]),
           );
         } finally {
@@ -1136,70 +983,151 @@ describe('wingman real-meeting pace cues', () => {
     }
   });
 
-  it('uses the current item talk, not meeting-wide talk, to decide the owner is quiet', () => {
+  it('warns the next named owner once before the item ends and removes it when the meeting ends', async () => {
     const fake = fakeHub();
     const stop = start({
       hub: fake,
-      llm: cueLlm(),
+      llm: catchupLlm(noPointReply),
+      search: async () => [],
       holders: cueHolders,
       meetingKind: 'real',
       scenario: cueScenario,
       sealed: sealedCue(),
     });
     try {
-      fake.emit(transcriptLine('We need the budget figure before we decide.', { speaker: 'Ada', role: 'host' }));
-      fake.emit(cueRecord({ elapsedSeconds: 130, speakerTalkSeconds: { host: 400, raj: 45 } }));
-      expect(
-        wingmanNotes(fake.published).filter(
-          (event) => event.payload.kind === 'lead' || event.payload.kind === 'nudge',
-        ),
-      ).toEqual([]);
-    } finally {
-      stop();
-    }
-  });
+      const upcoming = (): NoteEvent[] =>
+        activeNotes(fake.published, 'nudge').filter(
+          (event) => event.payload.title === 'Your next item',
+        );
 
-  it('warns the next item owner privately, once per current item', () => {
-    const fake = fakeHub();
-    const stop = start({
-      hub: fake,
-      llm: cueLlm(),
-      holders: cueHolders,
-      meetingKind: 'real',
-      scenario: cueScenario,
-      sealed: sealedCue(),
-    });
-    try {
-      fake.emit(cueRecord({ elapsedSeconds: 10 * 60 - 30 }));
-      const warnings = wingmanNotes(fake.published).filter((event) => event.payload.kind === 'nudge');
+      fake.emit(cueRecord({ elapsedSeconds: 539, speakerTalkSeconds: { host: 40, raj: 8, mei: 8 } }));
+      expect(upcoming()).toEqual([]);
+
+      fake.emit(cueRecord({ elapsedSeconds: 540, speakerTalkSeconds: { host: 40, raj: 8, mei: 8 } }));
+      const warnings = upcoming();
       expect(warnings).toHaveLength(1);
       expect(warnings[0]?.audience).toEqual({ kind: 'role', role: 'mei' });
       expect(warnings[0]?.payload.text).toBe("Up next in about 1 min: Hiring, it's yours.");
 
-      fake.emit(cueRecord({ elapsedSeconds: 10 * 60 - 20 }));
-      expect(wingmanNotes(fake.published).filter((event) => event.payload.kind === 'nudge')).toHaveLength(1);
+      fake.emit(cueRecord({ elapsedSeconds: 550, speakerTalkSeconds: { host: 40, raj: 8, mei: 8 } }));
+      expect(upcoming()).toHaveLength(1);
+
+      fake.emit(cueRecord({ ended: true, elapsedSeconds: 551 }));
+      expect(upcoming()).toEqual([]);
     } finally {
       stop();
     }
   });
 
-  it('skips a coming-up warning when the next item has no present owner', () => {
-    const scenario: Scenario = {
-      ...cueScenario,
-      agenda: [cueScenario.agenda[0]!, { ...cueScenario.agenda[1]!, ownerRole: 'absent' }],
-    };
+  it('never warns the next owner when the item does not name exactly one present seat', () => {
+    const cases: Array<{ name: string; holders: typeof cueHolders; scenario: Scenario }> = [
+      {
+        name: 'unassigned',
+        holders: cueHolders,
+        scenario: {
+          ...cueScenario,
+          agenda: [cueScenario.agenda[0]!, { ...cueScenario.agenda[1]!, ownerRole: 'everyone' }],
+        },
+      },
+      {
+        name: 'absent',
+        holders: cueHolders.filter((holder) => holder.seat !== 'mei'),
+        scenario: cueScenario,
+      },
+      {
+        name: 'ambiguous',
+        holders: [...cueHolders, { name: 'Mei', seat: 'mei' }],
+        scenario: cueScenario,
+      },
+      {
+        name: 'unregistered',
+        holders: cueHolders,
+        scenario: {
+          ...cueScenario,
+          roles: cueScenario.roles.filter((role) => role.id !== 'mei'),
+        },
+      },
+    ];
+    for (const state of cases) {
+      const fake = fakeHub();
+      const stop = start({
+        hub: fake,
+        llm: catchupLlm(noPointReply),
+        search: async () => [],
+        holders: state.holders,
+        meetingKind: 'real',
+        scenario: state.scenario,
+        sealed: sealedCue({ scenario: state.scenario }),
+      });
+      try {
+        fake.emit(cueRecord({ elapsedSeconds: 540, speakerTalkSeconds: { host: 40, raj: 8 } }));
+        expect(
+          activeNotes(fake.published, 'nudge').filter(
+            (event) => event.payload.title === 'Your next item',
+          ),
+          state.name,
+        ).toEqual([]);
+      } finally {
+        stop();
+      }
+    }
+  });
+
+  it('removes the lead, catch-up and up-next notes when the item changes, and catch-ups when the meeting ends', async () => {
     const fake = fakeHub();
     const stop = start({
       hub: fake,
-      llm: cueLlm(),
+      llm: catchupLlm(noPointReply),
+      search: async () => [],
       holders: cueHolders,
       meetingKind: 'real',
-      scenario,
-      sealed: sealedCue({ scenario }),
+      scenario: cueScenario,
+      sealed: sealedCue(),
     });
     try {
-      fake.emit(cueRecord({ elapsedSeconds: 10 * 60 - 30 }));
-      expect(wingmanNotes(fake.published).filter((event) => event.payload.kind === 'nudge')).toEqual([]);
+      fake.emit(cueRecord({ elapsedSeconds: 540, speakerTalkSeconds: { host: 40, mei: 6 } }));
+      const catchup = await waitFor(
+        () => wingmanNotes(fake.published).find((event) => event.payload.id === 'catchup:raj:0'),
+        'the catch-up',
+      );
+      const upNext = await waitFor(
+        () =>
+          wingmanNotes(fake.published).find(
+            (event) => event.payload.title === 'Your next item' && event.payload.clears !== true,
+          ),
+        'the up-next note',
+      );
+      const lead = await waitFor(
+        () => wingmanNotes(fake.published).find((event) => event.payload.kind === 'lead'),
+        'the lead line',
+      );
+      expect(catchup.payload.clears).not.toBe(true);
+      expect(lead.payload.clears).not.toBe(true);
+
+      // The next item starts: the old item's notes all go.
+      fake.emit(cueRecord({ agendaIndex: 1, elapsedSeconds: 0, speakerTalkSeconds: {} }));
+      const cleared = wingmanNotes(fake.published)
+        .filter((event) => event.payload.clears === true)
+        .map((event) => event.payload.id);
+      expect(cleared).toEqual(
+        expect.arrayContaining([catchup.payload.id, upNext.payload.id, lead.payload.id]),
+      );
+
+      // A catch-up on the new item goes when the meeting ends.
+      fake.emit(cueRecord({ agendaIndex: 1, elapsedSeconds: 121, speakerTalkSeconds: { host: 40, mei: 6 } }));
+      const second = await waitFor(
+        () =>
+          wingmanNotes(fake.published).find(
+            (event) => event.payload.id === 'catchup:raj:1' && event.payload.clears !== true,
+          ),
+        'the second catch-up',
+      );
+      fake.emit(cueRecord({ agendaIndex: 1, elapsedSeconds: 130, ended: true }));
+      expect(
+        wingmanNotes(fake.published).some(
+          (event) => event.payload.id === second.payload.id && event.payload.clears === true,
+        ),
+      ).toBe(true);
     } finally {
       stop();
     }
@@ -1209,128 +1137,23 @@ describe('wingman real-meeting pace cues', () => {
     const fake = fakeHub();
     const stop = start({
       hub: fake,
-      llm: cueLlm(),
+      llm: catchupLlm(noPointReply),
+      search: async () => [],
       holders: cueHolders,
       meetingKind: 'practice',
       scenario: cueScenario,
       sealed: sealedCue(),
     });
     try {
-      fake.emit(transcriptLine('We need the budget figure before we decide.', { speaker: 'Ada', role: 'host' }));
-      fake.emit(cueRecord({ elapsedSeconds: 130 }));
-      fake.emit(cueRecord({ elapsedSeconds: 10 * 60 - 30 }));
+      fake.emit(cueRecord({ elapsedSeconds: 121, speakerTalkSeconds: { host: 40 } }));
+      fake.emit(cueRecord({ elapsedSeconds: 540, speakerTalkSeconds: { host: 40 } }));
+      expect(notesOfKind(fake.published, 'lead')).toEqual([]);
       expect(
-        wingmanNotes(fake.published).filter(
-          (event) => event.payload.kind === 'lead' || event.payload.kind === 'nudge',
+        notesOfKind(fake.published, 'nudge').filter(
+          (event) =>
+            event.payload.title.startsWith('Catch-up') || event.payload.title === 'Your next item',
         ),
       ).toEqual([]);
-    } finally {
-      stop();
-    }
-  });
-
-  it('respects pause, off the record and the end of the meeting', () => {
-    for (const stopReason of ['paused', 'ended', 'off-record'] as const) {
-      const fake = fakeHub();
-      const stop = start({
-        hub: fake,
-        llm: cueLlm(),
-        holders: cueHolders,
-        meetingKind: 'real',
-        scenario: cueScenario,
-        sealed: sealedCue(),
-        offTheRecord: () => stopReason === 'off-record',
-      });
-      try {
-        fake.emit(
-          cueRecord({
-            elapsedSeconds: 130,
-            ...(stopReason === 'paused' ? { paused: true } : {}),
-            ...(stopReason === 'ended' ? { ended: true } : {}),
-          }),
-        );
-        expect(
-          wingmanNotes(fake.published).filter(
-            (event) => event.payload.kind === 'lead' || event.payload.kind === 'nudge',
-          ),
-        ).toEqual([]);
-      } finally {
-        stop();
-      }
-    }
-  });
-
-  it('drops a suggestion that arrives after the owner has spoken', async () => {
-    let release!: (reply: string) => void;
-    const llm = createFakeLlm((messages) => {
-      const system = messages[0]?.content ?? '';
-      if (system.includes('[KAKI_WINGMAN_NUDGE]')) {
-        return new Promise<string>((resolve) => {
-          release = resolve;
-        });
-      }
-      return JSON.stringify({ direct: false, question: '', evidence: '' });
-    });
-    const fake = fakeHub();
-    const stop = start({
-      hub: fake,
-      llm,
-      holders: cueHolders,
-      meetingKind: 'real',
-      scenario: cueScenario,
-      sealed: sealedCue(),
-    });
-    try {
-      fake.emit(transcriptLine('We need the budget figure before we decide.', { speaker: 'Ada', role: 'host' }));
-      fake.emit(cueRecord({ elapsedSeconds: 121 }));
-      await waitFor(() => (release === undefined ? undefined : true));
-      fake.emit(transcriptLine('I have the figure here.', { speaker: 'Raj', role: 'raj' }));
-      release(
-        JSON.stringify({
-          suggestion: 'Ask whether the budget still covers the new plan.',
-          evidence: 'We need the budget figure before we decide.',
-        }),
-      );
-      await new Promise((resolve) => setTimeout(resolve, 20));
-      expect(wingmanNotes(fake.published).filter((event) => event.payload.kind === 'nudge')).toEqual([]);
-    } finally {
-      stop();
-    }
-  });
-
-  it('drops a suggestion that arrives after the item changed', async () => {
-    let release!: (reply: string) => void;
-    const llm = createFakeLlm((messages) => {
-      const system = messages[0]?.content ?? '';
-      if (system.includes('[KAKI_WINGMAN_NUDGE]')) {
-        return new Promise<string>((resolve) => {
-          release = resolve;
-        });
-      }
-      return JSON.stringify({ direct: false, question: '', evidence: '' });
-    });
-    const fake = fakeHub();
-    const stop = start({
-      hub: fake,
-      llm,
-      holders: cueHolders,
-      meetingKind: 'real',
-      scenario: cueScenario,
-      sealed: sealedCue(),
-    });
-    try {
-      fake.emit(transcriptLine('We need the budget figure before we decide.', { speaker: 'Ada', role: 'host' }));
-      fake.emit(cueRecord({ elapsedSeconds: 121 }));
-      await waitFor(() => (release === undefined ? undefined : true));
-      fake.emit(cueRecord({ agendaIndex: 1, elapsedSeconds: 10 }));
-      release(
-        JSON.stringify({
-          suggestion: 'Ask whether the budget still covers the new plan.',
-          evidence: 'We need the budget figure before we decide.',
-        }),
-      );
-      await new Promise((resolve) => setTimeout(resolve, 20));
-      expect(wingmanNotes(fake.published).filter((event) => event.payload.kind === 'nudge')).toEqual([]);
     } finally {
       stop();
     }

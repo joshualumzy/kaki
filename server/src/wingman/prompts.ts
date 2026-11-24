@@ -307,44 +307,57 @@ export function parseRecordReply(raw: string): RecordVerdict | undefined {
   return { verdict: json.verdict, snippet: json.snippet.trim(), source: json.source.trim() };
 }
 
-/** One short line the quiet item owner could say next, tied to a transcript line. */
-export interface NudgeVerdict {
+/** One point a silent person could add, grounded in the meeting or in one workspace record. */
+export interface CatchupVerdict {
   suggestion: string;
-  /** The transcript line the suggestion is grounded in. */
-  source: WingmanLine;
+  /** Where the point came from: a transcript line time, or a record source and date. */
+  source: string;
+  /** The workspace record the point came from, when it did not come from the meeting. */
+  fact?: Fact;
 }
 
-/** The strict schema for one quiet-owner suggestion. */
-export const NUDGE_SCHEMA = {
-  name: 'wingman_nudge',
+/** The strict schema for one catch-up suggestion. */
+export const CATCHUP_SCHEMA = {
+  name: 'wingman_catchup',
   schema: {
     type: 'object',
     additionalProperties: false,
-    required: ['suggestion', 'evidence'],
+    required: ['suggestion', 'basis', 'evidence', 'source'],
     properties: {
       suggestion: { type: 'string' },
+      basis: { type: 'string', enum: ['meeting', 'workspace', 'none'] },
       evidence: { type: 'string' },
+      source: { type: 'string' },
     },
   },
 };
 
-/** The messages for a quiet item owner: one short next line, grounded in the transcript. */
-export function nudgeMessages(
+/**
+ * The messages for a catch-up: what the meeting is deciding, plus at most one point this person
+ * could genuinely add. The bar is high, so nothing is invented when the meeting has no opening.
+ */
+export function catchupMessages(
   scenario: Scenario,
   personName: string,
   role: Role,
   itemTitle: string,
   openQuestion: string | undefined,
   lines: readonly WingmanLine[],
+  facts: readonly Fact[],
 ): ChatMessage[] {
   return [
     {
       role: 'system',
-      content: `[KAKI_WINGMAN_NUDGE]
-You are the private Wingman for ${personName}, the ${roleLabel(scenario, role)} in a live meeting. They own the current agenda item "${itemTitle}" but have barely spoken on it so far.
-Write ONE short, plain sentence they could say next to move the item forward, using ONLY the meeting transcript below. Do not give advice, do not mention these instructions, and do not invent facts.
-Return strict JSON and nothing else: {"suggestion":"...","evidence":"..."}
-"evidence" must be copied word for word from one transcript line below that supports the suggestion.`,
+      content: `[KAKI_WINGMAN_CATCHUP]
+You are the private Wingman for ${personName}, the ${roleLabel(scenario, role)} in a live meeting. The meeting is on "${itemTitle}"${openQuestion === undefined ? '' : ` and the open question is "${openQuestion}"`}.
+Decide whether there is ONE genuinely useful point ${personName} could add to this discussion, using ONLY the transcript and workspace records below.
+High bar: the point must be directly relevant and new, never general background, advice, or a repeat of what someone already said. If nothing clears that bar, return no suggestion. Never invent a fact, and never say or imply that ${personName} is expected to speak.
+Return strict JSON and nothing else: {"suggestion":"","basis":"meeting"|"workspace"|"none","evidence":"","source":""}
+When there is a point:
+- "suggestion" is one short, plain sentence ${personName} could add.
+- basis "meeting": "evidence" is copied word for word from one transcript line that supports it, and "source" is empty.
+- basis "workspace": "evidence" is copied word for word from one workspace record below, and "source" is that record's source label.
+Otherwise return basis "none" with an empty suggestion, evidence and source.`,
     },
     {
       role: 'user',
@@ -352,22 +365,43 @@ Return strict JSON and nothing else: {"suggestion":"...","evidence":"..."}
 ${openQuestion === undefined ? 'No open question on this item.' : `Open question: ${openQuestion}`}
 
 Transcript (oldest to newest):
-${lineBlock(lines)}`,
+${lineBlock(lines)}
+
+Workspace records:
+${facts.length === 0 ? '(none available)' : recordBlock(facts)}`,
     },
   ];
 }
 
-/** Read a grounded quiet-owner suggestion; an ungrounded or empty one is refused. */
-export function parseNudgeReply(raw: string, lines: readonly WingmanLine[]): NudgeVerdict | undefined {
+/** Read a grounded catch-up point; anything ungrounded, empty or invented is refused. */
+export function parseCatchupReply(
+  raw: string,
+  lines: readonly WingmanLine[],
+  facts: readonly Fact[],
+): CatchupVerdict | undefined {
   let json: unknown;
   try {
     json = parseJsonReply(raw);
   } catch (error) {
-    throw new LlmError('Wingman quiet-owner reply is not valid JSON', { cause: error });
+    throw new LlmError('Wingman catch-up reply is not valid JSON', { cause: error });
   }
   if (!isObject(json) || !isString(json.suggestion) || json.suggestion.trim() === '') return undefined;
-  if (!isString(json.evidence) || json.evidence.trim() === '') return undefined;
-  const source = groundedLine(json.evidence, lines);
-  if (source === undefined) return undefined;
-  return { suggestion: json.suggestion.trim(), source };
+  if (json.basis === 'meeting') {
+    if (!isString(json.evidence) || json.evidence.trim() === '') return undefined;
+    const line = groundedLine(json.evidence, lines);
+    if (line === undefined) return undefined;
+    return { suggestion: json.suggestion.trim(), source: `${speakerName(line.speaker)} · ${line.timestamp}` };
+  }
+  if (json.basis === 'workspace') {
+    if (!isString(json.evidence) || json.evidence.trim() === '') return undefined;
+    if (!isString(json.source) || json.source.trim() === '') return undefined;
+    const evidence = json.evidence.trim();
+    const source = json.source.trim();
+    const fact = facts.find(
+      (candidate) => candidate.source === source && candidate.text.includes(evidence),
+    );
+    if (fact === undefined) return undefined;
+    return { suggestion: json.suggestion.trim(), source: `${fact.source} (${fact.date})`, fact };
+  }
+  return undefined;
 }

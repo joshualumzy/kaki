@@ -546,6 +546,9 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
     authorize: authorizeUpgrade,
     closeUnknownRoleAfterUpgrade: auth === undefined && !serviceTokenConfigured,
     isHumanSeat,
+    // A real meeting re-checks a seat's membership on every reconnect; an unknown seat fails
+    // closed as a guest. Practice meetings keep their sample workspace on replay.
+    retainedFactsAllowed: (role) => session.kind() !== 'real' || seatGuests.get(role) === false,
     onPersonConnected: () => {
       people += 1;
       touch();

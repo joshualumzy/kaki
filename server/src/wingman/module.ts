@@ -25,15 +25,15 @@ import { createCompanySearchFromEnv } from './knowledge/search';
 import {
   ASK_SCHEMA,
   ASKED_SCHEMA,
-  NUDGE_SCHEMA,
+  CATCHUP_SCHEMA,
   RECORD_SCHEMA,
   askMessages,
   askedMessages,
+  catchupMessages,
   groundedLine,
-  nudgeMessages,
   parseAskedReply,
   parseAskReply,
-  parseNudgeReply,
+  parseCatchupReply,
   parseRecordReply,
   recordMessages,
   type AnswerPart,
@@ -58,11 +58,13 @@ const MAX_RECORD_FACTS = 3;
 const DEFAULT_RECORD_RATE_LIMIT_MS = 90_000;
 /** A short pause so a burst of lines becomes one direct-question check. */
 const DEFAULT_ASKED_CHECK_DELAY_MS = 1_000;
-/** How much of the transcript a quiet-owner suggestion may read. */
-const MAX_NUDGE_LINES = 40;
-/** One quiet-owner suggestion is one short sentence, never a paragraph in the panel. */
-const MAX_NUDGE_SUGGESTION_CHARS = 220;
-/** A role id that only means "the whole room", never a person who can be nudged. */
+/** How much of the transcript a catch-up suggestion may read. */
+const MAX_CATCHUP_LINES = 40;
+/** One catch-up suggestion is one short sentence, never a paragraph in the panel. */
+const MAX_CATCHUP_SUGGESTION_CHARS = 220;
+/** At most this many workspace records are offered for one catch-up. */
+const MAX_CATCHUP_FACTS = 3;
+/** A role id that only means "the whole room", never a person who can own or be nudged. */
 const PLACEHOLDER_ROLE = 'everyone';
 
 interface WingmanModuleOptions {
@@ -228,15 +230,16 @@ export function createWingmanModule(options: WingmanModuleOptions = {}): KakiMod
       let askedPending = false;
       let lastRecordLineCount = 0;
       let latestRecord: Extract<KakiEvent, { type: 'MEETING_RECORD_UPDATED' }>['payload'] | undefined;
-      /** Quiet-owner checks already taken for an agenda item, so each fires at most once. */
-      const quietChecked = new Set<number>();
-      /** Coming-up checks already taken for the item before the next one. */
-      const comingUpChecked = new Set<number>();
-      const ownerSkipLogged = new Set<number>();
+      /** One catch-up per person per agenda item, even after it is cleared. */
+      const catchupSent = new Set<string>();
+      /** Catch-up notes live for this item, so a change or a speaker can remove them. */
+      const catchupNotes = new Map<Role, number>();
+      /** "Up next" notes, keyed by the item they announce. */
+      const upNextNotes = new Map<number, { id: string; role: Role }>();
       /** How many lines each present role has spoken this meeting, for discarding stale guesses. */
       const speechByRole = new Map<Role, number>();
-      /** The quiet lead currently shown on the meeting owner's screen, if any. */
-      let leadNote: { id: string; hostRole: Role; ownerRole: Role; agendaIndex: number } | undefined;
+      /** The silent-seats line currently shown on the meeting owner's dock, if any. */
+      let leadNote: { id: string; hostRole: Role; agendaIndex: number; text: string } | undefined;
 
       const searchEnabled = (): boolean =>
         search !== undefined &&
@@ -307,21 +310,12 @@ export function createWingmanModule(options: WingmanModuleOptions = {}): KakiMod
       /** Resolve exactly one present holder by seat identity; display names are only labels. */
       function presentItemOwner(agendaIndex: number): Person | undefined {
         const role = itemOwnerRole(agendaIndex);
+        if (role === undefined) return undefined;
         const holders = (ctx.meetingDetails?.().holders ?? []).filter((holder) => holder.seat === role);
         const roles = ctx.activeScenario().roles.filter((entry) => entry.id === role);
-        if (role !== undefined && holders.length === 1 && roles.length === 1) {
-          const holder = holders[0]!;
-          return { role, name: holder.displayName?.trim() || holder.name.trim() };
-        }
-        if (!ownerSkipLogged.has(agendaIndex)) {
-          ownerSkipLogged.add(agendaIndex);
-          const reason = role === undefined ? 'no uniquely resolved owner seat assigned'
-            : holders.length === 0 ? 'owner seat is absent'
-            : holders.length > 1 ? 'owner seat has multiple holders'
-            : 'owner seat is not a unique scenario role';
-          console.warn(`kaki wingman: agenda cues skipped for item ${agendaIndex + 1}: ${reason}`);
-        }
-        return undefined;
+        if (holders.length !== 1 || roles.length !== 1) return undefined;
+        const holder = holders[0]!;
+        return { role, name: holder.displayName?.trim() || holder.name.trim() };
       }
 
       /** Real speech must identify its seat. Practice keeps its existing name matching. */
@@ -345,40 +339,77 @@ export function createWingmanModule(options: WingmanModuleOptions = {}): KakiMod
 
       function shortenSuggestion(text: string): string {
         const firstLine = text.trim().split('\n')[0]?.trim() ?? '';
-        if (firstLine.length <= MAX_NUDGE_SUGGESTION_CHARS) return firstLine;
-        const cut = firstLine.slice(0, MAX_NUDGE_SUGGESTION_CHARS);
+        if (firstLine.length <= MAX_CATCHUP_SUGGESTION_CHARS) return firstLine;
+        const cut = firstLine.slice(0, MAX_CATCHUP_SUGGESTION_CHARS);
         const lastSpace = cut.lastIndexOf(' ');
         return `${(lastSpace > 40 ? cut.slice(0, lastSpace) : cut).trimEnd()}…`;
       }
 
-      function fireQuietLead(
-        agendaIndex: number,
-        owner: Person,
-        hostRole: Role,
-        ownerRole: Role,
-        hasSpoken: boolean,
-      ): void {
+      type RecordPayload = Extract<KakiEvent, { type: 'MEETING_RECORD_UPDATED' }>['payload'];
+
+      /** People in the room who have not spoken on the current item, from the notetaker's talk time. */
+      function silentPeople(record: RecordPayload): Person[] {
+        return peopleInMeeting(ctx).filter((person) => (record.speakerTalkSeconds[person.role] ?? 0) <= 0);
+      }
+
+      /** Show the owner who has not spoken yet, updating the one line as people start. */
+      function updateLead(record: RecordPayload, hostRole: Role, agendaIndex: number): void {
+        const silent = silentPeople(record);
+        if (silent.length === 0) {
+          clearLead();
+          return;
+        }
+        const text = `Not heard from yet: ${silent.map((person) => person.name).join(', ')}`;
+        if (
+          leadNote !== undefined &&
+          leadNote.agendaIndex === agendaIndex &&
+          leadNote.hostRole === hostRole &&
+          leadNote.text === text
+        ) {
+          return;
+        }
+        if (leadNote !== undefined && leadNote.hostRole !== hostRole) clearLead();
         const id = `lead:${agendaIndex}`;
-        leadNote = { id, hostRole, ownerRole, agendaIndex };
+        leadNote = { id, hostRole, agendaIndex, text };
         publishNote(
           hostRole,
-          {
-            id,
-            kind: 'lead',
-            urgency: 'quiet',
-            title: 'Quiet agenda item',
-            text: hasSpoken
-              ? `${owner.name} owns this item but has said little so far.`
-              : `${owner.name} owns this item but hasn't spoken yet.`,
-          },
+          { id, kind: 'lead', urgency: 'quiet', title: 'Not heard from yet', text },
           `wingman:${hostRole}:lead:${agendaIndex}`,
         );
       }
 
-      /** True while a quiet-owner guess still belongs to the room and the person it was made for. */
-      function cueStillCurrent(
+      function catchupId(role: Role, agendaIndex: number): string {
+        return `catchup:${role}:${agendaIndex}`;
+      }
+
+      function catchupKey(role: Role, agendaIndex: number): string {
+        return `${role}\u0000${agendaIndex}`;
+      }
+
+      function clearCatchup(role: Role): void {
+        const agendaIndex = catchupNotes.get(role);
+        if (agendaIndex === undefined) return;
+        catchupNotes.delete(role);
+        clearNote(catchupId(role, agendaIndex));
+      }
+
+      function clearUpNext(agendaIndex: number): void {
+        const note = upNextNotes.get(agendaIndex);
+        if (note === undefined) return;
+        upNextNotes.delete(agendaIndex);
+        clearNote(note.id);
+      }
+
+      function clearAllCues(): void {
+        clearLead();
+        for (const role of [...catchupNotes.keys()]) clearCatchup(role);
+        for (const agendaIndex of [...upNextNotes.keys()]) clearUpNext(agendaIndex);
+      }
+
+      /** True while a catch-up still belongs to the same item and person, who still has not spoken. */
+      function catchupStillCurrent(
         agendaIndex: number,
-        ownerRole: Role,
+        role: Role,
         startedIn: number,
         speechAtStart: number,
       ): boolean {
@@ -393,138 +424,157 @@ export function createWingmanModule(options: WingmanModuleOptions = {}): KakiMod
         ) {
           return false;
         }
-        if (presentItemOwner(agendaIndex)?.role !== ownerRole) return false;
-        return (speechByRole.get(ownerRole) ?? 0) === speechAtStart;
+        if (!peopleInMeeting(ctx).some((person) => person.role === role)) return false;
+        if ((record.speakerTalkSeconds[role] ?? 0) > 0) return false;
+        return (speechByRole.get(role) ?? 0) === speechAtStart;
       }
 
-      async function fireQuietNudge(
+      async function fireCatchup(
         agendaIndex: number,
         itemTitle: string,
-        owner: Person,
-        openQuestions: readonly { text: string; agendaIndex: number }[],
+        person: Person,
+        question: string | undefined,
       ): Promise<void> {
         const startedIn = generation;
-        const speechAtStart = speechByRole.get(owner.role) ?? 0;
-        const question = openQuestions.find((entry) => entry.agendaIndex === agendaIndex)?.text;
-        const lines = transcript.slice(-MAX_NUDGE_LINES);
+        const speechAtStart = speechByRole.get(person.role) ?? 0;
+        const lines = transcript.slice(-MAX_CATCHUP_LINES);
         let suggestion: string | undefined;
+        let fact: Fact | undefined;
+        let source: string | undefined;
+        let facts: Fact[] = [];
         if (llm === undefined) {
           console.error(
-            `kaki wingman: no model to write the quiet-owner suggestion for ${owner.role} on "${itemTitle}"; publishing the plain note`,
+            `kaki wingman: no model to write the catch-up for ${person.role} on "${itemTitle}"; sending the plain catch-up`,
           );
         } else {
+          // Workspace records are for members only, and only while search is on. A guest, or a
+          // workspace that cannot be searched, still gets a meeting-only catch-up.
+          facts = await workspaceFacts(question ?? itemTitle, person.role, MAX_CATCHUP_FACTS);
           try {
             const raw = await llm.complete(
-              nudgeMessages(ctx.activeScenario(), owner.name, owner.role, itemTitle, question, lines),
-              { json: true, schema: NUDGE_SCHEMA },
+              catchupMessages(ctx.activeScenario(), person.name, person.role, itemTitle, question, lines, facts),
+              { json: true, schema: CATCHUP_SCHEMA },
             );
             if (stopped || startedIn !== generation) return;
-            const verdict = parseNudgeReply(raw, lines);
-            if (verdict === undefined) {
-              console.error(
-                `kaki wingman: the quiet-owner suggestion for ${owner.role} on "${itemTitle}" was not grounded in the transcript; publishing the plain note`,
-              );
-            } else {
+            const verdict = parseCatchupReply(raw, lines, facts);
+            if (verdict !== undefined) {
               suggestion = shortenSuggestion(verdict.suggestion);
+              fact = verdict.fact;
+              source = verdict.source;
             }
           } catch (error) {
             console.error(
-              `kaki wingman: could not write the quiet-owner suggestion for ${owner.role} on "${itemTitle}"; publishing the plain note`,
+              `kaki wingman: could not write the catch-up for ${person.role} on "${itemTitle}"; sending the plain catch-up`,
               error,
             );
           }
         }
-        // Only a grounded suggestion is worth a workspace lookup. With none, the owner gets the
-        // plain item and question note, never a record fetched for nothing.
-        if (!cueStillCurrent(agendaIndex, owner.role, startedIn, speechAtStart)) return;
-        let facts: Fact[] = [];
-        if (suggestion !== undefined && suggestion !== '') {
-          facts = await workspaceFacts(question ?? itemTitle, owner.role, MAX_RECORD_FACTS);
-          // Membership or the workspace search can change while that lookup is in flight. Recheck
-          // after the await so a person who became a guest, or lost search, gets no records or sources.
-          if (isGuest(owner.role) || !searchEnabled()) facts = [];
+        // Membership or the workspace search can change while the calls are in flight. Recheck
+        // after the awaits: a person who became a guest gets no records or sources.
+        if (fact !== undefined && (isGuest(person.role) || !searchEnabled())) {
+          suggestion = undefined;
+          fact = undefined;
+          source = undefined;
         }
-        if (!cueStillCurrent(agendaIndex, owner.role, startedIn, speechAtStart)) return;
-        const text = [`You own "${itemTitle}".`];
+        if (!catchupStillCurrent(agendaIndex, person.role, startedIn, speechAtStart)) return;
+        const text = [`Now: "${itemTitle}".`];
         if (question !== undefined) text.push(`Open question: ${question}`);
-        if (suggestion !== undefined && suggestion !== '') text.push(`Suggestion: ${suggestion}`);
+        // A point from the meeting is safe in the text. One from workspace records stays in its
+        // fact, so a reconnect after a demotion can drop it cleanly.
+        if (suggestion !== undefined && source !== undefined && fact === undefined) {
+          text.push(`One point you could add: ${suggestion}`);
+        }
         publishNote(
-          owner.role,
+          person.role,
           {
-            id: `nudge:${owner.role}:${agendaIndex}`,
+            id: catchupId(person.role, agendaIndex),
             kind: 'nudge',
             urgency: 'quiet',
-            title: `Your item: ${itemTitle}`,
+            title: `Catch-up: ${itemTitle}`,
             text: text.join('\n'),
             ...(question === undefined ? {} : { questionText: question, questionFrom: 'room' as const }),
-            ...(facts.length === 0 ? {} : { facts }),
-            ...(facts.length === 0 ? {} : { sources: facts.map(factSource) }),
+            ...(suggestion === undefined || source === undefined
+              ? {}
+              : fact === undefined
+                ? { sources: [source] }
+                : { facts: [{ ...fact, text: suggestion }], sources: [source] }),
           },
-          `wingman:${owner.role}:nudge:${agendaIndex}`,
+          `wingman:${person.role}:catchup:${agendaIndex}`,
         );
+        catchupNotes.set(person.role, agendaIndex);
       }
 
-      /** The two real-meeting pace cues, read from the record the host publishes every tick. */
-      function handleAgendaCues(
-        payload: Extract<KakiEvent, { type: 'MEETING_RECORD_UPDATED' }>['payload'],
-      ): void {
+      /** The real-meeting cues, read from the record the host publishes every tick. */
+      function handleAgendaCues(payload: RecordPayload): void {
         if (ctx.meetingKind?.() !== 'real') return;
-        const hostRole = hostSeat();
         if (
           payload.ended === true ||
           payload.paused === true ||
           ctx.session?.offTheRecordSince() !== undefined
         ) {
+          if (payload.ended === true) clearAllCues();
+          else clearLead();
+          return;
+        }
+        const agendaIndex = payload.agendaIndex;
+        const item = ctx.activeScenario().agenda[agendaIndex];
+        if (item === undefined) {
           clearLead();
           return;
         }
-        if (
-          leadNote !== undefined &&
-          (leadNote.agendaIndex !== payload.agendaIndex ||
-            leadNote.hostRole !== hostRole ||
-            presentItemOwner(leadNote.agendaIndex)?.role !== leadNote.ownerRole)
-        ) {
-          clearLead();
-        }
-        const item = ctx.activeScenario().agenda[payload.agendaIndex];
-        if (item === undefined) return;
         const pace = sealedPace();
-        const owner = presentItemOwner(payload.agendaIndex);
-        if (
-          owner !== undefined &&
-          !quietChecked.has(payload.agendaIndex) &&
-          payload.elapsedSeconds >= pace.quietCheckAfter
-        ) {
-          quietChecked.add(payload.agendaIndex);
-          const talk = payload.speakerTalkSeconds[owner.role] ?? 0;
-          if (talk < pace.ownerQuietBelow) {
-            if (hostRole !== undefined) {
-              fireQuietLead(payload.agendaIndex, owner, hostRole, owner.role, talk > 0);
-            }
-            void fireQuietNudge(payload.agendaIndex, item.title, owner, payload.openQuestions);
+
+        // Nothing from an earlier item carries over, and a note announcing this item has been used.
+        if (leadNote !== undefined && leadNote.agendaIndex !== agendaIndex) clearLead();
+        for (const role of [...catchupNotes.keys()]) {
+          if (catchupNotes.get(role) !== agendaIndex) clearCatchup(role);
+        }
+        for (const index of [...upNextNotes.keys()]) {
+          if (index <= agendaIndex) clearUpNext(index);
+        }
+
+        if (payload.elapsedSeconds >= pace.quietCheckAfter) {
+          const hostRole = hostSeat();
+          if (hostRole !== undefined) updateLead(payload, hostRole, agendaIndex);
+          const question = payload.openQuestions.find((entry) => entry.agendaIndex === agendaIndex)?.text;
+          for (const person of peopleInMeeting(ctx)) {
+            if ((payload.speakerTalkSeconds[person.role] ?? 0) > 0) continue;
+            const key = catchupKey(person.role, agendaIndex);
+            if (catchupSent.has(key)) continue;
+            catchupSent.add(key);
+            void fireCatchup(agendaIndex, item.title, person, question);
           }
         }
 
-        if (comingUpChecked.has(payload.agendaIndex)) return;
-        const next = ctx.activeScenario().agenda[payload.agendaIndex + 1];
+        // A person who has now spoken no longer needs their catch-up.
+        for (const role of [...catchupNotes.keys()]) {
+          if ((payload.speakerTalkSeconds[role] ?? 0) > 0) clearCatchup(role);
+        }
+
+        // Warn the next item's named owner shortly before this item ends, only when exactly one
+        // present seat holds that owner. Otherwise there is no note.
+        const nextIndex = agendaIndex + 1;
+        if (upNextNotes.has(nextIndex)) return;
+        const next = ctx.activeScenario().agenda[nextIndex];
         if (next === undefined) return;
         const remaining = item.minutes * 60 - payload.elapsedSeconds;
         if (remaining <= 0 || remaining > pace.comingUpBefore) return;
-        const nextOwner = presentItemOwner(payload.agendaIndex + 1);
-        if (nextOwner === undefined) return;
-        comingUpChecked.add(payload.agendaIndex);
+        const owner = presentItemOwner(nextIndex);
+        if (owner === undefined) return;
         const minutes = Math.max(1, Math.ceil(remaining / 60));
+        const id = `upcoming:${owner.role}:${nextIndex}`;
         publishNote(
-          nextOwner.role,
+          owner.role,
           {
-            id: `upcoming:${nextOwner.role}:${payload.agendaIndex}`,
+            id,
             kind: 'nudge',
             urgency: 'quiet',
             title: 'Your next item',
             text: `Up next in about ${minutes} min: ${next.title}, it's yours.`,
           },
-          `wingman:${nextOwner.role}:upcoming:${payload.agendaIndex}`,
+          `wingman:${owner.role}:upcoming:${nextIndex}`,
         );
+        upNextNotes.set(nextIndex, { id, role: owner.role });
       }
 
       function clearAskedWhenSpeaking(line: WingmanLine): void {
@@ -847,7 +897,7 @@ export function createWingmanModule(options: WingmanModuleOptions = {}): KakiMod
         for (const person of peopleInMeeting(ctx)) {
           if (!personIsSpeaking(line, person)) continue;
           speechByRole.set(person.role, (speechByRole.get(person.role) ?? 0) + 1);
-          if (leadNote?.ownerRole === person.role) clearLead();
+          clearCatchup(person.role);
         }
         clearAskedWhenSpeaking(line);
         scheduleAskedCheck();
@@ -873,9 +923,9 @@ export function createWingmanModule(options: WingmanModuleOptions = {}): KakiMod
         recordRunning.clear();
         lastRecordLineCount = 0;
         latestRecord = undefined;
-        quietChecked.clear();
-        comingUpChecked.clear();
-        ownerSkipLogged.clear();
+        catchupSent.clear();
+        catchupNotes.clear();
+        upNextNotes.clear();
         speechByRole.clear();
         leadNote = undefined;
         if (askedTimer !== undefined) clearTimeout(askedTimer);

@@ -179,9 +179,9 @@ describe('real meeting seats', () => {
     sockets.push(screen, firstView, secondView);
     const cues: KakiEvent[] = [
       { type: 'WINGMAN_NOTE', audience: { kind: 'role', role: ownerSeat.seat },
-        payload: { id: 'privacy-lead', kind: 'lead', urgency: 'quiet', title: 'Quiet agenda item', text: 'Raj owns this item.' } },
+        payload: { id: 'privacy-lead', kind: 'lead', urgency: 'quiet', title: 'Not heard from yet', text: 'Not heard from yet: Raj, Aisha' } },
       { type: 'WINGMAN_NOTE', audience: { kind: 'role', role: secondSeat.seat },
-        payload: { id: 'privacy-prompt', kind: 'nudge', urgency: 'quiet', title: 'Your item: Budget', text: 'You own Budget.' } },
+        payload: { id: 'privacy-prompt', kind: 'nudge', urgency: 'quiet', title: 'Catch-up: Budget', text: 'Now: "Budget".' } },
       { type: 'WINGMAN_NOTE', audience: { kind: 'role', role: firstSeat.seat },
         payload: { id: 'privacy-upcoming', kind: 'nudge', urgency: 'quiet', title: 'Your next item', text: 'Up next: Hiring.' } },
     ];
@@ -197,6 +197,83 @@ describe('real meeting seats', () => {
     await waitFor(() => received(reconnected).length === 1 ? true : undefined);
     await settle();
     expect(received(reconnected)).toEqual([{ ...cues[1], replayed: true }]);
+  });
+
+  it('withholds retained workspace facts when a seat reconnects after losing its membership', async () => {
+    const { app, base, store } = await build();
+    const owner = await signIn(store, 'Ada');
+    const member = await signIn(store, 'Raj');
+    const workspace = await store.createWorkspace({ name: 'Cue workspace', createdBy: owner.userId });
+    await store.addWorkspaceMember({
+      workspaceId: workspace.workspace.id,
+      userId: member.userId,
+      role: 'member',
+    });
+    const meeting = await app.registry.create({
+      workspaceId: workspace.workspace.id,
+      ownerUserId: owner.userId,
+      title: 'Cue privacy',
+      agenda: [{ title: 'Budget', minutes: 10 }],
+    });
+    const memberSeat = await seat(base, meeting.id, member.cookie, 'Raj');
+    expect(memberSeat.status).toBe(200);
+    const instance = await app.registry.get(meeting.id);
+    if (instance === undefined) throw new Error('Meeting did not load');
+    const fact = {
+      text: 'The delivery window is 10:00 to 16:00.',
+      source: 'Wiki: Delivery',
+      date: '2026-11-01',
+    };
+    const note: KakiEvent = {
+      type: 'WINGMAN_NOTE',
+      audience: { kind: 'role', role: memberSeat.seat },
+      payload: {
+        id: 'catchup:privacy',
+        kind: 'nudge',
+        urgency: 'quiet',
+        title: 'Catch-up: Budget',
+        text: 'Now: "Budget".',
+        facts: [fact],
+        sources: ['Wiki: Delivery (2026-11-01)'],
+      },
+    };
+    instance.hub.publish(note, { retainKey: 'wingman:catchup:privacy' });
+    const received = (view: Socket): KakiEvent[] =>
+      view.messages.filter((event) => event.type === 'WINGMAN_NOTE');
+
+    // While the seat is a member, a reconnect keeps the workspace fact.
+    const memberView = await connect(base, meeting.id, 'participant', memberSeat.cookie);
+    sockets.push(memberView);
+    await waitFor(() => received(memberView).length === 1 ? true : undefined);
+    await settle();
+    expect(received(memberView)).toEqual([{ ...note, replayed: true }]);
+
+    // The account loses its workspace membership: the same seat must not replay the fact.
+    vi.spyOn(store, 'getMembership').mockResolvedValue(undefined);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const reconnect = await connect(base, meeting.id, 'participant', memberSeat.cookie);
+    sockets.push(reconnect);
+    await waitFor(() => received(reconnect).length === 1 ? true : undefined);
+    await settle();
+    const [replayed] = received(reconnect);
+    expect(replayed).toMatchObject({
+      type: 'WINGMAN_NOTE',
+      replayed: true,
+      payload: { text: 'Now: "Budget".' },
+    });
+    if (replayed?.type !== 'WINGMAN_NOTE') throw new Error('expected a Wingman note');
+    expect(replayed.payload.facts).toBeUndefined();
+    expect(replayed.payload.sources).toBeUndefined();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('withheld workspace facts'));
+
+    // A second reconnect logs no second warning.
+    const again = await connect(base, meeting.id, 'participant', memberSeat.cookie);
+    sockets.push(again);
+    await waitFor(() => received(again).length === 1 ? true : undefined);
+    await settle();
+    expect(
+      warn.mock.calls.filter(([message]) => String(message).includes('withheld workspace facts')),
+    ).toHaveLength(1);
   });
 
   it('starts from its own empty scenario, with no practice roles, briefing or AI colleagues', async () => {
