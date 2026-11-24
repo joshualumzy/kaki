@@ -376,6 +376,60 @@ describe('stage action pill', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Dismiss notification' }));
     expect(screen.queryByRole('status')).toBeNull();
   });
+
+  it('points the assignee at their own published card, which is not on the action board', async () => {
+    const needsYou = document.createElement('section');
+    needsYou.id = 'needs-you-now';
+    const board = document.createElement('section');
+    board.id = 'action-board';
+    const toNeedsYou = vi.fn();
+    const toBoard = vi.fn();
+    needsYou.scrollIntoView = toNeedsYou;
+    board.scrollIntoView = toBoard;
+    document.body.append(needsYou, board);
+    try {
+      mocks.screenTasks.set('live', {
+        id: 'live', title: 'Share the stock count', context: '', suggestedAssignee: 'host',
+        assignee: 'chef', agendaItemTitle: 'Prep', status: 'SYNCED',
+        artifactUrl: 'https://example.test/live', updatedAt: '2026-11-13T10:05:00.000Z',
+      });
+      render(<MeetingGrid role="chef" />);
+
+      fireEvent.click(screen.getByRole('status'));
+      await waitFor(() => expect(toNeedsYou).toHaveBeenCalled());
+      expect(toBoard).not.toHaveBeenCalled();
+    } finally {
+      needsYou.remove();
+      board.remove();
+    }
+  });
+
+  it('points everyone else at the action board for a published task', async () => {
+    const needsYou = document.createElement('section');
+    needsYou.id = 'needs-you-now';
+    const board = document.createElement('section');
+    board.id = 'action-board';
+    const toNeedsYou = vi.fn();
+    const toBoard = vi.fn();
+    needsYou.scrollIntoView = toNeedsYou;
+    board.scrollIntoView = toBoard;
+    document.body.append(needsYou, board);
+    try {
+      mocks.screenTasks.set('live', {
+        id: 'live', title: 'Share the stock count', context: '', suggestedAssignee: 'chef',
+        assignee: 'host', agendaItemTitle: 'Prep', status: 'SYNCED',
+        artifactUrl: 'https://example.test/live', updatedAt: '2026-11-13T10:05:00.000Z',
+      });
+      render(<MeetingGrid role="chef" />);
+
+      fireEvent.click(screen.getByRole('status'));
+      await waitFor(() => expect(toBoard).toHaveBeenCalled());
+      expect(toNeedsYou).not.toHaveBeenCalled();
+    } finally {
+      needsYou.remove();
+      board.remove();
+    }
+  });
 });
 
 describe('stage wording', () => {

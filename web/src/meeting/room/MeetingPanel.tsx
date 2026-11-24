@@ -22,7 +22,7 @@ import { TaskControls } from './TaskControls';
 import { WingmanPanel } from './WingmanPanel';
 import type { TranscriptViewer } from './captions';
 import { distinctDisplayNames } from './people';
-import { starterChipsFromAgendaItem } from './stageModel';
+import { starterChipsFromAgendaItem, taskDockSection } from './stageModel';
 import { entryForEvent, entryForTask, type TimelineEntry } from './timeline';
 
 function downloadMinutes(title: string, body: string): void {
@@ -280,41 +280,25 @@ export function MeetingPanel({
   const minutesPublished =
     minutesTask?.artifactUrl !== undefined &&
     (minutesTask.status === 'COMPLETED' || minutesTask.status === 'SYNCED');
+  const meetingWrappedUp = useMemo(
+    () => events.some((event) => event.type === 'HOST_SPEECH_TRIGGERED' && event.payload.kind === 'CLOSING'),
+    [events],
+  );
   const meetingEnded = useMemo(
     () =>
       minutesTask !== undefined ||
       record?.payload.ended === true ||
-      events.some((event) => event.type === 'HOST_SPEECH_TRIGGERED' && event.payload.kind === 'CLOSING'),
-    [events, minutesTask, record],
+      meetingWrappedUp,
+    [meetingWrappedUp, minutesTask, record],
   );
   const currentAgendaTitle = record !== undefined ? scenario.agenda[record.payload.agendaIndex]?.title : undefined;
   const boardTasks = useMemo(
     () =>
-      visibleTasks.filter((task) => {
-        if (role === undefined || task.assignee !== role.id) return true;
-        if (
-          task.status === 'DISPATCHED' ||
-          task.status === 'CLAIMED' ||
-          task.status === 'DRAFT_READY' ||
-          task.status === 'RUNNING' ||
-          task.status === 'COMPLETED' ||
-          task.status === 'FAILED'
-        ) {
-          return false;
-        }
-        if (
-          task.status === 'SYNCED' &&
-          task.artifactUrl !== undefined &&
-          !meetingEnded &&
-          (currentAgendaTitle === undefined ||
-            task.agendaItemTitle === undefined ||
-            task.agendaItemTitle === currentAgendaTitle)
-        ) {
-          return false;
-        }
-        return true;
-      }),
-    [visibleTasks, role, meetingEnded, currentAgendaTitle],
+      visibleTasks.filter(
+        (task) =>
+          taskDockSection(task, role?.id, { meetingEnded: meetingWrappedUp, currentAgendaTitle }) === 'action-board',
+      ),
+    [visibleTasks, role, meetingWrappedUp, currentAgendaTitle],
   );
   const publishedDeliverables = useMemo(
     () =>

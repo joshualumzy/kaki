@@ -27,7 +27,7 @@ import { MutedHint } from './MutedHint';
 import { useRealRoom } from './realRoom';
 import { distinctDisplayNames, peopleNotInRoom } from './people';
 import { SectionIcon } from './SectionHeading';
-import { activeStageTaskFor, tracksWithSpeakerFirst, visibleStageTracks } from './stageModel';
+import { activeStageTaskFor, taskDockSection, tracksWithSpeakerFirst, visibleStageTracks } from './stageModel';
 import { textOnlyNote, transcriptChunks } from './captions';
 
 /** The meeting stage: one tile per participant with live captions, and the AI attendees' status. */
@@ -226,6 +226,11 @@ export function MeetingGrid({
       .find((note) => note.urgency === 'act_now' && note.clears !== true);
   }, [wingmanNotes, real, sharedAudience]);
 
+  const meetingWrappedUp = useMemo(
+    () => screenEvents.some((event) => event.type === 'HOST_SPEECH_TRIGGERED' && event.payload.kind === 'CLOSING'),
+    [screenEvents],
+  );
+
   const activeStageToast = useMemo(() => {
     if (directQuestion !== undefined) {
       return {
@@ -259,13 +264,16 @@ export function MeetingGrid({
       return {
         key,
         label: 'Published · open in Kaki →',
-        target: 'action-board',
+        target: taskDockSection(publishedTask, role, {
+          meetingEnded: meetingWrappedUp,
+          currentAgendaTitle: activeItem?.title,
+        }),
         icon: 'action' as const,
         tone: 'action' as const,
       };
     }
     return undefined;
-  }, [directQuestion, screenTasks, role, activeItem]);
+  }, [directQuestion, screenTasks, role, activeItem, meetingWrappedUp]);
 
   // Open the panel first, then scroll once the section it holds has actually rendered.
   const [pendingScroll, setPendingScroll] = useState<string | null>(null);
@@ -287,10 +295,6 @@ export function MeetingGrid({
   const gridTracks = useMemo(
     () => (narrow ? tracksWithSpeakerFirst(tracks, speakingSpeaker) : tracks),
     [narrow, tracks, speakingSpeaker],
-  );
-  const meetingWrappedUp = useMemo(
-    () => screenEvents.some((event) => event.type === 'HOST_SPEECH_TRIGGERED' && event.payload.kind === 'CLOSING'),
-    [screenEvents],
   );
   const topicSettled = useMemo(() => {
     const title = activeItem?.title;

@@ -113,6 +113,40 @@ export function activeStageTaskFor(
 }
 
 /**
+ * The dock section that shows a task to a seat: its own "Needs you now" cards, or the shared Action
+ * board. The panel filter and the stage pill both use this so the two cannot drift apart.
+ */
+export function taskDockSection(
+  task: Task,
+  role: string | undefined,
+  context: { meetingEnded: boolean; currentAgendaTitle: string | undefined },
+): 'needs-you-now' | 'action-board' {
+  if (role === undefined || (task.assignee ?? task.suggestedAssignee) !== role) return 'action-board';
+  switch (task.status) {
+    case 'DISPATCHED':
+    case 'DRAFT_READY':
+    case 'FAILED':
+    case 'COMPLETED':
+    case 'CLAIMED':
+    case 'RUNNING':
+      return 'needs-you-now';
+    case 'SYNCED':
+      if (task.artifactUrl === undefined) return 'action-board';
+      if (context.meetingEnded) return 'action-board';
+      if (
+        context.currentAgendaTitle !== undefined &&
+        task.agendaItemTitle !== undefined &&
+        task.agendaItemTitle !== context.currentAgendaTitle
+      ) {
+        return 'action-board';
+      }
+      return 'needs-you-now';
+    default:
+      return 'action-board';
+  }
+}
+
+/**
  * The tracks the stage shows: never the runner's technical listener, and only AI attendees in this
  * meeting's cast. People are never filtered by metadata: a camera-off placeholder must still show
  * its human tile.

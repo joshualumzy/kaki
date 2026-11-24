@@ -473,7 +473,8 @@ describe('wingman module', () => {
       expect(note.payload).toMatchObject({
         kind: 'asked_you',
         urgency: 'act_now',
-        text: 'Bao asked you: When is the delivery?',
+        title: 'Bao asked you',
+        text: 'When is the delivery?',
         questionText: 'When is the delivery?',
       });
       expect(note.payload.facts).toEqual([factA]);

@@ -346,7 +346,7 @@ export function createWingmanModule(options: WingmanModuleOptions = {}): KakiMod
               kind: 'asked_you',
               urgency: 'act_now',
               title: `${speakerName(line.speaker)} asked you`,
-              text: `${speakerName(line.speaker)} asked you: ${verdict.question}`,
+              text: verdict.question,
               questionText: verdict.question,
               questionFrom: 'person',
               askedBy: speakerName(line.speaker),

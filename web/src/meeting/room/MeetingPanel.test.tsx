@@ -434,7 +434,7 @@ describe('MeetingPanel', () => {
       kind: 'asked_you',
       urgency: 'act_now',
       title: 'Ravi asked you',
-      text: 'Ravi asked you: What should the kiosk do at 8?',
+      text: 'What should the kiosk do at 8?',
       questionText: 'What should the kiosk do at 8?',
       questionFrom: 'person',
       askedBy: 'Ravi',
