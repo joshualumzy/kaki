@@ -336,6 +336,11 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
   // The runner's listener is left in the room like the AI attendees when people are removed.
   const runnerOwnedNames = [...packNpcNames, KAKI_LISTENER_IDENTITY];
   let watchedRoom: string | undefined;
+  /**
+   * The seats a successful room read shows connected right now, or undefined when it cannot be
+   * checked. Cues read this instead of the retained holders, who outlive an individual departure.
+   */
+  let presentSeats: Set<string> | undefined;
   // The plan the owner opened, frozen for non-owners so later draft edits never leak into it.
   let lobbySnapshot: Scenario | undefined;
   // The server owns the empty-room pause: a running meeting pauses once the room has read empty
@@ -358,6 +363,37 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
     publishRunnerState();
     persistence?.scheduleSave();
   }
+  /**
+   * Remember who a room read shows, for code that must answer "who is present" synchronously.
+   * LiveKit's roster is the same source the People view uses; an unreadable roster clears presence
+   * so cues fail closed rather than fall back to holders who may have left.
+   */
+  function rememberPresentPeople(
+    people: readonly { name: string; role?: string }[] | undefined,
+  ): void {
+    if (people === undefined) {
+      presentSeats = undefined;
+      return;
+    }
+    const seats = new Set<string>();
+    const holders = session.holders();
+    for (const person of people) {
+      if (!isHumanParticipant(person.name, packNpcNames)) continue;
+      const role = person.role?.trim();
+      if (role !== undefined && role !== '') {
+        seats.add(role.toLowerCase());
+        continue;
+      }
+      const name = person.name.trim().toLowerCase();
+      const holder = holders.find(
+        (candidate) =>
+          (candidate.displayName?.trim() || candidate.name).trim().toLowerCase() === name ||
+          candidate.name.trim().toLowerCase() === name,
+      );
+      if (holder !== undefined) seats.add(holder.seat.trim().toLowerCase());
+    }
+    presentSeats = seats;
+  }
   const roomPoll = createRoomPoll({
     guard: rejoin,
     // Someone joined (even before Start), or the meeting is running: keep watching the room.
@@ -367,6 +403,7 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
     roster: roomRoster,
     roomName: () => watchedRoom,
     isHuman: (name) => isHumanParticipant(name, packNpcNames),
+    onRoster: rememberPresentPeople,
     // Quick while a meeting runs so an empty room pauses and a returning person resumes promptly;
     // the slower interval is only for the grace window around a meeting that has not started.
     intervalMs: () =>
@@ -517,11 +554,13 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
         (principal?.kind === 'seat' ? principal.role : undefined) ??
         (principal?.kind === 'host' ? principal.seat : undefined);
       if (seat !== undefined) {
-        if (principal?.kind === 'seat') {
-          // A seat without an account (including a guest session that took a seat), or a signed-in
-          // person outside this workspace, is never a workspace member. A failure to check membership fails closed as a guest.
+        if (principal?.kind === 'seat' || principal?.kind === 'host') {
+          // An owner, host or seat holder goes through the same workspace-membership check. A seat
+          // without an account, a signed-in person outside this workspace, or a check the server
+          // cannot make all fail closed as a guest: retained workspace facts must never reach
+          // someone whose membership is not proven.
           const userId = principal.userId;
-          let guest = userId === undefined;
+          let guest = true;
           if (userId !== undefined && auth !== undefined) {
             try {
               guest =
@@ -534,8 +573,8 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
           }
           seatGuests.set(seat, guest);
         } else {
-          // A guest principal is a guest; a host seat and every other kind is not.
-          seatGuests.set(seat, principal?.kind === 'guest');
+          // A guest principal is a guest; an unidentified or practice principal fails closed too.
+          seatGuests.set(seat, true);
         }
       }
     }
@@ -793,6 +832,7 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
     tasks.reset();
     roomPoll.reset();
     reservations.clear();
+    presentSeats = undefined;
   });
 
   /** Speech lines are bounded separately: a long recognised turn is still one line. */
@@ -1835,6 +1875,7 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
         packFree,
         meetingDetails: () => session.snapshot(),
         seatIsGuest: (role) => seatGuests.get(role),
+        presentRoles: () => presentSeats,
         ...(onMinutes === undefined
           ? {}
           : {

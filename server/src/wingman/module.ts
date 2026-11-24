@@ -233,8 +233,8 @@ export function createWingmanModule(options: WingmanModuleOptions = {}): KakiMod
       let latestRecord: Extract<KakiEvent, { type: 'MEETING_RECORD_UPDATED' }>['payload'] | undefined;
       /** One catch-up per person per agenda item, even after it is cleared. */
       const catchupSent = new Set<string>();
-      /** Catch-ups being written now, so a second record does not start another. */
-      const catchupInFlight = new Set<string>();
+      /** Catch-ups being written now, each guarded by the token of the request that owns it. */
+      const catchupInFlight = new Map<string, symbol>();
       /** Catch-up notes live for this item, so a change or a speaker can remove them. */
       const catchupNotes = new Map<Role, number>();
       /** "Up next" notes, keyed by the item they announce. */
@@ -310,10 +310,32 @@ export function createWingmanModule(options: WingmanModuleOptions = {}): KakiMod
         return role;
       }
 
+      /**
+       * The seats a real meeting's room shows connected, read from the People view's roster.
+       * Undefined means the server cannot prove anyone is present, so cues must stay silent.
+       */
+      function presentRoleSet(): Set<Role> | undefined {
+        if (ctx.meetingKind?.() !== 'real') return undefined;
+        const present = ctx.presentRoles?.();
+        if (present === undefined) return undefined;
+        return new Set([...present].map((role) => role.trim().toLowerCase()));
+      }
+
+      /** People connected right now: a retained holder who left is no longer in the room. */
+      function presentPeople(): Person[] {
+        const people = peopleInMeeting(ctx);
+        if (ctx.meetingKind?.() !== 'real') return people;
+        const present = presentRoleSet();
+        if (present === undefined) return [];
+        return people.filter((person) => present.has(person.role.trim().toLowerCase()));
+      }
+
       /** Resolve exactly one present holder by seat identity; display names are only labels. */
       function presentItemOwner(agendaIndex: number): Person | undefined {
         const role = itemOwnerRole(agendaIndex);
         if (role === undefined) return undefined;
+        const present = presentRoleSet();
+        if (present === undefined || !present.has(role.trim().toLowerCase())) return undefined;
         const holders = (ctx.meetingDetails?.().holders ?? []).filter((holder) => holder.seat === role);
         const roles = ctx.activeScenario().roles.filter((entry) => entry.id === role);
         if (holders.length !== 1 || roles.length !== 1) return undefined;
@@ -352,7 +374,7 @@ export function createWingmanModule(options: WingmanModuleOptions = {}): KakiMod
 
       /** People in the room who have not spoken on the current item, from the notetaker's talk time. */
       function silentPeople(record: RecordPayload): Person[] {
-        return peopleInMeeting(ctx).filter((person) => (record.speakerTalkSeconds[person.role] ?? 0) <= 0);
+        return presentPeople().filter((person) => (record.speakerTalkSeconds[person.role] ?? 0) <= 0);
       }
 
       /** Show the owner who has not spoken yet, updating the one line as people start. */
@@ -427,7 +449,7 @@ export function createWingmanModule(options: WingmanModuleOptions = {}): KakiMod
         ) {
           return false;
         }
-        if (!peopleInMeeting(ctx).some((person) => person.role === role)) return false;
+        if (!presentPeople().some((person) => person.role === role)) return false;
         if ((record.speakerTalkSeconds[role] ?? 0) > 0) return false;
         return (speechByRole.get(role) ?? 0) === speechAtStart;
       }
@@ -437,6 +459,8 @@ export function createWingmanModule(options: WingmanModuleOptions = {}): KakiMod
         itemTitle: string,
         person: Person,
         question: string | undefined,
+        key: string,
+        token: symbol,
       ): Promise<void> {
         const startedIn = generation;
         const speechAtStart = speechByRole.get(person.role) ?? 0;
@@ -461,16 +485,19 @@ export function createWingmanModule(options: WingmanModuleOptions = {}): KakiMod
             if (stopped || startedIn !== generation) return;
             const verdict = parseCatchupReply(raw, lines, facts);
             if (verdict !== undefined) {
+              // Shorten first, then verify exactly the text that will be shown. Verifying the full
+              // sentence and truncating afterwards could drop a trailing condition the model saw.
+              const candidate = shortenSuggestion(verdict.suggestion);
               try {
                 const supported = await verifyCatchupSuggestion(
                   llm,
-                  verdict.suggestion,
+                  candidate,
                   verdict.evidence,
                   (message) => console.warn(`kaki wingman: ${message}`),
                 );
                 if (stopped || startedIn !== generation) return;
                 if (supported) {
-                  suggestion = shortenSuggestion(verdict.suggestion);
+                  suggestion = candidate;
                   fact = verdict.fact;
                   source = verdict.source;
                 } else {
@@ -500,6 +527,9 @@ export function createWingmanModule(options: WingmanModuleOptions = {}): KakiMod
           source = undefined;
         }
         if (!catchupStillCurrent(agendaIndex, person.role, startedIn, speechAtStart)) return;
+        // Only the request that still owns this key may publish, and one already sent stays sent.
+        // A request that finished after a reset must not clear or duplicate the new request's guard.
+        if (catchupInFlight.get(key) !== token || catchupSent.has(key)) return;
         const text = [`Now: "${itemTitle}".`];
         if (question !== undefined) text.push(`Open question: ${question}`);
         // A point from the meeting is safe in the text. One from workspace records stays in its

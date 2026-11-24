@@ -223,6 +223,11 @@ interface RoomPollOptions {
   roomName: () => string | undefined;
   /** True for a person (not an AI attendee), matching how the join route counts who is present. */
   isHuman: (name: string) => boolean;
+  /**
+   * The people a successful read found, or undefined when LiveKit could not be asked. Lets a
+   * caller answer "who is present" synchronously from the same roster the People view reads.
+   */
+  onRoster?(people: readonly { name: string; role?: string }[] | undefined): void;
   /** How often to look; a function is asked again after every poll so it can follow the phase. */
   intervalMs?: number | (() => number);
   /**
@@ -254,6 +259,7 @@ export function createRoomPoll({
   roster,
   roomName,
   isHuman,
+  onRoster,
   intervalMs = REJOIN_POLL_MS,
   emptyPauseAfterMs = EMPTY_ROOM_PAUSE_MS,
   onEmpty,
@@ -282,8 +288,14 @@ export function createRoomPoll({
     polling = true;
     try {
       const people = await roster(name);
+      if (closed) {
+        emptySince = undefined;
+        return;
+      }
+      // Report the read even when it failed: a caller that tracks presence must fail closed.
+      onRoster?.(people);
       // LiveKit not reachable: the empty spell cannot be trusted to have continued through it.
-      if (people === undefined || closed) {
+      if (people === undefined) {
         emptySince = undefined;
         return;
       }

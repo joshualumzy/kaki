@@ -48,6 +48,12 @@ export interface KakiContext {
    */
   seatIsGuest?(role: Role): boolean | undefined;
   /**
+   * The seats currently connected to the room, from the same roster the People view reads, or
+   * undefined when that cannot be checked. Retained holders outlive an individual departure, so a
+   * cue that names or nudges people must use this instead and fail closed on undefined.
+   */
+  presentRoles?(): ReadonlySet<Role> | undefined;
+  /**
    * Keep Kaki's own copy of the end-of-meeting minutes and to-dos with the meeting, so the
    * workspace history still has them after the meeting is unloaded and whatever tools are connected.
    */
