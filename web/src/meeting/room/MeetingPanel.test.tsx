@@ -197,6 +197,82 @@ describe('MeetingPanel', () => {
     expect(screen.queryByRole('button', { name: /Need an idea/ })).toBeNull();
   });
 
+  it('counts a renamed seat by its speakerRole even when its name matches an AI attendee', () => {
+    const twoItems: Scenario = {
+      ...scenario,
+      npcs: [{ attendee: 'Renamed Guest', voice: 'v', personality: 'p', agenda: 'a', concerns: [], role: 'host' }],
+      agenda: [
+        scenario.agenda[0]!,
+        { ...scenario.agenda[0]!, title: 'Stock for the rush' },
+      ],
+    };
+    mocks.useScenario.mockReturnValue(twoItems);
+    mocks.useKaki.mockReturnValue(withSpeech({
+      events: [
+        {
+          type: 'MEETING_RECORD_UPDATED',
+          audience: { kind: 'all' },
+          payload: { agendaIndex: 1, openQuestions: [], elapsedSeconds: 5, speakerTalkSeconds: {} },
+        },
+        {
+          type: 'TRANSCRIPT_CHUNK',
+          audience: { kind: 'all' },
+          payload: {
+            speaker: 'Renamed Guest',
+            text: 'We should order more for the morning.',
+            timestamp: '2026-11-07T10:00:00Z',
+            speakerRole: 'operations_director',
+          },
+        },
+      ],
+      tasks: new Map(),
+      connected: true,
+      rejection: null,
+      send: vi.fn(),
+    }));
+    render(<MeetingPanel viewer={{ name: 'Joshua', seatName: 'Wei Ling' }} role={scenario.roles[0]} practice />);
+
+    fireEvent.click(screen.getByRole('button', { name: /Need an idea/ }));
+    expect(screen.getByText(/table it for now/)).toBeTruthy();
+  });
+
+  it("offers only the current agenda item's open questions as quick replies", () => {
+    const twoItems: Scenario = {
+      ...scenario,
+      agenda: [
+        scenario.agenda[0]!,
+        { ...scenario.agenda[0]!, title: 'Stock for the rush' },
+      ],
+    };
+    mocks.useScenario.mockReturnValue(twoItems);
+    mocks.useKaki.mockReturnValue(withSpeech({
+      events: [
+        {
+          type: 'MEETING_RECORD_UPDATED',
+          audience: { kind: 'all' },
+          payload: {
+            agendaIndex: 1,
+            openQuestions: [
+              { id: 'q-old', text: 'What happened to the old regulars?', forRole: 'operations_director', agendaIndex: 0 },
+              { id: 'q-now', text: 'How much stock do we need for the rush?', forRole: 'operations_director', agendaIndex: 1 },
+            ],
+            elapsedSeconds: 5,
+            speakerTalkSeconds: {},
+          },
+        },
+      ],
+      tasks: new Map(),
+      connected: true,
+      rejection: null,
+      send: vi.fn(),
+    }));
+    render(<MeetingPanel viewer={{ name: 'Joshua', seatName: 'Wei Ling' }} role={scenario.roles[0]} practice />);
+
+    fireEvent.click(screen.getByRole('button', { name: /Need an idea/ }));
+    expect(screen.getByText(/How much stock do we need for the rush\?/)).toBeTruthy();
+    expect(screen.queryByText(/What happened to the old regulars\?/)).toBeNull();
+  });
+
   it('replaces a cut transcript line in place instead of listing the whole line and then the cut line', () => {
     const full: KakiEvent = {
       type: 'TRANSCRIPT_CHUNK',
@@ -250,6 +326,8 @@ describe('MeetingPanel', () => {
       title: 'Wingman',
       text: 'You asked what we decided: the cash box moves.',
       questionText: 'what did we decide?',
+      questionFrom: 'you',
+      at: '2026-11-06T10:05:00.000Z',
       facts: [{ text: 'The shop still has launch budget left.', source: 'wiki SOP', date: '2026-11-06' }],
       sources: ['wiki SOP (2026-11-06)'],
     },
@@ -266,6 +344,10 @@ describe('MeetingPanel', () => {
       urgency: 'act_now',
       title: 'Ravi asked you',
       text: 'Ravi asked you: What should the kiosk do at 8?',
+      questionText: 'What should the kiosk do at 8?',
+      questionFrom: 'person',
+      askedBy: 'Ravi',
+      at: '2026-11-06T10:05:00.000Z',
     },
     {
       id: 'record:operations_director:1',
@@ -290,7 +372,6 @@ describe('MeetingPanel', () => {
     render(<MeetingPanel viewer={{ name: 'Joshua', seatName: 'Wei Ling' }} role={scenario.roles[0]} />);
 
     const panel = within(screen.getByLabelText('Wingman'));
-    fireEvent.click(panel.getByRole('button', { name: /Earlier · 3 more/ }));
     expect(panel.getByText('Answer')).toBeTruthy();
     expect(panel.getByText('You asked what we decided: the cash box moves.')).toBeTruthy();
     expect(panel.getByText('The shop still has launch budget left.')).toBeTruthy();

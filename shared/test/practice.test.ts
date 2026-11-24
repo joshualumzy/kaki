@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { itemMode, resolveAgendaPick, shuffleAgendaForRole, codeProblem, normalizeMeetingCode, aiCast, hostRole, seatProblem, humanSeatCapacity, humanSeatCount, demoRoomName, humanAttendeeForRole, humanRoles, joinSeatRoles, isHumanParticipant, isKakiListener, KAKI_LISTENER_IDENTITY } from '../src/practice';
+import { describe, expect, it, vi } from 'vitest';
+import { FAILURE_CODES, isFailureCode, itemMode, parseSpeechStatusMessage, resolveAgendaPick, shuffleAgendaForRole, codeProblem, normalizeMeetingCode, aiCast, hostRole, seatProblem, humanSeatCapacity, humanSeatCount, demoRoomName, humanAttendeeForRole, humanRoles, joinSeatRoles, isHumanParticipant, isKakiListener, KAKI_LISTENER_IDENTITY } from '../src/practice';
 import type { Scenario } from '../src/scenarioTypes';
 import { testScenario } from './fixtures';
 
@@ -227,5 +227,39 @@ describe('agenda pair rules', () => {
     expect(() => resolveAgendaPick(scenario, '7')).toThrow(/out of range/);
     expect(() => resolveAgendaPick(scenario, 'Item A,Item A')).toThrow(/more than once/);
     expect(() => resolveAgendaPick({ ...scenario, excludedPairs: [['Item A', 'Item C']] }, 'Item C,Item A')).toThrow(/excluded pair/);
+  });
+});
+
+describe('speech status wire codes', () => {
+  it('accepts only the codes the server sends', () => {
+    expect([...FAILURE_CODES]).toEqual([
+      'speech-failed',
+      'speech-outage',
+      'room-reconnecting',
+      'room-lost',
+    ]);
+    expect(isFailureCode('mic-blocked')).toBe(false);
+    expect(isFailureCode('camera-failed')).toBe(false);
+    expect(isFailureCode('media-blocked')).toBe(false);
+  });
+
+  it('keeps an unknown code from swallowing the rest of the status', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      const parsed = parseSpeechStatusMessage({
+        participants: {
+          Ana: { state: 'failed', code: 'future-code' },
+          Bao: { state: 'listening' },
+        },
+        outage: { code: 'another-future-code', reason: 'engine exploded' },
+      });
+
+      expect(parsed?.participants.Ana).toEqual({ state: 'failed', code: 'speech-unknown' });
+      expect(parsed?.participants.Bao).toEqual({ state: 'listening' });
+      expect(parsed?.outage).toEqual({ code: 'speech-unknown', reason: 'engine exploded' });
+      expect(warn).toHaveBeenCalledTimes(2);
+    } finally {
+      warn.mockRestore();
+    }
   });
 });

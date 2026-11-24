@@ -189,8 +189,8 @@ export function MeetingPanel({
 
   const activeAgendaIndex = record?.payload.agendaIndex ?? 0;
   useEffect(() => {
-    setShowIdeas(false);
-  }, [activeAgendaIndex]);
+    if (practice) setShowIdeas(false);
+  }, [activeAgendaIndex, practice]);
 
   const viewerSeatName = scenario.attendees.find((attendee) => attendee.role === role?.id)?.name;
   const starterChips = useMemo(() => {
@@ -205,13 +205,13 @@ export function MeetingPanel({
     );
   }, [practice, record, scenario.agenda, activeAgendaIndex, viewerSeatName, facilitatorName]);
   const hasVisitorSpokenOnTopic = useMemo(() => {
-    if (role === undefined) return false;
+    if (!practice || role === undefined) return false;
     const speech = speechByTopic.get(activeAgendaIndex);
     if (speech === undefined) return false;
     if (speech.roles.has(role.id)) return true;
     const npcNames = new Set((scenario.npcs ?? []).map((npc) => npc.attendee.toLowerCase()));
     return [...speech.names].some((name) => !npcNames.has(name));
-  }, [role, speechByTopic, activeAgendaIndex, scenario.npcs]);
+  }, [practice, role, speechByTopic, activeAgendaIndex, scenario.npcs]);
 
   useEffect(() => {
     const added: TimelineEntry[] = [];
@@ -521,7 +521,7 @@ export function MeetingPanel({
       )}
       </section>
 
-      <section className="kd-panel-section" aria-label="Wingman section">
+      <section id="wingman" className="kd-panel-section" aria-label="Wingman section">
         <SectionHeading icon="ear" tone="wingman" aside="private to you">Wingman</SectionHeading>
         {practice && (
           <details

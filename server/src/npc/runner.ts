@@ -27,7 +27,7 @@ import {
   type NpcStateMessage,
   type RunnerMeetingSnapshot,
   type RunnerSnapshotVersion,
-  type FailureCode,
+  type WireFailureCode,
   type Scenario,
   type SpeechState,
   type SpeechStatusEntry,
@@ -360,7 +360,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
   // person's transcribing badge, and a failure must be shown on the speaker's own tile.
   const speechStates = new Map<string, SpeechStatusEntry>();
   let consecutiveSpeechFailures = 0;
-  let speechOutage: { code: FailureCode; reason?: string } | undefined;
+  let speechOutage: { code: WireFailureCode; reason?: string } | undefined;
 
   function publishSpeechStatus(): void {
     const message: SpeechStatusMessage = {
@@ -370,7 +370,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     publishData(SPEECH_STATUS_TOPIC, message);
   }
 
-  function setSpeechState(identity: string, state: SpeechState, code?: FailureCode): void {
+  function setSpeechState(identity: string, state: SpeechState, code?: WireFailureCode): void {
     const previous = speechStates.get(identity);
     if (previous !== undefined && previous.state === state && previous.code === code) return;
     speechStates.set(identity, { state, ...(code === undefined ? {} : { code }) });

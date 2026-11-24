@@ -60,7 +60,7 @@ export function MeetingGrid({
   const meetingState = realRoom?.meetingState;
   const offTheRecord = real && meetingState?.offTheRecord !== null && meetingState?.offTheRecord !== undefined;
   const { localParticipant } = useLocalParticipant();
-  const { events } = useKaki({ kind: 'role', role });
+  const { events, wingmanNotes } = useKaki({ kind: 'role', role });
   const { events: screenEvents, latestRecord, speechByTopic, tasks: screenTasks } = useKaki(sharedAudience === 'participant' ? { kind: 'participant' } : { kind: 'screen' });
   const participants = useParticipants().filter((participant) => !isKakiListener(participant.identity));
   // A real meeting lists everyone the server seated, even before their LiveKit connection arrives.
@@ -135,8 +135,12 @@ export function MeetingGrid({
   const speechNotice = useMemo(() => {
     if (speechStatus.outage !== undefined) {
       return {
-        key: `outage:${speechStatus.outage.code}`,
-        text: failureText(speechStatus.outage.code, { real }),
+        // The raw reason is part of the key, so a new outage reason announces again.
+        key: `outage:${speechStatus.outage.code}:${speechStatus.outage.reason ?? ''}`,
+        text: failureText(speechStatus.outage.code, {
+          real,
+          ownSpeechFailed: ownSpeechFailure !== undefined,
+        }),
       };
     }
     if (ownSpeechFailure !== undefined) {
@@ -214,7 +218,24 @@ export function MeetingGrid({
     onKakiBadgeChange?.(actionableMyTasksCount);
   }, [actionableMyTasksCount, onKakiBadgeChange]);
 
+  // A direct question for this seat outranks any task pill, but a shared screen never sees it.
+  const directQuestion = useMemo(() => {
+    if (real && sharedAudience !== 'participant') return undefined;
+    return [...wingmanNotes]
+      .reverse()
+      .find((note) => note.urgency === 'act_now' && note.clears !== true);
+  }, [wingmanNotes, real, sharedAudience]);
+
   const activeStageToast = useMemo(() => {
+    if (directQuestion !== undefined) {
+      return {
+        key: `question:${directQuestion.id}`,
+        label: 'Kaki has a question for you · open in Kaki →',
+        target: 'wingman',
+        icon: 'ear' as const,
+        tone: 'wingman' as const,
+      };
+    }
     const allTasks = [...screenTasks.values()];
     const myTask = activeStageTaskFor(allTasks, role, activeItem?.title);
     if (myTask !== undefined) {
@@ -225,7 +246,9 @@ export function MeetingGrid({
           myTask.status === 'DRAFT_READY'
             ? 'Draft ready · review in Kaki →'
             : 'A task needs you · open in Kaki →',
-        target: '.kd-role-active',
+        target: 'needs-you-now',
+        icon: 'action' as const,
+        tone: 'action' as const,
       };
     }
     const publishedTask = [...allTasks]
@@ -236,11 +259,29 @@ export function MeetingGrid({
       return {
         key,
         label: 'Published · open in Kaki →',
-        target: '.kd-role-active, #action-board',
+        target: 'action-board',
+        icon: 'action' as const,
+        tone: 'action' as const,
       };
     }
     return undefined;
-  }, [screenTasks, role, activeItem]);
+  }, [directQuestion, screenTasks, role, activeItem]);
+
+  // Open the panel first, then scroll once the section it holds has actually rendered.
+  const [pendingScroll, setPendingScroll] = useState<string | null>(null);
+  useEffect(() => {
+    if (pendingScroll === null) return;
+    const scroll = (): void => {
+      document.getElementById(pendingScroll)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      setPendingScroll(null);
+    };
+    const hasRaf = typeof window.requestAnimationFrame === 'function';
+    const frame = hasRaf ? window.requestAnimationFrame(scroll) : window.setTimeout(scroll, 0);
+    return () => {
+      if (hasRaf) window.cancelAnimationFrame(frame);
+      else window.clearTimeout(frame);
+    };
+  }, [pendingScroll]);
 
   const speakingSpeaker = npcState.kind === 'speaking' ? npcState.speaker : undefined;
   const gridTracks = useMemo(
@@ -262,7 +303,10 @@ export function MeetingGrid({
     activeStageToast !== undefined &&
     activeStageToast.key !== dismissedToastKey &&
     !meetingWrappedUp &&
-    (!topicSettled || activeStageToast.key.startsWith('task:') || activeStageToast.key.startsWith('published:')) &&
+    (!topicSettled ||
+      activeStageToast.key.startsWith('question:') ||
+      activeStageToast.key.startsWith('task:') ||
+      activeStageToast.key.startsWith('published:')) &&
     !(!narrow && activeStageToast.key.startsWith('task:') && actionableMyTasksCount > 0);
 
   return (
@@ -281,7 +325,7 @@ export function MeetingGrid({
           </div>
         )}
         {!offTheRecord && speechNotice !== undefined && (
-          <div role="alert" className="kd-banner" data-tone="error">
+          <div key={speechNotice.key} role="alert" className="kd-banner" data-tone="error">
             {speechNotice.text}
           </div>
         )}
@@ -293,15 +337,16 @@ export function MeetingGrid({
         {!offTheRecord && stageToastVisible && activeStageToast !== undefined && (
           <div
             className="kd-stage-toast"
+            data-tone={activeStageToast.tone}
             role="status"
             aria-live="polite"
             onClick={() => {
               onOpenKaki?.();
-              document.querySelector(activeStageToast.target)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+              setPendingScroll(activeStageToast.target);
             }}
             style={{ cursor: 'pointer' }}
           >
-            <SectionIcon name="action" className="kd-stage-toast-icon" />
+            <SectionIcon name={activeStageToast.icon} className="kd-stage-toast-icon" />
             <span className="kd-stage-toast-text">{activeStageToast.label}</span>
             <button
               type="button"

@@ -49,14 +49,16 @@ export type NpcStateMessage =
 export type SpeechState = 'listening' | 'transcribing' | 'failed';
 
 /**
- * A machine code for a speech or device failure. The browser turns it into one sentence, so the
- * same happening reads the same way in every place and can differ between practice and a real meeting.
+ * A speech or room failure the runner may put on the wire. This list is exactly what the server
+ * sends; a device failure the browser detects itself never travels this way.
  */
-export type FailureCode =
-  | 'speech-failed'
-  | 'speech-outage'
-  | 'room-reconnecting'
-  | 'room-lost'
+export type WireFailureCode = 'speech-failed' | 'speech-outage' | 'room-reconnecting' | 'room-lost';
+
+/**
+ * A device failure the browser words for itself before or around joining, plus one local
+ * placeholder for a wire code this browser does not recognise yet.
+ */
+export type DeviceFailureCode =
   | 'mic-blocked'
   | 'mic-missing'
   | 'camera-blocked'
@@ -67,25 +69,19 @@ export type FailureCode =
   | 'mic-failed'
   | 'camera-failed';
 
+/** A code the browser turns into one sentence; `speech-unknown` is local only. */
+export type FailureCode = WireFailureCode | DeviceFailureCode | 'speech-unknown';
+
 /** Every code a speech-status message may carry, in one place for the wire parser. */
-export const FAILURE_CODES: readonly FailureCode[] = [
+export const FAILURE_CODES: readonly WireFailureCode[] = [
   'speech-failed',
   'speech-outage',
   'room-reconnecting',
   'room-lost',
-  'mic-blocked',
-  'mic-missing',
-  'camera-blocked',
-  'camera-missing',
-  'media-blocked',
-  'mic-unsupported',
-  'camera-unsupported',
-  'mic-failed',
-  'camera-failed',
 ];
 
-/** True when a value is one of the failure codes the browser knows how to word. */
-export function isFailureCode(value: unknown): value is FailureCode {
+/** True when a value is a failure code the server may send on the wire. */
+export function isFailureCode(value: unknown): value is WireFailureCode {
   return typeof value === 'string' && (FAILURE_CODES as readonly string[]).includes(value);
 }
 
@@ -118,21 +114,31 @@ export function parseSpeechStatusMessage(raw: unknown): SpeechStatusMessage | un
     if (identity.trim() === '' || typeof value !== 'object' || value === null) return undefined;
     const state = (value as { state?: unknown }).state;
     if (state !== 'listening' && state !== 'transcribing' && state !== 'failed') return undefined;
-    const code = (value as { code?: unknown }).code;
-    if (code !== undefined && !isFailureCode(code)) return undefined;
+    const code = speechFailureCode((value as { code?: unknown }).code);
     parsed[identity] = { state, ...(code === undefined ? {} : { code }) };
   }
   const outage = (raw as { outage?: unknown }).outage;
   if (outage === undefined) return { participants: parsed };
   if (typeof outage !== 'object' || outage === null) return undefined;
-  const outageCode = (outage as { code?: unknown }).code;
-  if (!isFailureCode(outageCode)) return undefined;
+  const outageCode = speechFailureCode((outage as { code?: unknown }).code);
+  if (outageCode === undefined) return undefined;
   const reason = (outage as { reason?: unknown }).reason;
   if (reason !== undefined && typeof reason !== 'string') return undefined;
   return {
     participants: parsed,
     outage: { code: outageCode, ...(reason === undefined ? {} : { reason }) },
   };
+}
+
+/**
+ * A wire code this browser knows, or a local placeholder so an unrecognised one is still shown
+ * (never silently swallowing the people in the same status message).
+ */
+function speechFailureCode(value: unknown): FailureCode | undefined {
+  if (value === undefined) return undefined;
+  if (isFailureCode(value)) return value;
+  console.warn(`kaki: unknown speech failure code "${String(value)}"; showing a generic message`);
+  return 'speech-unknown';
 }
 
 /**

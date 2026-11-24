@@ -378,7 +378,12 @@ describe('useKaki lifecycle state', () => {
 });
 
 describe('useKaki Wingman notes', () => {
-  function noteMessage(id: string, text: string, clears = false): { data: string } {
+  function noteMessage(
+    id: string,
+    text: string,
+    clears = false,
+    extra: Record<string, unknown> = {},
+  ): { data: string } {
     return {
       data: JSON.stringify({
         type: 'WINGMAN_NOTE',
@@ -389,6 +394,7 @@ describe('useKaki Wingman notes', () => {
           urgency: 'quiet',
           title: 'Wingman',
           text,
+          ...extra,
           ...(clears ? { clears: true } : {}),
         },
       }),
@@ -397,7 +403,7 @@ describe('useKaki Wingman notes', () => {
 
   it("keeps this feed's own notes and removes one when the server clears it", async () => {
     const { useKaki } = await import('./useKaki');
-    const { result } = renderMeetingHook(() => useKaki({ kind: 'participant' }));
+    const { result } = renderMeetingHook(() => useKaki({ kind: 'role', role: 'chef' }));
     const socket = sockets[0]!;
     act(() => socket.emit('open'));
 
@@ -411,7 +417,7 @@ describe('useKaki Wingman notes', () => {
 
   it('keeps a cleared note in history while the active list drops it', async () => {
     const { useKaki } = await import('./useKaki');
-    const { result } = renderMeetingHook(() => useKaki({ kind: 'participant' }));
+    const { result } = renderMeetingHook(() => useKaki({ kind: 'role', role: 'chef' }));
     const socket = sockets[0]!;
     act(() => socket.emit('open'));
 
@@ -425,7 +431,7 @@ describe('useKaki Wingman notes', () => {
 
   it('keeps history after more than fifty later events push the note out of the window', async () => {
     const { useKaki } = await import('./useKaki');
-    const { result } = renderMeetingHook(() => useKaki({ kind: 'participant' }));
+    const { result } = renderMeetingHook(() => useKaki({ kind: 'role', role: 'chef' }));
     const socket = sockets[0]!;
     act(() => socket.emit('open'));
 
@@ -445,7 +451,7 @@ describe('useKaki Wingman notes', () => {
 
   it('forgets the Wingman history when the meeting resets', async () => {
     const { useKaki } = await import('./useKaki');
-    const { result } = renderMeetingHook(() => useKaki({ kind: 'participant' }));
+    const { result } = renderMeetingHook(() => useKaki({ kind: 'role', role: 'chef' }));
     const socket = sockets[0]!;
     act(() => socket.emit('open'));
 
@@ -466,6 +472,58 @@ describe('useKaki Wingman notes', () => {
 
     expect(result.current.wingmanNotes).toHaveLength(0);
     expect(result.current.wingmanHistory).toHaveLength(0);
+  });
+
+  it('drops another seat\'s note from a participant feed that holds no seat', async () => {
+    const { useKaki } = await import('./useKaki');
+    const { result } = renderMeetingHook(() => useKaki({ kind: 'participant' }));
+    const socket = sockets[0]!;
+    act(() => socket.emit('open'));
+
+    act(() => socket.emit('message', noteMessage('answer:chef', 'A private answer.')));
+
+    expect(result.current.wingmanNotes).toHaveLength(0);
+    expect(result.current.wingmanHistory).toHaveLength(0);
+  });
+
+  it('moves a re-sent note to newest instead of leaving it in its old slot', async () => {
+    const { useKaki } = await import('./useKaki');
+    const { result } = renderMeetingHook(() => useKaki({ kind: 'role', role: 'chef' }));
+    const socket = sockets[0]!;
+    act(() => socket.emit('open'));
+
+    act(() => {
+      socket.emit('message', noteMessage('answer:chef', 'First.'));
+      socket.emit('message', noteMessage('given:chef:task-1', 'Second.'));
+      socket.emit('message', noteMessage('answer:chef', 'Updated.', false, { at: '2026-11-19T09:06:00.000Z' }));
+    });
+
+    await waitFor(() =>
+      expect(result.current.wingmanHistory.map((entry) => entry.note.id)).toEqual([
+        'given:chef:task-1',
+        'answer:chef',
+      ]),
+    );
+    expect(result.current.wingmanHistory.at(-1)?.note.text).toBe('Updated.');
+  });
+
+  it('keeps the server\'s original time when the note is replayed after a reconnect', async () => {
+    const { useKaki } = await import('./useKaki');
+    const { result } = renderMeetingHook(() => useKaki({ kind: 'role', role: 'chef' }));
+    const at = '2026-11-19T09:05:00.000Z';
+    const first = sockets[0]!;
+    act(() => first.emit('open'));
+    act(() => first.emit('message', noteMessage('answer:chef', 'A private answer.', false, { at })));
+    await waitFor(() => expect(result.current.wingmanHistory[0]?.note.at).toBe(at));
+
+    act(() => first.emit('close', { code: 1006 }));
+    await waitFor(() => expect(sockets[1]).toBeDefined(), { timeout: 2_000 });
+    const reconnected = sockets[1]!;
+    act(() => reconnected.emit('open'));
+    act(() => reconnected.emit('message', noteMessage('answer:chef', 'A private answer.', false, { at })));
+
+    await waitFor(() => expect(result.current.wingmanHistory).toHaveLength(1));
+    expect(result.current.wingmanHistory[0]?.note.at).toBe(at);
   });
 
   it('sends ASK_WINGMAN to the server for this seat', async () => {

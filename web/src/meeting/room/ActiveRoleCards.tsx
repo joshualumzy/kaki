@@ -199,7 +199,7 @@ export function ActiveRoleCards({
         <RejectionBanner message={`${rejection.commandType}: ${rejection.reason}`} />
       )}
       {currentTasks.length > 0 && (
-        <section className="phone-current" aria-label="Needs you now">
+        <section id="needs-you-now" className="phone-current" aria-label="Needs you now">
           <p className="eyebrow phone-section-eyebrow">
             Needs you now{currentTasks.length > 1 ? ` (${currentTasks.length})` : ''}
           </p>

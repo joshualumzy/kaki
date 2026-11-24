@@ -1,5 +1,5 @@
 /** @vitest-environment jsdom */
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { KAKI_LISTENER_IDENTITY, type KakiEvent, type Scenario, type Task, type WingmanNotePayload } from '@kaki/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MeetingGrid } from './MeetingGrid';
@@ -279,6 +279,89 @@ describe('stage action pill', () => {
       expect(screen.getByRole('status').textContent).toContain('Draft ready · review in Kaki →');
     } finally {
       restore();
+    }
+  });
+
+  it('shows a direct question above a task pill and keeps the same dismiss logic', () => {
+    const restore = setNarrow(true);
+    try {
+      mocks.roleNotes.push({
+        id: 'asked:chef',
+        kind: 'asked_you',
+        urgency: 'act_now',
+        title: 'Alex asked you',
+        text: 'Alex asked you: What is the plan for the morning rush?',
+        questionText: 'What is the plan for the morning rush?',
+        questionFrom: 'person',
+        askedBy: 'Alex',
+      });
+      mocks.screenTasks.set('needs-you', {
+        id: 'needs-you', title: 'Share the stock count', context: '', suggestedAssignee: 'chef',
+        agendaItemTitle: 'Prep', status: 'DISPATCHED', updatedAt: '2026-11-13T10:05:00.000Z',
+      });
+      render(<MeetingGrid role="chef" />);
+
+      const pill = screen.getByRole('status');
+      expect(pill.textContent).toContain('Kaki has a question for you · open in Kaki →');
+      expect(pill.textContent).not.toContain('A task needs you');
+      fireEvent.click(screen.getByRole('button', { name: 'Dismiss notification' }));
+      expect(screen.queryByRole('status')).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it('never puts a private question on a real meeting\'s shared screen', () => {
+    mocks.roleNotes.push({
+      id: 'asked:chef', kind: 'asked_you', urgency: 'act_now', title: 'Alex asked you',
+      text: 'Alex asked you: When?', questionText: 'When?', questionFrom: 'person', askedBy: 'Alex',
+    });
+    render(<MeetingGrid role="chef" real sharedAudience="screen" />);
+
+    expect(screen.queryByRole('status')).toBeNull();
+  });
+
+  it('scrolls to the rendered section after opening the panel', async () => {
+    const restore = setNarrow(true);
+    const target = document.createElement('section');
+    target.id = 'needs-you-now';
+    const scroll = vi.fn();
+    target.scrollIntoView = scroll;
+    document.body.appendChild(target);
+    try {
+      mocks.screenTasks.set('needs-you', {
+        id: 'needs-you', title: 'Share the stock count', context: '', suggestedAssignee: 'chef',
+        agendaItemTitle: 'Prep', status: 'DISPATCHED', updatedAt: '2026-11-13T10:05:00.000Z',
+      });
+      const onOpenKaki = vi.fn();
+      render(<MeetingGrid role="chef" onOpenKaki={onOpenKaki} />);
+
+      fireEvent.click(screen.getByRole('status'));
+      expect(onOpenKaki).toHaveBeenCalled();
+      await waitFor(() => expect(scroll).toHaveBeenCalled());
+    } finally {
+      target.remove();
+      restore();
+    }
+  });
+
+  it('points a question at the Wingman section, not the task section', async () => {
+    const target = document.createElement('section');
+    target.id = 'wingman';
+    const scroll = vi.fn();
+    target.scrollIntoView = scroll;
+    document.body.appendChild(target);
+    try {
+      mocks.roleNotes.push({
+        id: 'asked:chef', kind: 'asked_you', urgency: 'act_now', title: 'Alex asked you',
+        text: 'Alex asked you: When?', questionText: 'When?', questionFrom: 'person', askedBy: 'Alex',
+      });
+      render(<MeetingGrid role="chef" />);
+
+      fireEvent.click(screen.getByRole('status'));
+      await waitFor(() => expect(scroll).toHaveBeenCalled());
+    } finally {
+      target.remove();
     }
   });
 

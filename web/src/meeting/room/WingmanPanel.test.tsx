@@ -65,7 +65,7 @@ describe('WingmanPanel', () => {
       <WingmanPanel
         notes={[quietNotes[1]!]}
         history={[
-          { note: { ...quietNotes[0]!, clears: true }, at: Date.parse('2026-11-06T10:05:00.000Z') },
+          { note: { ...quietNotes[0]!, clears: true, at: '2026-11-06T10:05:00.000Z' } },
           { note: quietNotes[1]! },
         ]}
         onAsk={vi.fn(() => true)}
@@ -77,6 +77,69 @@ describe('WingmanPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: /Earlier · 1 more/ }));
     expect(screen.getByText(quietNotes[0]!.text)).toBeTruthy();
     expect(screen.getByText(quietNotes[0]!.facts![0]!.text)).toBeTruthy();
+  });
+
+  it('keeps every active note open at the top, act-now first, and cleared notes behind Earlier', () => {
+    const at = '2026-11-06T10:05:00.000Z';
+    const olderQuiet: WingmanNotePayload = {
+      id: 'record:chef:1', kind: 'record', urgency: 'quiet', title: 'Records on this', text: 'Older quiet.', at,
+    };
+    const newerQuiet: WingmanNotePayload = {
+      id: 'given:chef:task-2', kind: 'given', urgency: 'quiet', title: 'You were given a to-do', text: 'Newer quiet.', at,
+    };
+    const question: WingmanNotePayload = {
+      id: 'asked:chef', kind: 'asked_you', urgency: 'act_now', title: 'Ravi asked you',
+      text: 'Ravi asked you: When?', questionText: 'When?', questionFrom: 'person', askedBy: 'Ravi', at,
+    };
+    const cleared: WingmanNotePayload = {
+      id: 'answer:chef', kind: 'answer', urgency: 'quiet', title: 'Wingman', text: 'Already cleared.', clears: true, at,
+    };
+    render(
+      <WingmanPanel
+        notes={[olderQuiet, newerQuiet, question]}
+        history={[
+          { note: olderQuiet },
+          { note: newerQuiet },
+          { note: question },
+          { note: cleared },
+        ]}
+        onAsk={vi.fn(() => true)}
+        onDismiss={vi.fn()}
+      />,
+    );
+
+    const shown = [...document.querySelectorAll('.kd-wingman-note')].map((node) => node.textContent);
+    expect(shown).toHaveLength(3);
+    expect(shown[0]).toContain('Ravi asked you');
+    expect(shown[1]).toContain('Newer quiet.');
+    expect(shown[2]).toContain('Older quiet.');
+    expect(screen.queryByText('Already cleared.')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Earlier · 1 more/ }));
+    expect(screen.getByText('Already cleared.')).toBeTruthy();
+  });
+
+  it('names who asked, with the server time, for the reader, a person, and the room', () => {
+    const at = '2026-11-06T10:05:00.000Z';
+    const clock = new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const notes: WingmanNotePayload[] = [
+      {
+        id: 'answer:chef', kind: 'answer', urgency: 'quiet', title: 'Wingman',
+        text: 'An answer.', questionText: 'what did we decide?', questionFrom: 'you', at,
+      },
+      {
+        id: 'asked:chef', kind: 'asked_you', urgency: 'act_now', title: 'Ravi asked you',
+        text: 'Ravi asked you: When?', questionText: 'When?', questionFrom: 'person', askedBy: 'Ravi', at,
+      },
+      {
+        id: 'room:chef', kind: 'asked_you', urgency: 'quiet', title: 'The room asked you',
+        text: 'The room asked you: Which option?', questionText: 'Which option?', questionFrom: 'room', at,
+      },
+    ];
+    render(<WingmanPanel notes={notes} onAsk={vi.fn(() => true)} onDismiss={vi.fn()} />);
+
+    expect(screen.getByText(`You asked, ${clock}: "what did we decide?"`)).toBeTruthy();
+    expect(screen.getByText(`Ravi asked, ${clock}: "When?"`)).toBeTruthy();
+    expect(screen.getByText(`The room asked, ${clock}: "Which option?"`)).toBeTruthy();
   });
 
   it('shows an ask refusal in the panel', () => {

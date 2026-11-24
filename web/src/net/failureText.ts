@@ -2,24 +2,31 @@ import type { FailureCode } from '@kaki/shared';
 
 /**
  * The one sentence a speech or device failure is shown with. A real meeting can offer typing, so it
- * may mention it; a practice meeting is speech only and never does.
+ * may mention it; a practice meeting is speech only and never does. `ownSpeechFailed` is true only
+ * when this viewer's own words were lost, so a room-wide outage never claims their line was missed.
  */
-export function failureText(code: FailureCode, { real }: { real: boolean }): string {
+export function failureText(
+  code: FailureCode,
+  { real, ownSpeechFailed = false }: { real: boolean; ownSpeechFailed?: boolean },
+): string {
   switch (code) {
     case 'speech-failed':
       return real
         ? 'Kaki could not hear that. Please say it again, or type it instead.'
         : 'Kaki could not hear that. Please say it again.';
     case 'speech-outage':
+      if (!ownSpeechFailed) return 'Speech recognition is not working.';
       return real
         ? 'Speech recognition is not working. Your last line was not heard — say it again, or type it instead.'
-        : 'Speech recognition is not working. Please say it again.';
+        : 'Speech recognition is not working. Your last line was not heard — say it again.';
     case 'room-reconnecting':
       return 'Kaki lost its connection to the room. Reconnecting so everyone can be heard again.';
     case 'room-lost':
       return real
         ? 'Kaki lost its connection to the room and could not reconnect. Kaki cannot hear anyone; the runner is still trying.'
         : 'Kaki lost its connection to the room and could not reconnect. The AI colleagues cannot hear anyone; the runner is still trying.';
+    case 'speech-unknown':
+      return 'Speech recognition hit a problem.';
     case 'mic-blocked':
       return real
         ? "Your microphone is blocked. Allow it in your browser's site settings to take part."
@@ -42,7 +49,9 @@ export function failureText(code: FailureCode, { real }: { real: boolean }): str
       return 'The microphone could not be started.';
     case 'camera-failed':
       return 'The camera could not be started.';
-    default:
-      return 'Something went wrong with the microphone or camera. Try again.';
+    default: {
+      const unreachable: never = code;
+      return unreachable;
+    }
   }
 }

@@ -38,18 +38,28 @@ function NoteEvidence({ note }: { note: WingmanNotePayload }) {
   );
 }
 
-function clockTime(at: number | undefined): string | undefined {
-  if (at === undefined || !Number.isFinite(at)) return undefined;
-  return new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+function clockTime(at: string | undefined): string | undefined {
+  if (at === undefined) return undefined;
+  const parsed = Date.parse(at);
+  if (!Number.isFinite(parsed)) return undefined;
+  return new Date(parsed).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
-/** The line that caused one hint, when the note answers a question. */
+/** The line that caused one hint, from the explicit asker the server put on the note. */
 function triggerText(entry: WingmanHistoryEntry): string | undefined {
   const question = entry.note.questionText?.trim();
   if (question === undefined || question === '') return undefined;
-  const askedBy = /^(.+?) asked you/i.exec(entry.note.title)?.[1]?.trim() ?? 'Question';
-  const time = clockTime(entry.at);
-  return `${askedBy} asked${time === undefined ? '' : `, ${time}`}: "${question}"`;
+  const time = clockTime(entry.note.at);
+  const when = time === undefined ? '' : `, ${time}`;
+  const asked =
+    entry.note.questionFrom === 'you'
+      ? 'You asked'
+      : entry.note.questionFrom === 'person'
+        ? `${entry.note.askedBy?.trim() || 'Someone'} asked`
+        : entry.note.questionFrom === 'room'
+          ? 'The room asked'
+          : 'Question';
+  return `${asked}${when}: "${question}"`;
 }
 
 function HistoryNote({
@@ -80,9 +90,6 @@ function HistoryNote({
         ) : null}
       </div>
       {trigger !== undefined ? <p className="kd-wingman-trigger">{trigger}</p> : null}
-      {note.questionText !== undefined && trigger === undefined ? (
-        <p className="kd-wingman-question">You asked: {note.questionText}</p>
-      ) : null}
       <p className="kd-wingman-text">{note.text}</p>
       <NoteEvidence note={note} />
     </li>
@@ -90,8 +97,9 @@ function HistoryNote({
 }
 
 /**
- * Every private hint this seat saw this meeting, newest first: the latest is open, older ones sit
- * behind one Show/Hide line. A cleared note stays here, so the visitor can still read what Wingman said.
+ * Every private hint this seat saw this meeting: the still-active ones stay open at the top (an
+ * act-now question first), each group newest first. Cleared notes stay below behind one Show/Hide
+ * line, so the visitor can still read what Wingman said.
  */
 export function WingmanHistory({
   entries,
@@ -107,17 +115,35 @@ export function WingmanHistory({
   if (entries.length === 0) {
     return <p className="kd-hint kd-wingman-empty">Nothing private for you right now.</p>;
   }
-  const newest = entries[entries.length - 1]!;
-  const earlier = entries.slice(0, -1).reverse();
+  const indexed = entries.map((entry, index) => ({ entry, index }));
+  const active = indexed
+    .filter(({ entry }) => entry.note.clears !== true)
+    .sort(
+      (left, right) =>
+        Number(right.entry.note.urgency === 'act_now') - Number(left.entry.note.urgency === 'act_now') ||
+        right.index - left.index,
+    )
+    .map(({ entry }) => entry);
+  const earlier = indexed
+    .filter(({ entry }) => entry.note.clears === true)
+    .sort((left, right) => right.index - left.index)
+    .map(({ entry }) => entry);
+  const isActive = (entry: WingmanHistoryEntry): boolean =>
+    activeIds === undefined || activeIds.has(entry.note.id);
   return (
     <div className="kd-wingman-history">
-      <ul className="kd-wingman-notes">
-        <HistoryNote
-          entry={newest}
-          active={activeIds === undefined || activeIds.has(newest.note.id)}
-          {...(onDismiss === undefined ? {} : { onDismiss })}
-        />
-      </ul>
+      {active.length === 0 ? null : (
+        <ul className="kd-wingman-notes">
+          {active.map((entry) => (
+            <HistoryNote
+              key={entry.note.id}
+              entry={entry}
+              active={isActive(entry)}
+              {...(onDismiss === undefined ? {} : { onDismiss })}
+            />
+          ))}
+        </ul>
+      )}
       {earlier.length === 0 ? null : (
         <button
           type="button"
@@ -134,7 +160,7 @@ export function WingmanHistory({
             <HistoryNote
               key={entry.note.id}
               entry={entry}
-              active={activeIds === undefined || activeIds.has(entry.note.id)}
+              active={isActive(entry)}
               {...(onDismiss === undefined ? {} : { onDismiss })}
             />
           ))}

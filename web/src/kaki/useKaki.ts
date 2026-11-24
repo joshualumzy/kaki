@@ -28,8 +28,6 @@ export interface KakiRejection {
 /** One private Wingman hint this browser has seen, kept even after its note is cleared. */
 export interface WingmanHistoryEntry {
   note: WingmanNotePayload;
-  /** When this browser received the note, when the event carried a time. */
-  at?: number;
 }
 
 /** The server's latest record for the meeting, including the agenda item it is on and its pause. */
@@ -138,31 +136,21 @@ export function useKaki(audience: KakiAudience): UseKakiResult {
           const feedSeat = audienceRole ?? sharedSeat;
           if (audienceKind === 'lifecycle') return;
           if (audienceKind === 'screen' && feedSeat === undefined) return;
+          // A feed with no seat (an unbound participant) may never accept any seat's private note.
           if (
             parsed.audience.kind === 'role' &&
-            feedSeat !== undefined &&
-            parsed.audience.role !== feedSeat
+            (feedSeat === undefined || parsed.audience.role !== feedSeat)
           ) {
             return;
           }
           const note = parsed.payload;
-          const receivedAt = (parsed as { receivedAt?: number }).receivedAt;
           setWingmanNotes((previous) => {
             const without = previous.filter((candidate) => candidate.id !== note.id);
             return note.clears === true ? without : [...without, note];
           });
           // History keeps cleared notes: the server re-sends the full payload with `clears: true`.
-          setWingmanHistory((previous) => {
-            const entry: WingmanHistoryEntry = {
-              note,
-              ...(receivedAt === undefined ? {} : { at: receivedAt }),
-            };
-            const index = previous.findIndex((candidate) => candidate.note.id === note.id);
-            if (index === -1) return [...previous, entry];
-            const next = [...previous];
-            next[index] = entry;
-            return next;
-          });
+          // A re-sent or updated note moves to newest, so the list always reads in publication order.
+          setWingmanHistory((previous) => [...previous.filter((entry) => entry.note.id !== note.id), { note }]);
           return;
         }
 

@@ -39,6 +39,7 @@ vi.mock('../../kaki', () => ({
     latestRecord: undefined,
     speechByTopic: new Map(),
     tasks: new Map(),
+    wingmanNotes: [] as [],
     rejection: null,
     send: vi.fn(),
     connected: true,
