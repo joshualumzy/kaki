@@ -252,7 +252,7 @@ function editedSetup(setup: MeetingSetup): MeetingSetup {
     title: 'Friday lunch readiness',
     agenda: setup.agenda.map((item) => ({ ...item, minutes: 17 })),
     roles: setup.roles.map((role, index) => (index === 0 ? { ...role, label: 'Head Chef' } : role)),
-    pace: { ownerQuietBelow: 20, quietCheckAfter: 90, comingUpBefore: 45 },
+    pace: { quietCheckAfter: 90, comingUpBefore: 45 },
     source: {
       title: 'typed',
       agenda: 'typed',

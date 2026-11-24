@@ -22,7 +22,7 @@ function setup(): MeetingSetup {
       { displayName: 'Ada', roleId: 'chef', kind: 'person' },
       { displayName: 'Bao', roleId: 'cashier', kind: 'person' },
     ],
-    pace: { ownerQuietBelow: 30, quietCheckAfter: 120, comingUpBefore: 60 },
+    pace: { quietCheckAfter: 120, comingUpBefore: 60 },
     source: {
       title: 'demo pack',
       agenda: 'demo pack',

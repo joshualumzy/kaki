@@ -307,6 +307,30 @@ export function parseRecordReply(raw: string): RecordVerdict | undefined {
   return { verdict: json.verdict, snippet: json.snippet.trim(), source: json.source.trim() };
 }
 
+/**
+ * Common linking words a suggestion may use without a claim of their own. Every other word must
+ * appear in the quoted evidence, so a suggestion can never invent a fact, number or name.
+ */
+const SUGGESTION_FILLER = new Set([
+  'a', 'about', 'an', 'and', 'are', 'as', 'at', 'ask', 'be', 'been', 'before', 'but', 'by', 'can',
+  'clarify', 'could', 'did', 'do', 'does', 'for', 'from', 'had', 'has', 'have', 'he', 'her', 'here',
+  'him', 'his', 'how', 'if', 'in', 'into', 'is', 'it', 'its', 'just', 'maybe', 'me', 'mention',
+  'might', 'more', 'most', 'my', 'no', 'not', 'now', 'of', 'on', 'or', 'our', 'out', 'over',
+  'please', 'propose', 'question', 'raise', 'should', 'so', 'some', 'suggest', 'than', 'that',
+  'the', 'their', 'them', 'then', 'there', 'these', 'they', 'this', 'those', 'through', 'to', 'up',
+  'us', 'was', 'we', 'were', 'what', 'when', 'where', 'whether', 'which', 'while', 'who', 'why',
+  'will', 'with', 'would', 'you', 'your',
+]);
+
+/** True when every claim-bearing word in a suggestion appears in its quoted evidence. */
+function suggestionSupportedBy(suggestion: string, evidence: string): boolean {
+  const evidenceWords = new Set(normalise(evidence).split(' ').filter(Boolean));
+  const words = normalise(suggestion)
+    .split(' ')
+    .filter((word) => word !== '' && !SUGGESTION_FILLER.has(word));
+  return words.length > 0 && words.every((word) => evidenceWords.has(word));
+}
+
 /** One point a silent person could add, grounded in the meeting or in one workspace record. */
 export interface CatchupVerdict {
   suggestion: string;
@@ -354,7 +378,7 @@ Decide whether there is ONE genuinely useful point ${personName} could add to th
 High bar: the point must be directly relevant and new, never general background, advice, or a repeat of what someone already said. If nothing clears that bar, return no suggestion. Never invent a fact, and never say or imply that ${personName} is expected to speak.
 Return strict JSON and nothing else: {"suggestion":"","basis":"meeting"|"workspace"|"none","evidence":"","source":""}
 When there is a point:
-- "suggestion" is one short, plain sentence ${personName} could add.
+- "suggestion" is one short, plain sentence ${personName} could add, built only from the words of that evidence plus common linking words. Never add a fact, number, name or claim that the evidence does not contain.
 - basis "meeting": "evidence" is copied word for word from one transcript line that supports it, and "source" is empty.
 - basis "workspace": "evidence" is copied word for word from one workspace record below, and "source" is that record's source label.
 Otherwise return basis "none" with an empty suggestion, evidence and source.`,
@@ -386,22 +410,23 @@ export function parseCatchupReply(
     throw new LlmError('Wingman catch-up reply is not valid JSON', { cause: error });
   }
   if (!isObject(json) || !isString(json.suggestion) || json.suggestion.trim() === '') return undefined;
+  if (!isString(json.evidence) || json.evidence.trim() === '') return undefined;
+  const suggestion = json.suggestion.trim();
+  const evidence = json.evidence.trim();
+  if (!suggestionSupportedBy(suggestion, evidence)) return undefined;
   if (json.basis === 'meeting') {
-    if (!isString(json.evidence) || json.evidence.trim() === '') return undefined;
-    const line = groundedLine(json.evidence, lines);
+    const line = groundedLine(evidence, lines);
     if (line === undefined) return undefined;
-    return { suggestion: json.suggestion.trim(), source: `${speakerName(line.speaker)} · ${line.timestamp}` };
+    return { suggestion, source: `${speakerName(line.speaker)} · ${line.timestamp}` };
   }
   if (json.basis === 'workspace') {
-    if (!isString(json.evidence) || json.evidence.trim() === '') return undefined;
     if (!isString(json.source) || json.source.trim() === '') return undefined;
-    const evidence = json.evidence.trim();
     const source = json.source.trim();
     const fact = facts.find(
       (candidate) => candidate.source === source && candidate.text.includes(evidence),
     );
     if (fact === undefined) return undefined;
-    return { suggestion: json.suggestion.trim(), source: `${fact.source} (${fact.date})`, fact };
+    return { suggestion, source: `${fact.source} (${fact.date})`, fact };
   }
   return undefined;
 }

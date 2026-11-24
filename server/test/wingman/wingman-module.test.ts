@@ -698,7 +698,7 @@ describe('wingman module', () => {
   });
 });
 
-const cuePace: MeetingPace = { ownerQuietBelow: 30, quietCheckAfter: 120, comingUpBefore: 60 };
+const cuePace: MeetingPace = { quietCheckAfter: 120, comingUpBefore: 60 };
 
 const cueScenario: Scenario = {
   id: 'test-wingman-cues',
@@ -825,7 +825,7 @@ describe('wingman real-meeting pace cues', () => {
       hub: fake,
       llm: catchupLlm(
         JSON.stringify({
-          suggestion: 'Ask whether the launch budget still covers the new plan.',
+          suggestion: 'Ask whether we need the budget figure before we decide.',
           basis: 'meeting',
           evidence: 'We need the budget figure before we decide.',
           source: '',
@@ -859,7 +859,7 @@ describe('wingman real-meeting pace cues', () => {
       expect(note.payload.text).toContain('Now: "Budget".');
       expect(note.payload.text).toContain('Open question: Do we still have launch budget?');
       expect(note.payload.text).toContain(
-        'One point you could add: Ask whether the launch budget still covers the new plan.',
+        'One point you could add: Ask whether we need the budget figure before we decide.',
       );
       expect(note.payload.sources).toEqual(['Ada · 2026-11-22T10:00:00.000Z']);
       expect(note.payload.facts).toBeUndefined();
@@ -1149,6 +1149,88 @@ describe('wingman real-meeting pace cues', () => {
           (event) => event.payload.id === second.payload.id && event.payload.clears === true,
         ),
       ).toBe(true);
+    } finally {
+      stop();
+    }
+  });
+
+  it('retries a catch-up that finished while paused when the meeting resumes', async () => {
+    const fake = fakeHub();
+    let release: ((reply: string) => void) | undefined;
+    const llm = createFakeLlm((messages, call) => {
+      if (call === 0 && messages[0]?.content.includes('[KAKI_WINGMAN_CATCHUP]')) {
+        return new Promise<string>((resolve) => {
+          release = resolve;
+        });
+      }
+      return noPointReply;
+    });
+    const stop = start({
+      hub: fake,
+      llm,
+      search: async () => [],
+      holders: cueHolders,
+      meetingKind: 'real',
+      scenario: cueScenario,
+      sealed: sealedCue(),
+    });
+    try {
+      fake.emit(cueRecord({ elapsedSeconds: 121, speakerTalkSeconds: { host: 40, mei: 6 } }));
+      await waitFor(() => release, 'the catch-up model call');
+
+      fake.emit(cueRecord({ elapsedSeconds: 121, speakerTalkSeconds: { host: 40, mei: 6 }, paused: true }));
+      release!(noPointReply);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(
+        activeNotes(fake.published, 'nudge').filter((event) => event.payload.id === 'catchup:raj:0'),
+      ).toEqual([]);
+
+      fake.emit(cueRecord({ elapsedSeconds: 121, speakerTalkSeconds: { host: 40, mei: 6 } }));
+      const note = await waitFor(
+        () =>
+          activeNotes(fake.published, 'nudge').find((event) => event.payload.id === 'catchup:raj:0'),
+        'the resumed catch-up',
+      );
+      expect(note.payload.text).toBe('Now: "Budget".');
+    } finally {
+      stop();
+    }
+  });
+
+  it('removes the previous item catch-up and up-next note when the agenda advances while paused', async () => {
+    const fake = fakeHub();
+    const stop = start({
+      hub: fake,
+      llm: catchupLlm(noPointReply),
+      search: async () => [],
+      holders: cueHolders,
+      meetingKind: 'real',
+      scenario: cueScenario,
+      sealed: sealedCue(),
+    });
+    try {
+      fake.emit(cueRecord({ elapsedSeconds: 540, speakerTalkSeconds: { host: 40, mei: 6 } }));
+      const catchup = await waitFor(
+        () =>
+          activeNotes(fake.published, 'nudge').find((event) => event.payload.id === 'catchup:raj:0'),
+        'the catch-up',
+      );
+      const upNext = await waitFor(
+        () =>
+          activeNotes(fake.published, 'nudge').find(
+            (event) => event.payload.title === 'Your next item',
+          ),
+        'the up-next note',
+      );
+
+      fake.emit(cueRecord({ elapsedSeconds: 545, speakerTalkSeconds: { host: 40, mei: 6 }, paused: true }));
+      fake.emit(cueRecord({ agendaIndex: 1, elapsedSeconds: 0, speakerTalkSeconds: {}, paused: true }));
+
+      const cleared = wingmanNotes(fake.published)
+        .filter((event) => event.payload.clears === true)
+        .map((event) => event.payload.id);
+      expect(cleared).toEqual(expect.arrayContaining([catchup.payload.id, upNext.payload.id]));
+      expect(activeNotes(fake.published, 'nudge')).toEqual([]);
     } finally {
       stop();
     }

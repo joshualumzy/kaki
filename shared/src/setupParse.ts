@@ -259,20 +259,14 @@ function readSeats(
 function readPace(value: unknown, errors: SetupFieldError[]): MeetingPace {
   const pace: MeetingPace = { ...DEFAULT_MEETING_PACE };
   if (!isObject(value)) {
-    error(errors, 'pace', 'Enter the three pace warnings in seconds.');
+    error(errors, 'pace', 'Enter the two pace warnings in seconds.');
     return pace;
   }
 
-  const fields: Array<keyof MeetingPace> = ['ownerQuietBelow', 'quietCheckAfter', 'comingUpBefore'];
+  const fields: Array<keyof MeetingPace> = ['quietCheckAfter', 'comingUpBefore'];
   const labels: Record<keyof MeetingPace, string> = {
-    ownerQuietBelow: 'Quiet owner talk',
     quietCheckAfter: 'Quiet check time',
     comingUpBefore: 'Coming-up warning',
-  };
-  const valid: Record<keyof MeetingPace, boolean> = {
-    ownerQuietBelow: false,
-    quietCheckAfter: false,
-    comingUpBefore: false,
   };
 
   for (const field of fields) {
@@ -284,7 +278,6 @@ function readPace(value: unknown, errors: SetupFieldError[]): MeetingPace {
       seconds <= MAX_PACE_SECONDS
     ) {
       pace[field] = seconds;
-      valid[field] = true;
     } else {
       error(
         errors,
@@ -292,10 +285,6 @@ function readPace(value: unknown, errors: SetupFieldError[]): MeetingPace {
         `${labels[field]} must be a whole number of seconds between ${MIN_PACE_SECONDS} and ${MAX_PACE_SECONDS}.`,
       );
     }
-  }
-
-  if (valid.ownerQuietBelow && valid.quietCheckAfter && pace.ownerQuietBelow >= pace.quietCheckAfter) {
-    error(errors, 'pace.ownerQuietBelow', 'Quiet owner talk must be shorter than the quiet check time.');
   }
 
   return pace;

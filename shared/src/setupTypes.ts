@@ -30,13 +30,11 @@ export interface MeetingSetupSeat {
 }
 
 /**
- * The three Wingman nudge timings, in seconds (the nudge module's current constants):
- * quietCheckAfter is how far into an item Wingman checks whether its owner has spoken;
- * ownerQuietBelow is how little talk by then counts as quiet; comingUpBefore is how long
- * before an item ends the next item's owner is told they are up.
+ * The two Wingman nudge timings, in seconds: quietCheckAfter is how far into an item Wingman
+ * checks whether its owner has spoken; comingUpBefore is how long before an item ends the next
+ * item's owner is told they are up.
  */
 export interface MeetingPace {
-  ownerQuietBelow: number;
   quietCheckAfter: number;
   comingUpBefore: number;
 }
@@ -76,7 +74,6 @@ export const MAX_ORGANISATION_LENGTH = 120;
 
 /** The pace used before the owner sets their own on the setup screen. */
 export const DEFAULT_MEETING_PACE: MeetingPace = {
-  ownerQuietBelow: 30,
   quietCheckAfter: 120,
   comingUpBefore: 60,
 };

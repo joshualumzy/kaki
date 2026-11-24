@@ -1439,7 +1439,7 @@ describe('Start applies the validated setup', () => {
     if (alice === undefined) throw new Error('Alice did not join');
     const setup = humanOnlySetup(pack);
     setup.roles.push({ id: alice.seat, label: 'Alice', facilitator: false });
-    setup.pace = { ownerQuietBelow: 20, quietCheckAfter: 90, comingUpBefore: 45 };
+    setup.pace = { quietCheckAfter: 90, comingUpBefore: 45 };
     setup.agenda = [
       { id: 'agenda-1', title: 'Opening checklist', minutes: 5, ownerRoleId: alice.seat },
     ];

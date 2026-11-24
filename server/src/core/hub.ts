@@ -305,6 +305,38 @@ export function createHub(
     }
   }
 
+  /**
+   * Drop a note's workspace facts when its seat may no longer read them. A cue's text never
+   * repeats its facts, so the cue survives without them; an answer or record note may quote them
+   * in its text, so the whole note is withheld. Live delivery and replay both go through here.
+   */
+  function withholdWorkspaceFacts(visible: KakiEvent): KakiEvent | undefined {
+    if (
+      visible.type !== 'WINGMAN_NOTE' ||
+      visible.audience.kind !== 'role' ||
+      (visible.payload.facts?.length ?? 0) === 0 ||
+      retainedFactsAllowed === undefined ||
+      retainedFactsAllowed(visible.audience.role)
+    ) {
+      return visible;
+    }
+    const role = visible.audience.role;
+    if (!withheldFactsWarned.has(role)) {
+      withheldFactsWarned.add(role);
+      console.warn(
+        `kaki hub: withheld workspace facts from a note for seat ${role}; the seat may no longer read workspace records`,
+      );
+    }
+    if (visible.payload.kind === 'nudge' || visible.payload.kind === 'lead') {
+      return {
+        ...visible,
+        payload: { ...visible.payload, facts: undefined, sources: undefined },
+      };
+    }
+    // An answer or record note may quote the facts in its text, so none of it may be sent.
+    return undefined;
+  }
+
   function sendRetained(socket: WebSocket, audience: ClientAudience): void {
     const seat = socketSeats.get(socket);
     const practiceScreen = practiceSockets.has(socket) && audience.kind === 'screen';
@@ -322,33 +354,8 @@ export function createHub(
         visible = event;
       }
       if (visible === undefined) continue;
-      if (
-        visible.type === 'WINGMAN_NOTE' &&
-        visible.audience.kind === 'role' &&
-        (visible.payload.facts?.length ?? 0) > 0 &&
-        retainedFactsAllowed !== undefined &&
-        !retainedFactsAllowed(visible.audience.role)
-      ) {
-        // The seat may have become a guest, or its membership can no longer be checked. Drop the
-        // workspace facts rather than replay them to someone who may not read that workspace.
-        const role = visible.audience.role;
-        if (!withheldFactsWarned.has(role)) {
-          withheldFactsWarned.add(role);
-          console.warn(
-            `kaki hub: withheld workspace facts from a retained note for seat ${role}; the seat may no longer read workspace records`,
-          );
-        }
-        if (visible.payload.kind === 'nudge' || visible.payload.kind === 'lead') {
-          // A cue's text never repeats its workspace facts, so the factless note is still safe.
-          visible = {
-            ...visible,
-            payload: { ...visible.payload, facts: undefined, sources: undefined },
-          };
-        } else {
-          // An answer or record note may quote the facts in its text, so none of it may be replayed.
-          continue;
-        }
-      }
+      visible = withholdWorkspaceFacts(visible);
+      if (visible === undefined) continue;
       // Retained events are history: mark them so a runner can tell an old cue from a live one.
       sendTo(socket, audience, JSON.stringify({ ...visible, replayed: true }));
     }
@@ -586,9 +593,10 @@ export function createHub(
       } else if (wantsEvent(event, audience) || (audience.kind === 'screen' && wantsOwnerSeatNote(event, seat))) {
         visible = event;
       }
-      if (visible !== undefined) {
-        sendTo(socket, audience, visible === event ? message : JSON.stringify(visible));
-      }
+      if (visible === undefined) continue;
+      visible = withholdWorkspaceFacts(visible);
+      if (visible === undefined) continue;
+      sendTo(socket, audience, visible === event ? message : JSON.stringify(visible));
     }
 
     for (const handler of subscribers) {

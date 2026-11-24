@@ -32,7 +32,7 @@ function validSetup(): MeetingSetup {
       { displayName: 'Ada', roleId: 'chef', kind: 'person' },
       { displayName: 'Bao', roleId: 'cashier', kind: 'person' },
     ],
-    pace: { ownerQuietBelow: 30, quietCheckAfter: 120, comingUpBefore: 60 },
+    pace: { quietCheckAfter: 120, comingUpBefore: 60 },
     source: { title: 'typed', agenda: 'typed', roles: 'typed', seats: 'typed', pace: 'typed' },
   };
 }
@@ -97,7 +97,7 @@ describe('meeting setup parser', () => {
     const ai = setup.seats.filter((seat) => seat.kind === 'ai');
     expect(ai).toHaveLength(1);
     expect(ai[0]?.npcProfileId).toBe('Bao');
-    expect(setup.pace).toEqual({ ownerQuietBelow: 30, quietCheckAfter: 120, comingUpBefore: 60 });
+    expect(setup.pace).toEqual({ quietCheckAfter: 120, comingUpBefore: 60 });
     expect(parseMeetingSetup(setup, { npcProfileIds: ['Ada', 'Bao'] }).ok).toBe(true);
   });
 
@@ -220,14 +220,24 @@ describe('meeting setup parser', () => {
   });
 
   it.each([
-    ['non-integer', { ownerQuietBelow: 30.5, quietCheckAfter: 120, comingUpBefore: 60 }, 'pace.ownerQuietBelow'],
-    ['too small', { ownerQuietBelow: 5, quietCheckAfter: 120, comingUpBefore: 60 }, 'pace.ownerQuietBelow'],
-    ['too large', { ownerQuietBelow: 30, quietCheckAfter: 700, comingUpBefore: 60 }, 'pace.quietCheckAfter'],
-    ['quiet talk not shorter than check time', { ownerQuietBelow: 60, quietCheckAfter: 60, comingUpBefore: 60 }, 'pace.ownerQuietBelow'],
+    ['non-integer', { quietCheckAfter: 120.5, comingUpBefore: 60 }, 'pace.quietCheckAfter'],
+    ['too small', { quietCheckAfter: 5, comingUpBefore: 60 }, 'pace.quietCheckAfter'],
+    ['too large', { quietCheckAfter: 700, comingUpBefore: 60 }, 'pace.quietCheckAfter'],
+    ['coming-up non-integer', { quietCheckAfter: 120, comingUpBefore: 60.5 }, 'pace.comingUpBefore'],
   ])('rejects %s pace values', (_label, pace, field) => {
     const setup = validSetup();
     setup.pace = pace;
     expect(fields(errorsFor(setup))).toContain(field);
+  });
+
+  it('accepts a short quiet check and ignores a saved ownerQuietBelow without a runtime reader', () => {
+    const setup = {
+      ...validSetup(),
+      pace: { ownerQuietBelow: 30, quietCheckAfter: 30, comingUpBefore: 60 },
+    };
+    const result = parseMeetingSetup(setup);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value.pace).toEqual({ quietCheckAfter: 30, comingUpBefore: 60 });
   });
 });
 
@@ -319,7 +329,7 @@ describe('blankMeetingSetup', () => {
     expect(setup.agenda).toEqual([]);
     expect(setup.roles).toEqual([]);
     expect(setup.seats).toEqual([]);
-    expect(setup.pace).toEqual({ ownerQuietBelow: 30, quietCheckAfter: 120, comingUpBefore: 60 });
+    expect(setup.pace).toEqual({ quietCheckAfter: 120, comingUpBefore: 60 });
     expect(isBlankMeetingDraft(setup)).toBe(true);
   });
 

@@ -232,6 +232,8 @@ export function createWingmanModule(options: WingmanModuleOptions = {}): KakiMod
       let latestRecord: Extract<KakiEvent, { type: 'MEETING_RECORD_UPDATED' }>['payload'] | undefined;
       /** One catch-up per person per agenda item, even after it is cleared. */
       const catchupSent = new Set<string>();
+      /** Catch-ups being written now, so a second record does not start another. */
+      const catchupInFlight = new Set<string>();
       /** Catch-up notes live for this item, so a change or a speaker can remove them. */
       const catchupNotes = new Map<Role, number>();
       /** "Up next" notes, keyed by the item they announce. */
@@ -502,36 +504,34 @@ export function createWingmanModule(options: WingmanModuleOptions = {}): KakiMod
           `wingman:${person.role}:catchup:${agendaIndex}`,
         );
         catchupNotes.set(person.role, agendaIndex);
+        catchupSent.add(catchupKey(person.role, agendaIndex));
       }
 
       /** The real-meeting cues, read from the record the host publishes every tick. */
       function handleAgendaCues(payload: RecordPayload): void {
         if (ctx.meetingKind?.() !== 'real') return;
-        if (
-          payload.ended === true ||
-          payload.paused === true ||
-          ctx.session?.offTheRecordSince() !== undefined
-        ) {
-          if (payload.ended === true) clearAllCues();
-          else clearLead();
-          return;
-        }
         const agendaIndex = payload.agendaIndex;
         const item = ctx.activeScenario().agenda[agendaIndex];
-        if (item === undefined) {
-          clearLead();
-          return;
-        }
-        const pace = sealedPace();
-
         // Nothing from an earlier item carries over, and a note announcing this item has been used.
+        // This runs even while paused or off the record, so advancing can never leave an obsolete
+        // cue on screen or in replay until the meeting resumes.
         if (leadNote !== undefined && leadNote.agendaIndex !== agendaIndex) clearLead();
         for (const role of [...catchupNotes.keys()]) {
           if (catchupNotes.get(role) !== agendaIndex) clearCatchup(role);
         }
         for (const index of [...upNextNotes.keys()]) {
-          if (index <= agendaIndex) clearUpNext(index);
+          if (item === undefined || index <= agendaIndex) clearUpNext(index);
         }
+        if (payload.ended === true) {
+          clearAllCues();
+          return;
+        }
+        if (payload.paused === true || ctx.session?.offTheRecordSince() !== undefined) {
+          clearLead();
+          return;
+        }
+        if (item === undefined) return;
+        const pace = sealedPace();
 
         if (payload.elapsedSeconds >= pace.quietCheckAfter) {
           const hostRole = hostSeat();
@@ -540,9 +540,13 @@ export function createWingmanModule(options: WingmanModuleOptions = {}): KakiMod
           for (const person of peopleInMeeting(ctx)) {
             if ((payload.speakerTalkSeconds[person.role] ?? 0) > 0) continue;
             const key = catchupKey(person.role, agendaIndex);
-            if (catchupSent.has(key)) continue;
-            catchupSent.add(key);
-            void fireCatchup(agendaIndex, item.title, person, question);
+            if (catchupSent.has(key) || catchupInFlight.has(key)) continue;
+            catchupInFlight.add(key);
+            // Mark the catch-up sent only once it is actually published. If the model finishes
+            // during a pause, the result is discarded and resume asks for it again.
+            void fireCatchup(agendaIndex, item.title, person, question).finally(() => {
+              catchupInFlight.delete(key);
+            });
           }
         }
 
@@ -924,6 +928,7 @@ export function createWingmanModule(options: WingmanModuleOptions = {}): KakiMod
         lastRecordLineCount = 0;
         latestRecord = undefined;
         catchupSent.clear();
+        catchupInFlight.clear();
         catchupNotes.clear();
         upNextNotes.clear();
         speechByRole.clear();

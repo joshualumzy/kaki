@@ -11,7 +11,7 @@ const setup: MeetingSetup = {
   agenda: [{ id: 'agenda-1', title: 'Prep', minutes: 5, ownerRoleId: 'chef' }],
   roles: [{ id: 'chef', label: 'Chef', facilitator: true }],
   seats: [{ displayName: 'Ada', roleId: 'chef', kind: 'person' }],
-  pace: { ownerQuietBelow: 30, quietCheckAfter: 120, comingUpBefore: 60 },
+  pace: { quietCheckAfter: 120, comingUpBefore: 60 },
   source: { title: 'typed', agenda: 'typed', roles: 'typed', seats: 'typed', pace: 'typed' },
 };
 

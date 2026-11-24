@@ -30,7 +30,7 @@ const setup = {
     { displayName: 'Ada', roleId: 'chef', kind: 'person' as const },
     { displayName: 'Bao', roleId: 'cashier', kind: 'person' as const },
   ],
-  pace: { ownerQuietBelow: 30, quietCheckAfter: 120, comingUpBefore: 60 },
+  pace: { quietCheckAfter: 120, comingUpBefore: 60 },
   source: {
     title: 'demo pack' as const,
     agenda: 'demo pack' as const,

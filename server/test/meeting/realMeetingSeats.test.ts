@@ -276,6 +276,68 @@ describe('real meeting seats', () => {
     ).toHaveLength(1);
   });
 
+  it('withholds workspace facts from a live clear after a seat loses membership', async () => {
+    const { app, base, store } = await build();
+    const owner = await signIn(store, 'Ada');
+    const member = await signIn(store, 'Raj');
+    const workspace = await store.createWorkspace({ name: 'Cue workspace', createdBy: owner.userId });
+    await store.addWorkspaceMember({
+      workspaceId: workspace.workspace.id,
+      userId: member.userId,
+      role: 'member',
+    });
+    const meeting = await app.registry.create({
+      workspaceId: workspace.workspace.id,
+      ownerUserId: owner.userId,
+      title: 'Cue privacy',
+      agenda: [{ title: 'Budget', minutes: 10 }],
+    });
+    const memberSeat = await seat(base, meeting.id, member.cookie, 'Raj');
+    expect(memberSeat.status).toBe(200);
+    const instance = await app.registry.get(meeting.id);
+    if (instance === undefined) throw new Error('Meeting did not load');
+    const fact = {
+      text: 'The delivery window is 10:00 to 16:00.',
+      source: 'Wiki: Delivery',
+      date: '2026-11-01',
+    };
+    const note: KakiEvent = {
+      type: 'WINGMAN_NOTE',
+      audience: { kind: 'role', role: memberSeat.seat },
+      payload: {
+        id: 'catchup:privacy',
+        kind: 'nudge',
+        urgency: 'quiet',
+        title: 'Catch-up: Budget',
+        text: 'Now: "Budget".',
+        facts: [fact],
+        sources: ['Wiki: Delivery (2026-11-01)'],
+      },
+    };
+    instance.hub.publish(note, { retainKey: 'wingman:catchup:privacy' });
+    const received = (view: Socket): KakiEvent[] =>
+      view.messages.filter((event) => event.type === 'WINGMAN_NOTE');
+
+    vi.spyOn(store, 'getMembership').mockResolvedValue(undefined);
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const reconnect = await connect(base, meeting.id, 'participant', memberSeat.cookie);
+    sockets.push(reconnect);
+    await waitFor(() => received(reconnect).length === 1 ? true : undefined);
+    await settle();
+
+    instance.hub.publish(
+      { ...note, payload: { ...note.payload, clears: true } },
+      { retainKey: 'wingman:catchup:privacy' },
+    );
+    await waitFor(() => received(reconnect).length === 2 ? true : undefined);
+    await settle();
+    const cleared = received(reconnect)[1];
+    if (cleared?.type !== 'WINGMAN_NOTE') throw new Error('expected a Wingman note clear');
+    expect(cleared.payload.clears).toBe(true);
+    expect(cleared.payload.facts).toBeUndefined();
+    expect(cleared.payload.sources).toBeUndefined();
+  });
+
   it('starts from its own empty scenario, with no practice roles, briefing or AI colleagues', async () => {
     const { app, base, store } = await build();
     const owner = await signIn(store, 'Ada');

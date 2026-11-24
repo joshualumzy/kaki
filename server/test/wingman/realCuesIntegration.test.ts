@@ -53,7 +53,7 @@ function deliveringHub(): { hub: Hub; published: KakiEvent[] } {
   return { hub, published };
 }
 
-const pace: MeetingPace = { ownerQuietBelow: 30, quietCheckAfter: 91, comingUpBefore: 43 };
+const pace: MeetingPace = { quietCheckAfter: 91, comingUpBefore: 43 };
 
 const scenario: Scenario = {
   id: 'real-cues-integration',
