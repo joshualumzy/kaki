@@ -471,7 +471,15 @@ Every competitor source is vendor-authored: a press release, product page or hel
 
 Zoom's retrieval works across Zoom and connected apps, and Read.ai can also send scheduled email updates. Copilot's intelligent recap needs Teams Premium or a Copilot licence. Otter's Work Mode also prepares pre-meeting briefs and can query Jira through AI Chat, and Fireflies adds transcription, summaries, speaker talk-time analytics and Voice Agents.
 
-Several competitors offer private in-meeting tips and write-back to connected tools. Kaki gives one person private, sourced help without addressing the room, and asks the task owner to approve a draft before anything is written. Competitors are stronger in meeting-platform coverage, transcription at scale, ready-made integrations and enterprise security certification. Kaki is aimed at small teams that already self-host their issue tracker, chat and wiki.
+Kaki's advantage is that it treats a meeting as several people with different jobs, where competitors treat it as one recording:
+
+- **Help that belongs to one seat.** Each person's wingman sees their own role and to-dos and answers from the meeting first, then from workspace records with sources and dates. Other seats never see it, and guests get answers from the meeting only, so a visitor cannot pull company records.
+- **Follow-ups that reach the right person.** The host turns a spoken commitment into a card with the line that proves it, the owner hands it to a seat, and only that seat sees it. Competitors list action items for everyone to read.
+- **Nothing is written without its owner.** Every issue, post, email, page and calendar event is drafted, checked against its source, and written only after the person responsible approves it. The minutes need approval too.
+- **Practice before the real thing.** A newcomer can rehearse a meeting with AI colleagues at `/practice`, with no account. None of the products above offers this.
+- **Open and self-hostable.** Kaki is AGPL-3.0 and runs next to a team's own Gitea, Mattermost and Wiki.js, so meeting data stays on the team's servers.
+
+Competitors are ahead on scale: support for Zoom, Teams and Meet calls, transcription in many languages, a large catalogue of integrations, and enterprise security certification. Kaki is aimed at small teams that want private, accountable help in their own meetings and keep their tools in-house.
 
 ## Business model
 
