@@ -187,6 +187,18 @@ export function MeetingPanel({
     if (started) setBriefingOpen(false);
   }, [started]);
 
+  // A real meeting's owner sees one quiet line about a silent item owner on their own dock. It is
+  // not an ordinary Wingman card, so it stays out of that panel and its history.
+  const lead = real && isHost ? wingmanNotes.find((note) => note.kind === 'lead') : undefined;
+  const wingmanVisibleNotes = useMemo(
+    () => wingmanNotes.filter((note) => note.kind !== 'lead'),
+    [wingmanNotes],
+  );
+  const wingmanVisibleHistory = useMemo(
+    () => wingmanHistory.filter((entry) => entry.note.kind !== 'lead'),
+    [wingmanHistory],
+  );
+
   const activeAgendaIndex = record?.payload.agendaIndex ?? 0;
   useEffect(() => {
     if (practice) setShowIdeas(false);
@@ -362,6 +374,11 @@ export function MeetingPanel({
           )}
         </>
       )}
+      {lead !== undefined && (
+        <p className="kd-record-lead" role="status">
+          {lead.text}
+        </p>
+      )}
       {canControlMeeting && (
         <div className="kd-host-controls">
           {scenario.agenda.length > 0 && (
@@ -526,8 +543,8 @@ export function MeetingPanel({
         )}
         {role !== undefined && (
           <WingmanPanel
-            notes={wingmanNotes}
-            history={wingmanHistory}
+            notes={wingmanVisibleNotes}
+            history={wingmanVisibleHistory}
             onAsk={askWingman}
             onDismiss={(id) => send({ type: 'DISMISS_WINGMAN_NOTE', id })}
             askRejection={askRejection}

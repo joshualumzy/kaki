@@ -7,6 +7,8 @@ const KIND_LABELS: Record<WingmanNotePayload['kind'], string> = {
   given: 'You were given',
   asked_you: 'Asked you',
   record: 'Record',
+  lead: 'Quiet item',
+  nudge: 'Your item',
 };
 
 /** The facts and sources behind one private note, each with where it came from. */

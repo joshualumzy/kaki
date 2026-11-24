@@ -33,7 +33,7 @@ export type NotetakerStatus = 'waiting' | 'ok' | 'stale' | 'off';
 export const NOTETAKER_STATUSES: readonly NotetakerStatus[] = ['waiting', 'ok', 'stale', 'off'];
 
 /** The reason one private Wingman note was raised. */
-export type WingmanNoteKind = 'answer' | 'given' | 'asked_you' | 'record';
+export type WingmanNoteKind = 'answer' | 'given' | 'asked_you' | 'record' | 'lead' | 'nudge';
 
 /** How loudly a private Wingman note should appear: a quiet panel line, or an act-now pop-up. */
 export type WingmanUrgency = 'quiet' | 'act_now';
@@ -243,7 +243,7 @@ function isFact(value: unknown): value is Fact {
   return isObject(value) && isString(value.text) && isString(value.source) && isString(value.date);
 }
 
-const WINGMAN_NOTE_KINDS: readonly WingmanNoteKind[] = ['answer', 'given', 'asked_you', 'record'];
+const WINGMAN_NOTE_KINDS: readonly WingmanNoteKind[] = ['answer', 'given', 'asked_you', 'record', 'lead', 'nudge'];
 const WINGMAN_URGENCIES: readonly WingmanUrgency[] = ['quiet', 'act_now'];
 
 function isWingmanNoteKind(value: unknown): value is WingmanNoteKind {

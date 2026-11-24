@@ -42,6 +42,7 @@ import type { ArchivedMeetingTodo, MeetingRow } from './types';
 import {
   holderForRoomIdentity,
   realBaseScenario,
+  realMeetingScenario,
   realMeetingSetup,
   realScenarioWithPeople,
 } from './realMeeting';
@@ -755,13 +756,26 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
   if (kind === 'real') {
     session.setKind('real');
     if (session.holders().length > 0) {
-      session.refreshRealScenario(realScenarioWithPeople(fullScenario, session.holders()));
+      session.refreshRealScenario(realScenarioForRoom());
     }
+  }
+  /**
+   * A real meeting's scenario with the people now in it. The current scenario already carries the
+   * agenda owners the meeting sealed; a sealed setup is re-applied so an owner who has left falls
+   * back to unowned instead of naming an absent seat. Only people's plain seats are added, so a
+   * roster refresh never brings back AI attendees or drops a late joiner's role.
+   */
+  function realScenarioForRoom(): Scenario {
+    const holders = session.holders();
+    const sealed = session.sealed();
+    return sealed === undefined
+      ? realScenarioWithPeople(session.active(), holders)
+      : realMeetingScenario(session.active(), holders, sealed);
   }
   /** Show the people now in a real meeting: one plain seat per person, named by them. */
   function refreshRealPeople(): void {
     if (kind !== 'real') return;
-    session.refreshRealScenario(realScenarioWithPeople(fullScenario, session.holders()));
+    session.refreshRealScenario(realScenarioForRoom());
     // The web validates speaker roles against its scenario, so a person who joins must also be
     // told to reload it; otherwise their lines are dropped as unknown roles on everyone's screen.
     hub.publish({
@@ -1599,8 +1613,9 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
           // A real product meeting has no pack to prepare: its people are its seats, and its own
           // title and agenda are the plan. Nobody picks a role, so the draft has nothing to seal.
           const holders = session.holders();
-          candidate = realScenarioWithPeople(fullScenario, holders);
-          sealed = realMeetingSetup(fullScenario, holders);
+          const configured = session.draftTouched() ? session.draft() : undefined;
+          candidate = realMeetingScenario(fullScenario, holders, configured);
+          sealed = realMeetingSetup(fullScenario, holders, configured);
         } else {
           // Re-validate the whole draft before anything is applied or the runner is asked, so a bad edit
           // made outside the setup screen fails Start loudly and leaves the meeting untouched. A

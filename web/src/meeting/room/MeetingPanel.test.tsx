@@ -1401,3 +1401,107 @@ describe('MeetingPanel real meeting', () => {
   });
 });
 
+describe('MeetingPanel real-meeting pace cues', () => {
+  const recordOnly: KakiEvent[] = [{
+    type: 'MEETING_RECORD_UPDATED',
+    audience: { kind: 'screen' },
+    payload: { agendaIndex: 0, openQuestions: [], elapsedSeconds: 120, speakerTalkSeconds: {} },
+  }];
+
+  const lead: WingmanNotePayload = {
+    id: 'lead:0',
+    kind: 'lead',
+    urgency: 'quiet',
+    title: 'Quiet agenda item',
+    text: "Raj owns this item but hasn't spoken yet.",
+    at: '2026-11-24T10:02:00.000Z',
+  };
+
+  function renderPanel(options: {
+    notes: WingmanNotePayload[];
+    real?: boolean;
+    practice?: boolean;
+    isHost?: boolean;
+    sharedAudience?: 'screen' | 'participant';
+  }): ReturnType<typeof render> {
+    mocks.useKaki.mockReturnValue(withSpeech({
+      events: recordOnly,
+      tasks: new Map(),
+      connected: true,
+      rejection: null,
+      send: vi.fn(),
+      wingmanNotes: options.notes,
+    }));
+    return render(
+      <MeetingPanel
+        viewer={{ name: 'Owner', seatName: 'Owner' }}
+        role={scenario.roles[0]}
+        real={options.real}
+        practice={options.practice}
+        isHost={options.isHost}
+        sharedAudience={options.sharedAudience}
+      />,
+    );
+  }
+
+  it('shows one quiet lead line on the owner dock, outside the Wingman cards, and clears it', () => {
+    const view = renderPanel({ notes: [lead], real: true, isHost: true });
+    expect(screen.getByText(lead.text)).toBeTruthy();
+    expect(within(screen.getByLabelText('Wingman')).queryByText(lead.text)).toBeNull();
+
+    // The server clears the note by removing it from the active notes.
+    mocks.useKaki.mockReturnValue(withSpeech({
+      events: recordOnly,
+      tasks: new Map(),
+      connected: true,
+      rejection: null,
+      send: vi.fn(),
+      wingmanNotes: [],
+    }));
+    view.rerender(
+      <MeetingPanel
+        viewer={{ name: 'Owner', seatName: 'Owner' }}
+        role={scenario.roles[0]}
+        real
+        isHost
+      />,
+    );
+    expect(screen.queryByText(lead.text)).toBeNull();
+  });
+
+  it('never shows the quiet lead to a real participant or a practice visitor', () => {
+    const participant = renderPanel({ notes: [lead], real: true, sharedAudience: 'participant' });
+    expect(screen.queryByText(lead.text)).toBeNull();
+    participant.unmount();
+
+    renderPanel({ notes: [lead], practice: true });
+    expect(screen.queryByText(lead.text)).toBeNull();
+  });
+
+  it('shows the private nudge and coming-up notes as ordinary Wingman cards', () => {
+    const nudge: WingmanNotePayload = {
+      id: 'nudge:operations_director:0',
+      kind: 'nudge',
+      urgency: 'quiet',
+      title: 'Your item: Budget',
+      text: 'You own "Budget".',
+      at: '2026-11-24T10:02:00.000Z',
+    };
+    const upcoming: WingmanNotePayload = {
+      id: 'upcoming:operations_director:0',
+      kind: 'nudge',
+      urgency: 'quiet',
+      title: 'Your next item',
+      text: "Up next in about 1 min: Hiring, it's yours.",
+      at: '2026-11-24T10:09:00.000Z',
+    };
+    renderPanel({ notes: [nudge, upcoming], real: true, isHost: true });
+
+    const wingman = within(screen.getByLabelText('Wingman'));
+    expect(wingman.getByText('Your item: Budget')).toBeTruthy();
+    expect(wingman.getByText('You own "Budget".')).toBeTruthy();
+    expect(wingman.getByText('Your next item')).toBeTruthy();
+    expect(wingman.getByText("Up next in about 1 min: Hiring, it's yours.")).toBeTruthy();
+  });
+});
+

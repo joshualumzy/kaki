@@ -169,6 +169,8 @@ export function createMeetingModule({
 
       // Clients keep every record they receive, so publish only when something people see has
       // changed, plus a heartbeat; between records, clients count elapsedSeconds up themselves.
+      // A real meeting is the exception: Wingman's quiet-owner and coming-up cues must fire on the
+      // owner's exact second, so its record is published every tick and never held back.
       function publishRecord(): void {
         const now = clock.snapshot();
         if (!now.started) return;
@@ -185,7 +187,11 @@ export function createMeetingModule({
           quietRoles,
           Object.entries(talk).map(([role, seconds]) => [role, Math.floor((seconds ?? 0) / TALK_STEP_SECONDS)]),
         ]);
-        if (signature === lastSignature && now.meetingElapsedSeconds - lastPublishedAt < HEARTBEAT_MEETING_SECONDS) {
+        if (
+          !realMeeting() &&
+          signature === lastSignature &&
+          now.meetingElapsedSeconds - lastPublishedAt < HEARTBEAT_MEETING_SECONDS
+        ) {
           return;
         }
         lastSignature = signature;

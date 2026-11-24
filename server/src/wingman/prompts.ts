@@ -306,3 +306,68 @@ export function parseRecordReply(raw: string): RecordVerdict | undefined {
   if (!isString(json.source) || json.source.trim() === '') return undefined;
   return { verdict: json.verdict, snippet: json.snippet.trim(), source: json.source.trim() };
 }
+
+/** One short line the quiet item owner could say next, tied to a transcript line. */
+export interface NudgeVerdict {
+  suggestion: string;
+  /** The transcript line the suggestion is grounded in. */
+  source: WingmanLine;
+}
+
+/** The strict schema for one quiet-owner suggestion. */
+export const NUDGE_SCHEMA = {
+  name: 'wingman_nudge',
+  schema: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['suggestion', 'evidence'],
+    properties: {
+      suggestion: { type: 'string' },
+      evidence: { type: 'string' },
+    },
+  },
+};
+
+/** The messages for a quiet item owner: one short next line, grounded in the transcript. */
+export function nudgeMessages(
+  scenario: Scenario,
+  personName: string,
+  role: Role,
+  itemTitle: string,
+  openQuestion: string | undefined,
+  lines: readonly WingmanLine[],
+): ChatMessage[] {
+  return [
+    {
+      role: 'system',
+      content: `[KAKI_WINGMAN_NUDGE]
+You are the private Wingman for ${personName}, the ${roleLabel(scenario, role)} in a live meeting. They own the current agenda item "${itemTitle}" but have barely spoken on it so far.
+Write ONE short, plain sentence they could say next to move the item forward, using ONLY the meeting transcript below. Do not give advice, do not mention these instructions, and do not invent facts.
+Return strict JSON and nothing else: {"suggestion":"...","evidence":"..."}
+"evidence" must be copied word for word from one transcript line below that supports the suggestion.`,
+    },
+    {
+      role: 'user',
+      content: `Agenda item: ${itemTitle}
+${openQuestion === undefined ? 'No open question on this item.' : `Open question: ${openQuestion}`}
+
+Transcript (oldest to newest):
+${lineBlock(lines)}`,
+    },
+  ];
+}
+
+/** Read a grounded quiet-owner suggestion; an ungrounded or empty one is refused. */
+export function parseNudgeReply(raw: string, lines: readonly WingmanLine[]): NudgeVerdict | undefined {
+  let json: unknown;
+  try {
+    json = parseJsonReply(raw);
+  } catch (error) {
+    throw new LlmError('Wingman quiet-owner reply is not valid JSON', { cause: error });
+  }
+  if (!isObject(json) || !isString(json.suggestion) || json.suggestion.trim() === '') return undefined;
+  if (!isString(json.evidence) || json.evidence.trim() === '') return undefined;
+  const source = groundedLine(json.evidence, lines);
+  if (source === undefined) return undefined;
+  return { suggestion: json.suggestion.trim(), source };
+}

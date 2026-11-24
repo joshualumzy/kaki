@@ -17,6 +17,7 @@ Kaki (Singlish for "buddy" or "one of us") helps a small team run a meeting and 
 - Guests join by link or QR code under their own name, without an account.
 - Many meetings run at once, each with its own notes, transcript and cards.
 - Every person's wingman answers "what did I miss?" from the meeting first and then from workspace records, with sources and dates.
+- In a real meeting, the Wingman quietly flags a silent agenda owner and warns the next owner before their item, at the pace set in setup.
 - A to-do card can be done for you: Kaki drafts the issue, post, email, wiki page or calendar event, and nothing is written until a person approves it.
 - After the meeting, the workspace keeps the minutes and to-dos, with Copy, Download and a tick for each to-do.
 - Meetings are speech only, and the layout works on a phone.

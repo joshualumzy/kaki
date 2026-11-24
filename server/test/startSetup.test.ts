@@ -1426,6 +1426,71 @@ describe('Start applies the validated setup', () => {
     expect((await getScenario(app)).npcs ?? []).toEqual([]);
   });
 
+  it('keeps the owner pace and a present agenda owner in the real meeting seal and scenario', async () => {
+    const pack = await loadScenario('kopitiam');
+    const meetings = createMemoryMeetingStore();
+    const app = await startRealApp(meetings, {
+      title: 'Floor huddle',
+      agenda: [{ title: 'Opening checklist', minutes: 5 }],
+    });
+    const setup = humanOnlySetup(pack);
+    setup.pace = { ownerQuietBelow: 20, quietCheckAfter: 90, comingUpBefore: 45 };
+    setup.agenda = [
+      { id: 'agenda-1', title: 'Opening checklist', minutes: 5, ownerRoleId: 'operations_director' },
+    ];
+    setup.seats = [
+      { displayName: 'Alice', roleId: 'operations_director', kind: 'person' },
+      { displayName: 'Ben', roleId: 'tech_pos_lead', kind: 'person' },
+    ];
+    expect((await putSetup(app, setup)).status).toBe(200);
+
+    expect((await joinReal(app, 'Alice')).status).toBe(200);
+    expect((await joinReal(app, 'Ben')).status).toBe(200);
+    expect((await startMeeting(app)).status).toBe(200);
+
+    const alice = app.session.holders().find((holder) => holder.name.toLowerCase() === 'alice');
+    expect(alice).toBeDefined();
+    const sealed = app.session.sealed();
+    expect(sealed?.pace).toEqual(setup.pace);
+    expect(sealed?.agenda[0]?.ownerRoleId).toBe(alice?.seat);
+    expect((await getScenario(app)).agenda[0]?.ownerRole).toBe(alice?.seat);
+  });
+
+  it('keeps the sealed agenda owner through a late joiner roster refresh', async () => {
+    const pack = await loadScenario('kopitiam');
+    const meetings = createMemoryMeetingStore();
+    const app = await startRealApp(meetings, {
+      title: 'Floor huddle',
+      agenda: [{ title: 'Opening checklist', minutes: 5 }],
+    });
+    const setup = humanOnlySetup(pack);
+    setup.agenda = [
+      { id: 'agenda-1', title: 'Opening checklist', minutes: 5, ownerRoleId: 'operations_director' },
+    ];
+    setup.seats = [
+      { displayName: 'Alice', roleId: 'operations_director', kind: 'person' },
+      { displayName: 'Ben', roleId: 'tech_pos_lead', kind: 'person' },
+    ];
+    expect((await putSetup(app, setup)).status).toBe(200);
+    expect((await joinReal(app, 'Alice')).status).toBe(200);
+    expect((await joinReal(app, 'Ben')).status).toBe(200);
+    expect((await startMeeting(app)).status).toBe(200);
+
+    const alice = app.session.holders().find((holder) => holder.name.toLowerCase() === 'alice');
+    expect(alice).toBeDefined();
+
+    // A person who joins after Start refreshes the roster: the owner must survive, and the late
+    // joiner must get their own plain seat, with no AI attendee appearing.
+    expect((await joinReal(app, 'Cy')).status).toBe(200);
+    const afterJoin = await getScenario(app);
+    const cy = app.session.holders().find((holder) => holder.name.toLowerCase() === 'cy');
+    expect(cy).toBeDefined();
+    expect(afterJoin.agenda[0]?.ownerRole).toBe(alice?.seat);
+    expect(afterJoin.roles.some((role) => role.id === cy?.seat)).toBe(true);
+    expect(afterJoin.attendees.some((attendee) => attendee.name === 'Cy')).toBe(true);
+    expect(afterJoin.npcs ?? []).toEqual([]);
+  });
+
   it('starts a team meeting filled in from a blank plan, with no demo-pack facts', async () => {
     const pack = await loadScenario('kopitiam');
     const meetings = createMemoryMeetingStore();

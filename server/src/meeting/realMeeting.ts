@@ -69,17 +69,53 @@ export function realScenarioWithPeople(base: Scenario, holders: readonly SeatHol
   };
 }
 
-/** The setup Start seals for a real meeting: its people are the seats, its agenda is the meeting's. */
-export function realMeetingSetup(base: Scenario, holders: readonly SeatHolder[]): MeetingSetup {
+/**
+ * The owner role an agenda item should run with. A real meeting only names an owner the room can
+ * actually nudge: a role held by a person who is present. The generic `everyone` role and a role
+ * that is absent or no longer held stay unowned.
+ */
+function realAgendaOwner(
+  configured: MeetingSetup | undefined,
+  item: Scenario['agenda'][number],
+  index: number,
+  holders: readonly SeatHolder[],
+): string {
+  const candidate = configured?.agenda.find((entry) => entry.title === item.title) ?? configured?.agenda[index];
+  if (candidate === undefined || candidate.ownerRoleId === REAL_BASE_ROLE) return REAL_BASE_ROLE;
+  const roleId = candidate.ownerRoleId.trim();
+  // A real meeting's people keep their own stable seat ids, so a setup role reaches a person by
+  // the seat they were listed under, never by the setup's role id surviving into the room.
+  const direct = holders.find((holder) => holder.seat.trim() === roleId);
+  if (direct !== undefined) return direct.seat;
+  const seat = configured?.seats.find(
+    (entry) => entry.kind === 'person' && entry.roleId.trim() === roleId,
+  );
+  if (seat === undefined) return REAL_BASE_ROLE;
+  const named = seat.displayName.trim().toLowerCase();
+  const holder = holders.find((entry) => personName(entry).trim().toLowerCase() === named);
+  return holder?.seat ?? REAL_BASE_ROLE;
+}
+
+/**
+ * The setup Start seals for a real meeting: its people are the seats, its agenda is the meeting's.
+ * The owner's configured pace and an agenda owner held by a present person carry over from the
+ * draft, so the meeting nudges at the timings the owner chose.
+ */
+export function realMeetingSetup(
+  base: Scenario,
+  holders: readonly SeatHolder[],
+  configured?: MeetingSetup,
+): MeetingSetup {
+  const roles = uniqueRoles(base.roles, holders);
   return {
     title: base.meetingTitle,
     agenda: base.agenda.map((item, index) => ({
       id: `agenda-${index + 1}`,
       title: item.title,
       minutes: item.minutes,
-      ownerRoleId: REAL_BASE_ROLE,
+      ownerRoleId: realAgendaOwner(configured, item, index, holders),
     })),
-    roles: uniqueRoles(base.roles, holders).map((role) => ({
+    roles: roles.map((role) => ({
       id: role.id,
       label: role.label,
       facilitator: role.facilitator === true,
@@ -89,9 +125,29 @@ export function realMeetingSetup(base: Scenario, holders: readonly SeatHolder[])
       roleId: holder.seat,
       kind: 'person' as const,
     })),
-    pace: { ...DEFAULT_MEETING_PACE },
+    pace: { ...(configured?.pace ?? DEFAULT_MEETING_PACE) },
     source: { title: 'typed', agenda: 'typed', roles: 'typed', seats: 'typed', pace: 'typed' },
   };
+}
+
+/** The scenario a real meeting runs: the sealed owners reach the agenda the notetaker and cues read. */
+export function realMeetingScenario(
+  base: Scenario,
+  holders: readonly SeatHolder[],
+  configured?: MeetingSetup,
+): Scenario {
+  const sealed = realMeetingSetup(base, holders, configured);
+  const owners = new Map(sealed.agenda.map((item, index) => [index, item.ownerRoleId]));
+  return realScenarioWithPeople(
+    {
+      ...base,
+      agenda: base.agenda.map((item, index) => ({
+        ...item,
+        ownerRole: owners.get(index) ?? REAL_BASE_ROLE,
+      })),
+    },
+    holders,
+  );
 }
 
 function identitySeat(label: string): string {
