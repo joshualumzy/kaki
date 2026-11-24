@@ -79,8 +79,8 @@ export function WingmanPanel({
 
   return (
     <section className="kd-role kd-wingman" aria-label="Wingman">
-      <div className="kd-wingman-head">
-        <p className="kd-role-eyebrow">Wingman</p>
+      <p className="kd-wingman-hint">
+        Answers come from company records, with a source.
         {quietCount > 0 && (
           <span
             className="kd-wingman-badge"
@@ -89,8 +89,7 @@ export function WingmanPanel({
             {quietCount}
           </span>
         )}
-      </div>
-      <p className="kd-wingman-hint">Private to you. Answers come from company records, with a source.</p>
+      </p>
       <form className="kd-wingman-ask" onSubmit={submit}>
         <label className="kd-label" htmlFor="kd-wingman-question">
           Ask Kaki about this meeting
