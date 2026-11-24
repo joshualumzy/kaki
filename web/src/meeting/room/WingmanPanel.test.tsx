@@ -192,8 +192,10 @@ describe('WingmanPanel', () => {
     render(<WingmanPanel notes={notes} onAsk={vi.fn(() => true)} onDismiss={vi.fn()} />);
 
     expect(screen.getByText(`You asked, ${clock}: "what did we decide?"`)).toBeTruthy();
-    expect(screen.getByText(`Ravi asked, ${clock}: "When?"`)).toBeTruthy();
-    expect(screen.getByText(`The room asked, ${clock}: "Which option?"`)).toBeTruthy();
+    // The question is already in these notes' text, so the trigger line names who and when only.
+    expect(screen.getByText(`Ravi asked, ${clock}`)).toBeTruthy();
+    expect(screen.getByText(`The room asked, ${clock}`)).toBeTruthy();
+    expect(screen.queryByText(`Ravi asked, ${clock}: "When?"`)).toBeNull();
   });
 
   it('shows an ask refusal in the panel', () => {

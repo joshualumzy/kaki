@@ -343,6 +343,27 @@ describe('MeetingPanel', () => {
     expect(screen.queryByText(/What happened to the old regulars\?/)).toBeNull();
   });
 
+  it('does not pull the panel to the bottom on new lines while the transcript is closed', () => {
+    const line = (n: number): KakiEvent => ({
+      type: 'TRANSCRIPT_CHUNK',
+      audience: { kind: 'all' },
+      payload: { speaker: 'Arjun', text: `Line ${n}`, timestamp: `2026-11-07T10:00:0${n}Z`, lineId: `line-${n}` },
+    });
+    const base = { tasks: new Map(), connected: true, rejection: null, send: vi.fn() };
+    mocks.useKaki.mockReturnValue(withSpeech({ ...base, events: [line(1)] }));
+    const host = document.createElement('div');
+    host.className = 'kd-dock-body';
+    document.body.appendChild(host);
+    const view = render(<MeetingPanel viewer={{ name: 'Joshua', seatName: 'Wei Ling' }} role={scenario.roles[0]} />, { container: host });
+    Object.defineProperty(host, 'scrollHeight', { configurable: true, value: 2000 });
+    Object.defineProperty(host, 'clientHeight', { configurable: true, value: 500 });
+    host.scrollTop = 1450; // near the bottom, where the old code always followed new lines
+    mocks.useKaki.mockReturnValue(withSpeech({ ...base, events: [line(1), line(2)] }));
+    view.rerender(<MeetingPanel viewer={{ name: 'Joshua', seatName: 'Wei Ling' }} role={scenario.roles[0]} />);
+    expect(host.scrollTop).toBe(1450);
+    host.remove();
+  });
+
   it('replaces a cut transcript line in place instead of listing the whole line and then the cut line', () => {
     const full: KakiEvent = {
       type: 'TRANSCRIPT_CHUNK',

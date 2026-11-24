@@ -63,6 +63,8 @@ function triggerText(entry: WingmanHistoryEntry): string | undefined {
         : entry.note.questionFrom === 'room'
           ? 'The room asked'
           : 'Question';
+  // A note that already relays the question in its text is not quoted twice.
+  if (entry.note.text.includes(question.slice(0, 40))) return `${asked}${when}`;
   return `${asked}${when}: "${question}"`;
 }
 

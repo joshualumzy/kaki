@@ -244,6 +244,8 @@ export function MeetingPanel({
   useEffect(() => {
     // Do not yank the dock scroll away from the visitor's active task card at the top when new transcript lines arrive.
     if (hasActiveVisitorTask) return;
+    // A closed transcript has nothing to follow: new lines must not pull the panel away from the clock and Wingman.
+    if (!transcriptOpen) return;
     const scrollContainer = end.current?.closest('.kd-dock-body');
     if (scrollContainer instanceof HTMLElement) {
       const distanceFromBottom =
@@ -255,7 +257,7 @@ export function MeetingPanel({
       return;
     }
     end.current?.scrollIntoView?.({ block: 'end' });
-  }, [entries.length, hasActiveVisitorTask]);
+  }, [entries.length, hasActiveVisitorTask, transcriptOpen]);
 
   const peopleBySeat = useMemo(() => {
     const map = new Map<string, { displayName: string; photoUrl: string | null }>();
