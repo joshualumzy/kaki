@@ -197,16 +197,17 @@
   color: var(--color-muted);
 }
 .phone-task-step[data-active="true"] {
-  border-color: var(--color-accent);
-  background: var(--color-accent-soft);
-  color: var(--color-accent-strong, var(--color-accent));
+  border-color: var(--color-action);
+  background: var(--color-action);
+  color: #ffffff;
 }
 .phone-task-step[data-done="true"] {
   border-color: transparent;
-  background: transparent;
-  color: var(--color-muted);
-  opacity: 0.75;
+  background: var(--color-action-soft);
+  color: var(--color-action);
+  opacity: 1;
 }
+.phone-section-eyebrow { color: var(--color-action); }
 .phone-task-step-sep {
   color: var(--color-muted);
   opacity: 0.55;

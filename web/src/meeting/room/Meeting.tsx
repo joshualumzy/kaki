@@ -11,12 +11,9 @@ import {
   useRefreshScenario,
   useScenario,
 } from '../../kaki';
+import { failureText } from '../../net/failureText';
 import {
-  CAMERA_BLOCKED_PROBLEM,
   COULD_NOT_JOIN,
-  MEDIA_BLOCKED_PROBLEM,
-  MEDIA_BLOCKED_PROBLEM_SPEECH_ONLY,
-  MIC_BLOCKED_PROBLEM,
   ROOM_CONNECT_PROBLEM,
   plainServerText,
 } from '../../net/plainFailure';
@@ -621,12 +618,12 @@ export default function Meeting({
             console.error('kaki web: the microphone or camera could not start', failure);
             setMediaProblem(
               practice
-                ? MEDIA_BLOCKED_PROBLEM_SPEECH_ONLY
+                ? failureText('media-blocked', { real: false })
                 : kind === 'videoinput'
-                  ? CAMERA_BLOCKED_PROBLEM
+                  ? failureText('camera-blocked', { real: true })
                   : kind === 'audioinput'
-                    ? MIC_BLOCKED_PROBLEM
-                    : MEDIA_BLOCKED_PROBLEM,
+                    ? failureText('mic-blocked', { real: true })
+                    : failureText('media-blocked', { real: true }),
             );
           }}
           data-lk-theme="default"

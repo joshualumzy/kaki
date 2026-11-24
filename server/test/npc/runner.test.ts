@@ -1696,10 +1696,10 @@ describe('per-person speech status', () => {
   const frames = (count: number, value: number): Int16Array[] =>
     Array.from({ length: count }, () => new Int16Array(640).fill(value));
 
-  function statusMessages(): Array<{ participants: Record<string, { state: string; message?: string }>; outage?: { message: string } }> {
+  function statusMessages(): Array<{ participants: Record<string, { state: string; code?: string }>; outage?: { code?: string; reason?: string } }> {
     return published
       .filter((entry) => entry.topic === 'kaki.speech-status')
-      .map((entry) => entry.message as { participants: Record<string, { state: string; message?: string }>; outage?: { message: string } });
+      .map((entry) => entry.message as { participants: Record<string, { state: string; code?: string }>; outage?: { code?: string; reason?: string } });
   }
 
   it('shows transcribing only for the person whose finished speech is still being recognised', async () => {
@@ -1783,14 +1783,15 @@ describe('per-person speech status', () => {
         expect(latest?.participants['visitor-1']?.state).toBe('failed');
       });
       expect(statusMessages().at(-1)?.outage).toBeUndefined();
-      expect(statusMessages().at(-1)?.participants['visitor-1']?.message).toMatch(/Please say it again/);
+      expect(statusMessages().at(-1)?.participants['visitor-1']?.code).toBe('speech-failed');
 
       audio.frames.push(...frames(10, 20_000), ...frames(10, 0));
       rooms[0]!.emit('trackSubscribed', { kind: 1 }, undefined, visitor);
       await vi.waitFor(() => {
         const latest = statusMessages().at(-1);
         expect(latest?.participants['visitor-1']?.state).toBe('failed');
-        expect(latest?.outage?.message).toMatch(/Speech recognition is not working.*Azure quota exceeded/i);
+        expect(latest?.outage?.code).toBe('speech-outage');
+        expect(latest?.outage?.reason).toMatch(/Azure quota exceeded/i);
       });
     } finally {
       await runner.stop();

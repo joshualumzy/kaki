@@ -23,6 +23,8 @@
   --color-host-text: #d9440c;
   --color-host-soft: rgba(255, 90, 31, 0.12);
   --color-violet: #5865ff;
+  --color-action: #5865ff;
+  --color-action-soft: rgba(88, 101, 255, 0.12);
   --on-accent: #ffffff;
   --color-danger: #e5334b;
   --color-danger-soft: rgba(229, 51, 75, 0.1);
@@ -57,7 +59,7 @@
     --panel: rgba(255, 255, 255, 0.055); --color-surface: #151a22; --color-surface-strong: #1b212b; --stage: #11151c;
     --color-text: #f1f4f9; --color-muted: #98a2b3; --color-faint: #667085; --color-border: rgba(255, 255, 255, 0.09); --color-border-strong: rgba(255, 255, 255, 0.2);
     --color-ink: #f1f4f9; --color-accent: #2fe0c4; --color-accent-strong: #7ff0dc; --color-accent-soft: rgba(47, 224, 196, 0.14); --color-accent-bright: #2fe0c4;
-    --color-host-text: #ff8a5c; --color-host-soft: rgba(255, 90, 31, 0.18); --color-violet: #8d98ff; --on-accent: #06201b;
+    --color-host-text: #ff8a5c; --color-host-soft: rgba(255, 90, 31, 0.18); --color-violet: #8d98ff; --color-action: #8b95ff; --color-action-soft: rgba(139, 149, 255, 0.16); --on-accent: #06201b;
     --color-danger: #ff6b7e; --color-danger-soft: rgba(255, 107, 126, 0.14); --color-warning: #ffb089; --color-info: #aab3ff;
     --shadow-card: 0 1px 0 rgba(255, 255, 255, 0.06) inset, 0 24px 60px -24px rgba(0, 0, 0, 0.7);
   }
@@ -68,7 +70,7 @@
   --panel: rgba(255, 255, 255, 0.055); --color-surface: #151a22; --color-surface-strong: #1b212b; --stage: #11151c;
   --color-text: #f1f4f9; --color-muted: #98a2b3; --color-faint: #667085; --color-border: rgba(255, 255, 255, 0.09); --color-border-strong: rgba(255, 255, 255, 0.2);
   --color-ink: #f1f4f9; --color-accent: #2fe0c4; --color-accent-strong: #7ff0dc; --color-accent-soft: rgba(47, 224, 196, 0.14); --color-accent-bright: #2fe0c4;
-  --color-host-text: #ff8a5c; --color-host-soft: rgba(255, 90, 31, 0.18); --color-violet: #8d98ff; --on-accent: #06201b;
+  --color-host-text: #ff8a5c; --color-host-soft: rgba(255, 90, 31, 0.18); --color-violet: #8d98ff; --color-action: #8b95ff; --color-action-soft: rgba(139, 149, 255, 0.16); --on-accent: #06201b;
   --color-danger: #ff6b7e; --color-danger-soft: rgba(255, 107, 126, 0.14); --color-warning: #ffb089; --color-info: #aab3ff;
   --shadow-card: 0 1px 0 rgba(255, 255, 255, 0.06) inset, 0 24px 60px -24px rgba(0, 0, 0, 0.7);
 }

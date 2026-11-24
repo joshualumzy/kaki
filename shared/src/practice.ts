@@ -48,11 +48,52 @@ export type NpcStateMessage =
 /** One person's microphone state as the server-side recogniser sees it. */
 export type SpeechState = 'listening' | 'transcribing' | 'failed';
 
+/**
+ * A machine code for a speech or device failure. The browser turns it into one sentence, so the
+ * same happening reads the same way in every place and can differ between practice and a real meeting.
+ */
+export type FailureCode =
+  | 'speech-failed'
+  | 'speech-outage'
+  | 'room-reconnecting'
+  | 'room-lost'
+  | 'mic-blocked'
+  | 'mic-missing'
+  | 'camera-blocked'
+  | 'camera-missing'
+  | 'media-blocked'
+  | 'mic-unsupported'
+  | 'camera-unsupported'
+  | 'mic-failed'
+  | 'camera-failed';
+
+/** Every code a speech-status message may carry, in one place for the wire parser. */
+export const FAILURE_CODES: readonly FailureCode[] = [
+  'speech-failed',
+  'speech-outage',
+  'room-reconnecting',
+  'room-lost',
+  'mic-blocked',
+  'mic-missing',
+  'camera-blocked',
+  'camera-missing',
+  'media-blocked',
+  'mic-unsupported',
+  'camera-unsupported',
+  'mic-failed',
+  'camera-failed',
+];
+
+/** True when a value is one of the failure codes the browser knows how to word. */
+export function isFailureCode(value: unknown): value is FailureCode {
+  return typeof value === 'string' && (FAILURE_CODES as readonly string[]).includes(value);
+}
+
 /** What the runner knows about one person's speech right now. */
 export interface SpeechStatusEntry {
   state: SpeechState;
-  /** For `failed`, what the person should do next; shown only on their own screen. */
-  message?: string;
+  /** For `failed`, the code the browser turns into what the person should do next. */
+  code?: FailureCode;
 }
 
 /** What the runner reports on {@link SPEECH_STATUS_TOPIC}. */
@@ -60,7 +101,11 @@ export interface SpeechStatusMessage {
   /** Keyed by LiveKit participant identity, so each tile only shows its own person's state. */
   participants: Record<string, SpeechStatusEntry>;
   /** Present when recognition keeps failing: the whole room should hear instead. */
-  outage?: { message: string };
+  outage?: {
+    code: FailureCode;
+    /** The raw technical reason, for logs only; never shown as written. */
+    reason?: string;
+  };
 }
 
 /** True when `raw` is a complete speech-status message; malformed data is ignored. */
@@ -73,16 +118,21 @@ export function parseSpeechStatusMessage(raw: unknown): SpeechStatusMessage | un
     if (identity.trim() === '' || typeof value !== 'object' || value === null) return undefined;
     const state = (value as { state?: unknown }).state;
     if (state !== 'listening' && state !== 'transcribing' && state !== 'failed') return undefined;
-    const message = (value as { message?: unknown }).message;
-    if (message !== undefined && typeof message !== 'string') return undefined;
-    parsed[identity] = { state, ...(message === undefined ? {} : { message }) };
+    const code = (value as { code?: unknown }).code;
+    if (code !== undefined && !isFailureCode(code)) return undefined;
+    parsed[identity] = { state, ...(code === undefined ? {} : { code }) };
   }
   const outage = (raw as { outage?: unknown }).outage;
   if (outage === undefined) return { participants: parsed };
-  if (typeof outage !== 'object' || outage === null || typeof (outage as { message?: unknown }).message !== 'string') {
-    return undefined;
-  }
-  return { participants: parsed, outage: { message: (outage as { message: string }).message } };
+  if (typeof outage !== 'object' || outage === null) return undefined;
+  const outageCode = (outage as { code?: unknown }).code;
+  if (!isFailureCode(outageCode)) return undefined;
+  const reason = (outage as { reason?: unknown }).reason;
+  if (reason !== undefined && typeof reason !== 'string') return undefined;
+  return {
+    participants: parsed,
+    outage: { code: outageCode, ...(reason === undefined ? {} : { reason }) },
+  };
 }
 
 /**

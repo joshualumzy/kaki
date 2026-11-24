@@ -53,7 +53,7 @@ vi.mock('@livekit/components-react', () => ({
   useRoomContext: () => ({ disconnect: mocks.disconnect }),
 }));
 
-import { CAMERA_BLOCKED_PROBLEM, MIC_BLOCKED_PROBLEM } from '../../net/plainFailure';
+import { failureText } from '../../net/failureText';
 import { RealMeetingBar } from './RealMeetingBar';
 
 beforeEach(() => {
@@ -90,7 +90,7 @@ describe('real meeting bar', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Mic on' }));
 
     const alert = await screen.findByRole('alert');
-    expect(alert.textContent).toBe(MIC_BLOCKED_PROBLEM);
+    expect(alert.textContent).toBe(failureText('mic-blocked', { real: true }));
     expect(alert.textContent).not.toMatch(/\btype\b/i);
   });
 
@@ -101,7 +101,7 @@ describe('real meeting bar', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Camera off' }));
 
     const alert = await screen.findByRole('alert');
-    expect(alert.textContent).toBe(CAMERA_BLOCKED_PROBLEM);
+    expect(alert.textContent).toBe(failureText('camera-blocked', { real: true }));
   });
 
   it('turns the record off and back on for anyone in the room', () => {

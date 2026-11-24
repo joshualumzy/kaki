@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
+import type { FailureCode } from '@kaki/shared';
+import { failureText } from '../../net/failureText';
 import { Orb } from './Orb';
 
 /** Which devices the person chose to turn on before joining. */
@@ -14,17 +16,18 @@ interface MediaPreviewProps {
   onProblem(message: string | undefined): void;
 }
 
-function describeFailure(kind: 'microphone' | 'camera', error: unknown): string {
+function failureCode(kind: 'microphone' | 'camera', error: unknown): FailureCode {
   const name = error instanceof DOMException ? error.name : '';
-  if (name === 'NotFoundError') {
-    if (kind === 'camera') return 'No camera was found.';
-    return 'No microphone was found. Connect one to speak in the meeting.';
-  }
+  if (name === 'NotFoundError') return kind === 'camera' ? 'camera-missing' : 'mic-missing';
   if (name === 'NotAllowedError' || name === 'SecurityError') {
-    if (kind === 'camera') return "Your camera is blocked. Allow it in your browser's site settings to use it.";
-    return "Your microphone is blocked. Allow it in your browser's site settings to speak in the meeting.";
+    return kind === 'camera' ? 'camera-blocked' : 'mic-blocked';
   }
-  return `The ${kind} could not be started.`;
+  return kind === 'camera' ? 'camera-failed' : 'mic-failed';
+}
+
+function describeFailure(kind: 'microphone' | 'camera', error: unknown): string {
+  // The join form is the practice journey, where speaking is the only way in.
+  return failureText(failureCode(kind, error), { real: false });
 }
 
 /** Opens the camera while `on`, and returns the stream for the preview. */
@@ -48,7 +51,9 @@ function useCameraStream(on: boolean, fail: (message: string) => void): MediaStr
       .catch((error: unknown) => {
         if (!cancelled) failRef.current(describeFailure('camera', error));
       });
-    if (navigator.mediaDevices === undefined) failRef.current('This browser cannot use a camera here.');
+    if (navigator.mediaDevices === undefined) {
+      failRef.current(failureText('camera-unsupported', { real: false }));
+    }
     return () => {
       cancelled = true;
       opened?.getTracks().forEach((t) => t.stop());
@@ -70,7 +75,7 @@ function useMicrophoneLevel(on: boolean, fail: (message: string) => void): numbe
     let context: AudioContext | undefined;
     let timer: ReturnType<typeof setInterval> | undefined;
     if (navigator.mediaDevices === undefined) {
-      failRef.current('This browser cannot use a microphone here.');
+      failRef.current(failureText('mic-unsupported', { real: false }));
       return undefined;
     }
     const audioSession = (navigator as unknown as { audioSession?: { type: string } }).audioSession;

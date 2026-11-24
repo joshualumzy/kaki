@@ -409,6 +409,65 @@ describe('useKaki Wingman notes', () => {
     await waitFor(() => expect(result.current.wingmanNotes).toHaveLength(0));
   });
 
+  it('keeps a cleared note in history while the active list drops it', async () => {
+    const { useKaki } = await import('./useKaki');
+    const { result } = renderMeetingHook(() => useKaki({ kind: 'participant' }));
+    const socket = sockets[0]!;
+    act(() => socket.emit('open'));
+
+    act(() => socket.emit('message', noteMessage('answer:chef', 'A private answer.')));
+    act(() => socket.emit('message', noteMessage('answer:chef', 'A private answer.', true)));
+
+    await waitFor(() => expect(result.current.wingmanNotes).toHaveLength(0));
+    expect(result.current.wingmanHistory).toHaveLength(1);
+    expect(result.current.wingmanHistory[0]?.note).toMatchObject({ id: 'answer:chef', clears: true });
+  });
+
+  it('keeps history after more than fifty later events push the note out of the window', async () => {
+    const { useKaki } = await import('./useKaki');
+    const { result } = renderMeetingHook(() => useKaki({ kind: 'participant' }));
+    const socket = sockets[0]!;
+    act(() => socket.emit('open'));
+
+    act(() => socket.emit('message', noteMessage('answer:chef', 'A private answer.')));
+    await waitFor(() => expect(result.current.wingmanHistory).toHaveLength(1));
+
+    act(() => {
+      for (let index = 0; index < 55; index += 1) {
+        socket.emit('message', transcriptEvent('Sam', `filler ${index}`));
+      }
+    });
+
+    expect(result.current.events).toHaveLength(50);
+    expect(result.current.wingmanHistory).toHaveLength(1);
+    expect(result.current.wingmanHistory[0]?.note.text).toBe('A private answer.');
+  });
+
+  it('forgets the Wingman history when the meeting resets', async () => {
+    const { useKaki } = await import('./useKaki');
+    const { result } = renderMeetingHook(() => useKaki({ kind: 'participant' }));
+    const socket = sockets[0]!;
+    act(() => socket.emit('open'));
+
+    act(() => socket.emit('message', noteMessage('answer:chef', 'A private answer.')));
+    await waitFor(() => expect(result.current.wingmanHistory).toHaveLength(1));
+
+    act(() => socket.emit('message', resetEvent('meeting-b')));
+    await waitFor(() => expect(result.current.wingmanHistory).toHaveLength(0));
+  });
+
+  it('shows no private history on the shared screen', async () => {
+    const { useKaki } = await import('./useKaki');
+    const { result } = renderMeetingHook(() => useKaki({ kind: 'screen' }));
+    const socket = sockets[0]!;
+    act(() => socket.emit('open'));
+
+    act(() => socket.emit('message', noteMessage('answer:chef', 'A private answer.')));
+
+    expect(result.current.wingmanNotes).toHaveLength(0);
+    expect(result.current.wingmanHistory).toHaveLength(0);
+  });
+
   it('sends ASK_WINGMAN to the server for this seat', async () => {
     const { useKaki } = await import('./useKaki');
     const { result } = renderMeetingHook(() => useKaki({ kind: 'role', role: 'chef' }));

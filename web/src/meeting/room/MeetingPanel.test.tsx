@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
-import { act, cleanup, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { KakiEvent, MeetingStateSnapshot, Scenario, Task, WingmanNotePayload } from '@kaki/shared';
 import type { KakiRejection } from '../../kaki';
@@ -79,9 +79,11 @@ function withSpeech(
   },
   initialAgendaIndex = 0,
 ) {
+  const wingmanNotes = result.wingmanNotes ?? [];
   return {
     ...result,
-    wingmanNotes: result.wingmanNotes ?? [],
+    wingmanNotes,
+    wingmanHistory: wingmanNotes.map((note) => ({ note })),
     rejections: result.rejections ?? (result.rejection === null ? [] : [result.rejection]),
     askWingman: result.askWingman ?? vi.fn(() => true),
     speechByTopic: speechByTopicFromEvents(result.events, initialAgendaIndex),
@@ -157,6 +159,44 @@ describe('MeetingPanel team meetings', () => {
 });
 
 describe('MeetingPanel', () => {
+  it('orders the Host, Wingman and Action board sections', () => {
+    const suggested: Task = {
+      id: 'suggested-1',
+      title: 'Post the opening update',
+      context: '',
+      suggestedAssignee: 'tech_pos_lead',
+      status: 'SUGGESTED',
+      updatedAt: '2026-11-08T10:00:00Z',
+    };
+    mocks.useKaki.mockReturnValue(withSpeech({
+      events,
+      tasks: new Map([[suggested.id, suggested]]),
+      connected: true,
+      rejection: null,
+      send: vi.fn(),
+    }));
+    const { container } = render(
+      <MeetingPanel viewer={{ name: 'Joshua', seatName: 'Wei Ling' }} role={scenario.roles[0]} />,
+    );
+
+    const headings = [...container.querySelectorAll('.kd-section-title')].map((heading) =>
+      heading.textContent?.trim(),
+    );
+    expect(headings.slice(0, 3)).toEqual(['Host', 'Wingman', 'Action board']);
+  });
+
+  it('offers starter ideas in a practice meeting and never in a real one', () => {
+    const { rerender } = render(
+      <MeetingPanel viewer={{ name: 'Joshua', seatName: 'Wei Ling' }} role={scenario.roles[0]} practice />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /Need an idea/ }));
+    expect(screen.getByText(/could you summarize the two main options/i)).toBeTruthy();
+
+    rerender(<MeetingPanel viewer={{ name: 'Joshua', seatName: 'Wei Ling' }} role={scenario.roles[0]} real />);
+    expect(screen.queryByRole('button', { name: /Need an idea/ })).toBeNull();
+  });
+
   it('replaces a cut transcript line in place instead of listing the whole line and then the cut line', () => {
     const full: KakiEvent = {
       type: 'TRANSCRIPT_CHUNK',
@@ -250,6 +290,7 @@ describe('MeetingPanel', () => {
     render(<MeetingPanel viewer={{ name: 'Joshua', seatName: 'Wei Ling' }} role={scenario.roles[0]} />);
 
     const panel = within(screen.getByLabelText('Wingman'));
+    fireEvent.click(panel.getByRole('button', { name: /Earlier · 3 more/ }));
     expect(panel.getByText('Answer')).toBeTruthy();
     expect(panel.getByText('You asked what we decided: the cash box moves.')).toBeTruthy();
     expect(panel.getByText('The shop still has launch budget left.')).toBeTruthy();

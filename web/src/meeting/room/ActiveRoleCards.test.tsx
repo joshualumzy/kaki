@@ -79,6 +79,16 @@ afterEach(() => {
 });
 
 describe('task review card', () => {
+  it('shows the three task steps with the current one filled', () => {
+    render(<ActiveRoleCards role="operations_director" viewer={{ name: 'Joshua' }} />);
+
+    for (const step of ['1. Accept', '2. Review draft', '3. Published']) {
+      expect(screen.getByText(step)).toBeTruthy();
+    }
+    expect(screen.getByText('2. Review draft').getAttribute('data-active')).toBe('true');
+    expect(screen.getByText('1. Accept').getAttribute('data-done')).toBe('true');
+  });
+
   it('shows the accepted decision beside the draft the person is reviewing', () => {
     render(<ActiveRoleCards role="operations_director" viewer={{ name: 'Joshua' }} />);
 

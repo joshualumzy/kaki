@@ -157,13 +157,6 @@ select.kd-field { appearance: none; cursor: pointer; background-image: linear-gr
 .kd-wingman-sources span { font-weight: 700; }
 
 /* The only thing allowed in the middle of the screen: a direct question waiting for this person. */
-.kd-act-now { position: fixed; inset: 0; z-index: 70; display: grid; place-items: center; padding: 16px; pointer-events: none; }
-.kd-act-now-card { pointer-events: auto; width: min(520px, 100%); padding: 18px; border-radius: 18px; background: var(--color-surface); border: 1.5px solid var(--color-accent); box-shadow: 0 24px 60px -20px rgba(0, 0, 0, 0.55), 0 0 0 4px var(--color-accent-soft); }
-.kd-act-now-card .kd-role-eyebrow { margin: 0 0 6px; color: var(--color-accent); }
-.kd-act-now-title { margin: 0 0 6px; font-size: 18px; line-height: 1.3; color: var(--color-text); }
-.kd-act-now-card .kd-chip { margin-top: 12px; }
-.kd-pane-badge-wingman { background: var(--color-accent-soft); color: var(--color-accent); animation: none; box-shadow: none; }
-
 .kd-briefing { margin: 4px 14px 6px; }
 .kd-briefing > .kd-role { margin: 8px 0 0; }
 .kd-briefing-summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 9px 14px; border-radius: 12px; font-size: 12px; font-weight: 600; color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border); cursor: pointer; list-style: none; user-select: none; }
@@ -174,6 +167,25 @@ select.kd-field { appearance: none; cursor: pointer; background-image: linear-gr
 .kd-role p { margin: 0 0 8px; }
 .kd-role ul { margin: 0 0 8px; padding-left: 17px; color: var(--color-muted); }
 .kd-role-eyebrow { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--color-muted); }
+
+/* Panel section headings: one mono eyebrow and icon per Kaki job. */
+.kd-section-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 14px 14px 0; }
+.kd-section-title { display: inline-flex; align-items: center; gap: 6px; margin: 0; font-family: var(--font-mono); font-size: 10.5px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--color-muted); }
+.kd-section-title svg { flex: none; }
+.kd-section-head[data-tone='host'] .kd-section-title { color: var(--color-host-text); }
+.kd-section-head[data-tone='wingman'] .kd-section-title { color: var(--color-accent); }
+.kd-section-head[data-tone='action'] .kd-section-title { color: var(--color-action); }
+.kd-section-aside { flex: none; font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-muted); }
+
+/* Wingman history: the newest hint open, the rest behind one Show/Hide line. */
+.kd-wingman-history { margin-top: 8px; }
+.kd-wingman-earlier { display: inline-flex; align-items: center; gap: 6px; margin: 2px 0 8px; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--color-border); background: var(--color-bg-raised); color: var(--color-accent); font-family: var(--font-mono); font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; cursor: pointer; }
+.kd-wingman-earlier:hover { border-color: var(--color-accent); background: var(--color-accent-soft); }
+.kd-wingman-trigger { margin: 6px 0 0; font-size: 11.5px; line-height: 1.4; color: var(--color-muted); }
+.kd-wingman-trigger b { color: var(--color-text); font-weight: 600; }
+.kd-wingman-ideas { margin-top: 10px; }
+.kd-wingman-ideas .kd-starter-chips { margin-top: 8px; }
+.kd-turn-hint { margin: 0 auto 6px; padding: 4px 12px; border-radius: 999px; background: var(--color-accent-soft); color: var(--color-accent-strong, var(--color-accent)); font-size: 12px; font-weight: 600; text-align: center; }
 
 .kd-host-clock { font-size: 22px; font-weight: 700; letter-spacing: -0.03em; line-height: 1.1; color: var(--color-text); font-variant-numeric: tabular-nums; }
 .kd-host-bar { height: 5px; border-radius: 3px; background: var(--color-border); overflow: hidden; margin: 6px 0; }
@@ -233,8 +245,6 @@ select.kd-field { appearance: none; cursor: pointer; background-image: linear-gr
   .kd-reaction-emoji { font-size: 12px; }
   .kd-caption { left: 5px; right: 5px; bottom: 5px; padding: 4px 7px; font-size: 11px; line-height: 1.25; max-height: 54%; overflow-y: auto; border-radius: 10px; }
   .kd-tile[data-ai="false"] .kd-caption { bottom: 38px; max-height: calc(100% - 84px); }
-  .kd-turn-bar { width: calc(100% - 8px); padding: 4px 9px; margin-bottom: 1px; gap: 3px; border-radius: 11px; }
-  .kd-turn-pill { font-size: 11px; }
   .kd-starter-chips { max-height: 84px; overflow-y: auto; }
   .kd-starter-chip { flex: 1 1 100%; font-size: 11px; padding: 4px 8px; }
   .kd-stage-toast { margin: 2px 4px 0; padding: 6px 9px; gap: 6px; border-radius: 11px; }
@@ -287,8 +297,8 @@ select.kd-field { appearance: none; cursor: pointer; background-image: linear-gr
 .kd-start-actions .kd-start-go { flex: 1 1 0; width: auto; }
 
 /* Stage Floating Notification Toast (when visitor's eyes are on the video stage) */
-.kd-stage-toast { display: flex; align-items: center; gap: 10px; margin: 4px 10px 0; padding: 10px 14px; border-radius: 14px; background: color-mix(in srgb, var(--color-surface) 94%, transparent); border: 1px solid var(--color-accent); box-shadow: 0 10px 28px -10px rgba(0, 0, 0, 0.35); animation: kd-rise 260ms cubic-bezier(.2,.8,.2,1) both; z-index: 6; }
-.kd-stage-toast-badge { flex: none; padding: 3px 9px; border-radius: 999px; background: var(--color-accent-soft); color: var(--color-accent); font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; }
+.kd-stage-toast { display: flex; align-items: center; gap: 8px; margin: 4px 10px 0; padding: 7px 12px; border-radius: 999px; background: color-mix(in srgb, var(--color-surface) 94%, transparent); border: 1px solid var(--color-border-strong); box-shadow: 0 10px 28px -10px rgba(0, 0, 0, 0.35); animation: kd-rise 260ms cubic-bezier(.2,.8,.2,1) both; z-index: 6; }
+.kd-stage-toast-icon { flex: none; width: 15px; height: 15px; color: var(--color-action); }
 .kd-stage-toast-text { flex: 1; min-width: 0; font-size: 13px; font-weight: 500; color: var(--color-text); line-height: 1.35; }
 .kd-stage-toast-close { flex: none; border: 0; background: transparent; color: var(--color-muted); font-size: 13px; cursor: pointer; padding: 2px 6px; border-radius: 6px; }
 .kd-stage-toast-close:hover { background: var(--color-bg-raised); color: var(--color-text); }
@@ -325,12 +335,6 @@ select.kd-field { appearance: none; cursor: pointer; background-image: linear-gr
 .kd-reaction-badge[data-tone="lock"], .kd-reaction-badge[data-tone="agree"] { border-color: var(--color-accent); background: var(--color-accent-soft); }
 .kd-reaction-emoji { font-size: 16px; line-height: 1; }
 
-/* Your Turn Indicator + Starter Idea Chips under the stage */
-.kd-turn-bar { display: flex; flex-direction: column; gap: 6px; margin: 0 auto 6px; width: min(620px, calc(100% - 20px)); padding: 7px 12px; border-radius: 14px; background: color-mix(in srgb, var(--color-surface) 94%, transparent); border: 1px solid var(--color-accent); box-shadow: 0 8px 24px -12px rgba(0, 0, 0, 0.25); animation: kd-rise 220ms ease both; }
-.kd-turn-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
-.kd-turn-pill { font-size: 12px; font-weight: 600; color: var(--color-text); line-height: 1.3; }
-.kd-turn-idea-btn { flex: none; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--color-border-strong); background: var(--color-bg-raised); color: var(--color-accent); font-family: var(--font-mono); font-size: 10.5px; font-weight: 700; cursor: pointer; transition: background 120ms, border-color 120ms; }
-.kd-turn-idea-btn:hover { background: var(--color-accent-soft); border-color: var(--color-accent); }
 .kd-starter-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 0; padding: 0; list-style: none; }
 .kd-starter-chip { flex: 1 1 240px; padding: 6px 11px; border-radius: 10px; border: 1px solid var(--color-border-strong); background: var(--color-bg-raised); color: var(--color-text); font: inherit; font-size: 12px; font-weight: 500; text-align: left; }
 
@@ -347,7 +351,6 @@ select.kd-field { appearance: none; cursor: pointer; background-image: linear-gr
   .kd-stage-col > * { flex: none; }
   .kd-stage-col > .kd-grid-wrap { flex: 0 1 22dvh; position: relative; min-height: 110px; padding: 4px; }
   .kd-stage-toast { flex-wrap: wrap; row-gap: 3px; }
-  .kd-stage-toast-badge { font-size: 9px; padding: 2px 7px; }
   .kd-stage-toast-close { margin-left: auto; }
   .kd-stage-toast-text { order: 3; flex: 1 1 100%; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 }
@@ -628,7 +631,6 @@ select.kd-field { appearance: none; cursor: pointer; background-image: linear-gr
   .kd-tab,
   .kd-toggle,
   .kd-bar-btn,
-  .kd-turn-idea-btn,
   .kd-starter-chip,
   .kd-stage-toast-close,
   .kd-wingman-dismiss,
@@ -671,12 +673,9 @@ select.kd-field { appearance: none; cursor: pointer; background-image: linear-gr
   .kd-caption-note,
   .kd-turn,
   .kd-turn b,
-  .kd-turn-pill,
-  .kd-turn-idea-btn,
   .kd-starter-chip,
   .kd-start-step-pill,
   .kd-bar-btn,
-  .kd-stage-toast-badge,
   .kd-stage-toast-text,
   .kd-story-badge,
   .kd-task-badge,

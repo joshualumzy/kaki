@@ -1,10 +1,10 @@
 /**
  * @vitest-environment jsdom
  */
-import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { WingmanNotePayload } from '@kaki/shared';
-import { WingmanActNow, WingmanPanel } from './WingmanPanel';
+import { WingmanPanel } from './WingmanPanel';
 
 afterEach(cleanup);
 
@@ -27,15 +27,6 @@ const quietNotes: WingmanNotePayload[] = [
   },
 ];
 
-const asked: WingmanNotePayload = {
-  id: 'asked:chef',
-  kind: 'asked_you',
-  urgency: 'act_now',
-  title: 'Ravi asked you',
-  text: 'Ravi asked you: What should the kiosk do at 8?',
-  facts: [{ text: 'The kiosk accepts notes.', source: 'Gitea ticket', date: '2026-11-05' }],
-  sources: ['Gitea ticket (2026-11-05)'],
-};
 
 describe('WingmanPanel', () => {
   it('shows the quiet note count as a badge with no reminder motion', () => {
@@ -60,13 +51,32 @@ describe('WingmanPanel', () => {
     expect(onAsk).toHaveBeenCalledWith('what did we decide?');
   });
 
-  it('dismisses one note by its id', () => {
+  it('dismisses the newest note by its id', () => {
     const onDismiss = vi.fn();
     render(<WingmanPanel notes={quietNotes} onAsk={vi.fn(() => true)} onDismiss={onDismiss} />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Dismiss Wingman' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss You were given a to-do' }));
 
-    expect(onDismiss).toHaveBeenCalledWith('answer:chef');
+    expect(onDismiss).toHaveBeenCalledWith('given:chef:task-1');
+  });
+
+  it('keeps a cleared note in history, readable behind Earlier', () => {
+    render(
+      <WingmanPanel
+        notes={[quietNotes[1]!]}
+        history={[
+          { note: { ...quietNotes[0]!, clears: true }, at: Date.parse('2026-11-06T10:05:00.000Z') },
+          { note: quietNotes[1]! },
+        ]}
+        onAsk={vi.fn(() => true)}
+        onDismiss={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByText(quietNotes[0]!.text)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Earlier · 1 more/ }));
+    expect(screen.getByText(quietNotes[0]!.text)).toBeTruthy();
+    expect(screen.getByText(quietNotes[0]!.facts![0]!.text)).toBeTruthy();
   });
 
   it('shows an ask refusal in the panel', () => {
@@ -107,48 +117,5 @@ describe('WingmanPanel waiting', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Ask' }));
     expect(screen.getByRole('alert').textContent).toContain('not sent');
     expect(screen.queryByText('Wingman is thinking…')).toBeNull();
-  });
-});
-
-describe('WingmanActNow', () => {
-  it('shows the direct question in the middle and closes it', () => {
-    const onDismiss = vi.fn();
-    render(<WingmanActNow notes={[asked]} onDismiss={onDismiss} />);
-
-    const card = screen.getByRole('alertdialog', { name: 'Wingman asks you now' });
-    expect(within(card).getByText('Ravi asked you')).toBeTruthy();
-    expect(within(card).getByText('Ravi asked you: What should the kiosk do at 8?')).toBeTruthy();
-    expect(within(card).getByText('The kiosk accepts notes.')).toBeTruthy();
-    expect(within(card).getByText('Gitea ticket (2026-11-05)')).toBeTruthy();
-
-    fireEvent.click(within(card).getByRole('button', { name: 'Close' }));
-    expect(onDismiss).toHaveBeenCalledWith('asked:chef');
-    expect(screen.queryByRole('alertdialog', { name: 'Wingman asks you now' })).toBeNull();
-  });
-
-  it('removes the card when the server clears the note', () => {
-    const onDismiss = vi.fn();
-    const view = render(<WingmanActNow notes={[asked]} onDismiss={onDismiss} />);
-
-    view.rerender(<WingmanActNow notes={[]} onDismiss={onDismiss} />);
-
-    expect(screen.queryByRole('alertdialog', { name: 'Wingman asks you now' })).toBeNull();
-  });
-
-  it('lets the same id pop again only after the server clears it', () => {
-    const onDismiss = vi.fn();
-    const view = render(<WingmanActNow notes={[asked]} onDismiss={onDismiss} />);
-
-    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
-    expect(screen.queryByRole('alertdialog', { name: 'Wingman asks you now' })).toBeNull();
-
-    view.rerender(<WingmanActNow notes={[]} onDismiss={onDismiss} />);
-    view.rerender(<WingmanActNow notes={[asked]} onDismiss={onDismiss} />);
-    expect(screen.getByRole('alertdialog', { name: 'Wingman asks you now' })).toBeTruthy();
-  });
-
-  it('leaves quiet notes out of the middle of the screen', () => {
-    render(<WingmanActNow notes={quietNotes} onDismiss={vi.fn()} />);
-    expect(screen.queryByRole('alertdialog', { name: 'Wingman asks you now' })).toBeNull();
   });
 });

@@ -1,11 +1,8 @@
-import { useEffect, useState } from 'react';
 import type { ScenarioRole } from '@kaki/shared';
 import { ActiveRoleCards } from './ActiveRoleCards';
 import type { TranscriptViewer } from './captions';
 import { MeetingPanel } from './MeetingPanel';
 import { ErrorBoundary } from './ErrorBoundary';
-import { RoleCard } from './RoleCard';
-import { SituationCard } from './SituationCard';
 import { useScenario } from '../../kaki';
 import './practice.css';
 
@@ -46,11 +43,6 @@ export function Dock({
   onWingmanBadgeChange?(count: number): void;
 }) {
   const scenario = useScenario();
-  const [briefingOpen, setBriefingOpen] = useState(!started);
-
-  useEffect(() => {
-    if (started) setBriefingOpen(false);
-  }, [started]);
 
   return (
     <aside className="kd-dock" aria-label="Kaki assistant">
@@ -74,20 +66,6 @@ export function Dock({
         </div>
       </div>
       <div className="kd-dock-body">
-        {!real && (
-          <details
-            className="kd-briefing"
-            open={briefingOpen}
-            onToggle={(event) => setBriefingOpen(event.currentTarget.open)}
-          >
-            <summary className="kd-briefing-summary">
-              <span>Briefing · {role === undefined ? scenario.meetingTitle : `Your role (${role.label}) & the situation`}</span>
-              <span className="kd-briefing-toggle">{briefingOpen ? 'Hide' : 'Show'}</span>
-            </summary>
-            <RoleCard role={role} viewerName={viewer.name} seatName={viewer.seatName} />
-            <SituationCard scenario={scenario} viewerName={viewer.name} viewerRoleId={role?.id} />
-          </details>
-        )}
         <ErrorBoundary>
           {role !== undefined && (
             <ActiveRoleCards

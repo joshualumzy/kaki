@@ -19,15 +19,16 @@ import {
   type SpeechStatusMessage,
 } from '@kaki/shared';
 import { useKaki, useScenario } from '../../kaki';
+import { failureText } from '../../net/failureText';
 import { CaptionedTile, PendingTile, StageContext } from './CaptionedTile';
 import { RealMeetingBar } from './RealMeetingBar';
 import { RealRoomBanners, RealWaitingOverlay } from './RealRoomOverlays';
 import { MutedHint } from './MutedHint';
 import { useRealRoom } from './realRoom';
 import { distinctDisplayNames, peopleNotInRoom } from './people';
-import { activeStageTaskFor, starterChipsFromAgendaItem, tracksWithSpeakerFirst, visibleStageTracks } from './stageModel';
+import { SectionIcon } from './SectionHeading';
+import { activeStageTaskFor, tracksWithSpeakerFirst, visibleStageTracks } from './stageModel';
 import { textOnlyNote, transcriptChunks } from './captions';
-import { WingmanActNow } from './WingmanPanel';
 
 /** The meeting stage: one tile per participant with live captions, and the AI attendees' status. */
 export function MeetingGrid({
@@ -59,7 +60,7 @@ export function MeetingGrid({
   const meetingState = realRoom?.meetingState;
   const offTheRecord = real && meetingState?.offTheRecord !== null && meetingState?.offTheRecord !== undefined;
   const { localParticipant } = useLocalParticipant();
-  const { events, send: sendToServer, wingmanNotes } = useKaki({ kind: 'role', role });
+  const { events } = useKaki({ kind: 'role', role });
   const { events: screenEvents, latestRecord, speechByTopic, tasks: screenTasks } = useKaki(sharedAudience === 'participant' ? { kind: 'participant' } : { kind: 'screen' });
   const participants = useParticipants().filter((participant) => !isKakiListener(participant.identity));
   // A real meeting lists everyone the server seated, even before their LiveKit connection arrives.
@@ -134,21 +135,18 @@ export function MeetingGrid({
   const speechNotice = useMemo(() => {
     if (speechStatus.outage !== undefined) {
       return {
-        key: `outage:${speechStatus.outage.message}`,
-        text:
-          ownSpeechFailure === undefined
-            ? speechStatus.outage.message
-            : `${speechStatus.outage.message} Your last line was not heard.`,
+        key: `outage:${speechStatus.outage.code}`,
+        text: failureText(speechStatus.outage.code, { real }),
       };
     }
     if (ownSpeechFailure !== undefined) {
       return {
-        key: `failed:${ownSpeechFailure.message ?? 'failed'}`,
-        text: ownSpeechFailure.message ?? 'Kaki could not hear that. Please say it again.',
+        key: `failed:${ownSpeechFailure.code ?? 'speech-failed'}`,
+        text: failureText(ownSpeechFailure.code ?? 'speech-failed', { real }),
       };
     }
     return undefined;
-  }, [speechStatus.outage, ownSpeechFailure]);
+  }, [speechStatus.outage, ownSpeechFailure, real]);
   const chunks = useMemo(() => (offTheRecord ? [] : transcriptChunks(events)), [events, offTheRecord]);
   const voiceNote = offTheRecord ? null : textOnlyNote(chunks, now);
   const avatars = useMemo(() => {
@@ -189,43 +187,18 @@ export function MeetingGrid({
     }
     return false;
   }, [speechByTopic, facilitatorRole, facilitatorName, activeAgendaIndex]);
-  const hasVisitorSpokenOnTopic = useMemo(() => {
-    const speech = speechByTopic.get(activeAgendaIndex);
-    if (speech === undefined) return false;
-    if (speech.roles.has(role)) return true;
-    const npcNameSet = new Set((scenario.npcs ?? []).map((n) => n.attendee.toLowerCase()));
-    for (const speaker of speech.names) {
-      if (!npcNameSet.has(speaker)) return true;
-    }
-    return false;
-  }, [speechByTopic, scenario.npcs, activeAgendaIndex, role]);
   const waitingForHuman =
     npcState.kind === 'idle' && npcState.yourTurn !== undefined && hasColleagueBriefed;
-  const idleAfterBriefing = npcState.kind === 'idle' && hasColleagueBriefed;
-  const [showStarterIdeas, setShowStarterIdeas] = useState(false);
-
-  useEffect(() => {
-    setShowStarterIdeas(false);
-  }, [activeAgendaIndex]);
 
   const activeItem = scenario.agenda[activeAgendaIndex];
   const activeOwnerRole = activeItem?.ownerRole ?? role;
   const stage = useMemo(
     () => ({
       scenario, chunks, events, now, npcState, speechStatus, waitingForHuman,
-      activeItemOwnerRole: activeOwnerRole, activeAgendaIndex, avatars, offTheRecord,
+      activeItemOwnerRole: activeOwnerRole, activeAgendaIndex, avatars, offTheRecord, real,
     }),
-    [scenario, chunks, events, now, npcState, speechStatus, waitingForHuman, activeOwnerRole, activeAgendaIndex, avatars, offTheRecord],
+    [scenario, chunks, events, now, npcState, speechStatus, waitingForHuman, activeOwnerRole, activeAgendaIndex, avatars, offTheRecord, real],
   );
-
-  const starterChips = useMemo(() => {
-    const viewerSeatName = scenario.attendees.find((a) => a.role === role)?.name;
-    const openQs = latestRecord?.payload.openQuestions.filter(
-      (question) => question.agendaIndex === activeAgendaIndex,
-    ) ?? [];
-    const hostName = facilitatorRole === undefined ? undefined : facilitatorName;
-    return starterChipsFromAgendaItem(activeItem, viewerSeatName, openQs, hostName);
-  }, [activeItem, role, scenario.attendees, latestRecord, activeAgendaIndex, facilitatorName, facilitatorRole]);
 
   const [dismissedToastKey, setDismissedToastKey] = useState<string>('');
   const actionableMyTasksCount = useMemo(() => {
@@ -248,15 +221,11 @@ export function MeetingGrid({
       const key = `task:${myTask.id}:${myTask.status}`;
       return {
         key,
-        badge: myTask.status === 'DRAFT_READY' ? 'Kaki Action · Draft Ready' : 'Kaki Action · Assigned to You',
-        text:
+        label:
           myTask.status === 'DRAFT_READY'
-            ? narrow
-              ? `"${myTask.title}" is drafted — review in Kaki →`
-              : `"${myTask.title}" is drafted. Review and click Approve & publish in Kaki →`
-            : narrow
-              ? `"${myTask.title}" needs you in Kaki →`
-              : `"${myTask.title}": click "Let Kaki do it" in Kaki →`,
+            ? 'Draft ready · review in Kaki →'
+            : 'A task needs you · open in Kaki →',
+        target: '.kd-role-active',
       };
     }
     const publishedTask = [...allTasks]
@@ -266,12 +235,12 @@ export function MeetingGrid({
       const key = `published:${publishedTask.id}:${publishedTask.status}`;
       return {
         key,
-        badge: 'Kaki Action · Published',
-        text: `"${publishedTask.title}" is live. Open it in Kaki →`,
+        label: 'Published · open in Kaki →',
+        target: '.kd-role-active, #action-board',
       };
     }
     return undefined;
-  }, [screenTasks, role, activeItem, narrow]);
+  }, [screenTasks, role, activeItem]);
 
   const speakingSpeaker = npcState.kind === 'speaking' ? npcState.speaker : undefined;
   const gridTracks = useMemo(
@@ -302,7 +271,7 @@ export function MeetingGrid({
         {real ? <RealRoomBanners /> : null}
         {!real && npcState.kind === 'error' && (
           <div role="alert" className="kd-banner" data-tone="error">
-            The AI attendees hit a problem: {npcState.message}
+            The AI colleagues hit a problem: {npcState.message}
           </div>
         )}
         {!real && speechRecording === false && (
@@ -318,14 +287,8 @@ export function MeetingGrid({
         )}
         {!real && (scenario.npcs ?? []).length > 0 && !aiPresent && (
           <div className="kd-banner">
-            Waiting for the AI attendees. Start them with <code>npm run npc</code>.
+            Waiting for the AI colleagues. Start them with <code>npm run npc</code>.
           </div>
-        )}
-        {!offTheRecord && (
-          <WingmanActNow
-            notes={wingmanNotes}
-            onDismiss={(id) => sendToServer({ type: 'DISMISS_WINGMAN_NOTE', id })}
-          />
         )}
         {!offTheRecord && stageToastVisible && activeStageToast !== undefined && (
           <div
@@ -334,17 +297,12 @@ export function MeetingGrid({
             aria-live="polite"
             onClick={() => {
               onOpenKaki?.();
-              const targetSelector = activeStageToast.key.startsWith('task:')
-                ? '.kd-role-active'
-                : activeStageToast.key.startsWith('published:')
-                  ? '.kd-role-active, .kd-tasks'
-                  : '.kd-topic-card';
-              document.querySelector(targetSelector)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+              document.querySelector(activeStageToast.target)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
             }}
             style={{ cursor: 'pointer' }}
           >
-            <span className="kd-stage-toast-badge">{activeStageToast.badge}</span>
-            <span className="kd-stage-toast-text">{activeStageToast.text}</span>
+            <SectionIcon name="action" className="kd-stage-toast-icon" />
+            <span className="kd-stage-toast-text">{activeStageToast.label}</span>
             <button
               type="button"
               className="kd-stage-toast-close"
@@ -376,41 +334,8 @@ export function MeetingGrid({
             {voiceNote}
           </div>
         )}
-        {!real && (idleAfterBriefing || showStarterIdeas) && !meetingWrappedUp && !topicSettled && (
-          <div className="kd-turn-bar" role="region" aria-label="Your turn and starter questions">
-            <div className="kd-turn-row">
-              <span className="kd-turn-pill">
-                {showStarterIdeas
-                  ? '🟢 Say one of these, or put it in your own words'
-                  : waitingForHuman
-                    ? '🟢 Your turn — just speak'
-                    : '💬 Jump in anytime — just speak, or tap Need an idea?'}
-              </span>
-              <button
-                type="button"
-                className="kd-turn-idea-btn"
-                aria-expanded={showStarterIdeas}
-                onClick={() => setShowStarterIdeas((prev) => !prev)}
-              >
-                {showStarterIdeas ? 'Hide ideas' : '💡 Need an idea?'}
-              </button>
-            </div>
-            {showStarterIdeas && (
-              // Ideas to say out loud: speaking is the only way in, so nothing here sends a line.
-              <ul className="kd-starter-chips">
-                {starterChips.map((chip) => (
-                  <li key={chip} className="kd-starter-chip">
-                    💬 {chip}
-                  </li>
-                ))}
-                {hasVisitorSpokenOnTopic && (
-                  <li className="kd-starter-chip">
-                    ⏭️ We&apos;re split on this — let&apos;s table it for now and set up a follow-up to settle it later.
-                  </li>
-                )}
-              </ul>
-            )}
-          </div>
+        {!real && waitingForHuman && !meetingWrappedUp && !topicSettled && (
+          <p className="kd-turn-hint" role="status">Your turn — just speak</p>
         )}
         <MutedHint />
         {real ? (

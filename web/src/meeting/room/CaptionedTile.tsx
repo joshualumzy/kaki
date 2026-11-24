@@ -13,6 +13,7 @@ import {
 } from '@kaki/shared';
 import { Avatar } from '../../ui';
 import type { MeetingStateParticipant } from '@kaki/shared';
+import { failureText } from '../../net/failureText';
 import { Orb, orbPalette } from './Orb';
 import { captionFor, transcriptNameFor, type TranscriptChunk } from './captions';
 import { colleagueStance, reactionForColleague } from './stageModel';
@@ -32,6 +33,8 @@ export interface Stage {
   avatars?: Map<string, { displayName: string; photoUrl: string | null }>;
   /** While the room is off the record, no caption or reaction may appear on any tile. */
   offTheRecord?: boolean;
+  /** A real meeting can fall back to typing; practice can only ask the person to speak again. */
+  real?: boolean;
 }
 
 /** Carries the stage values to the tiles without passing them through every component. */
@@ -45,14 +48,15 @@ function useStage(): Stage {
 
 /** One participant tile with its live caption, speaking state and reaction badge. */
 export function CaptionedTile() {
-  const { scenario, chunks, events, now, npcState, speechStatus, avatars, offTheRecord } = useStage();
+  const { scenario, chunks, events, now, npcState, speechStatus, avatars, offTheRecord, real = false } = useStage();
   const participant = useTrackRefContext().participant;
   const localParticipant = useLocalParticipant().localParticipant;
   const isYou = localParticipant !== undefined && participant.identity === localParticipant.identity;
   const aiIndex = (scenario.npcs ?? []).findIndex((npc) => npc.attendee === participant.identity);
   const isAi = aiIndex >= 0;
   const humanSpeaking = useIsSpeaking(participant);
-  const speechState = isAi ? undefined : speechStatus.participants[participant.identity]?.state;
+  const speechEntry = isAi ? undefined : speechStatus.participants[participant.identity];
+  const speechState = speechEntry?.state;
   const speaking = isAi
     ? npcState.kind === 'speaking' && npcState.speaker === participant.identity
     : humanSpeaking;
@@ -76,7 +80,7 @@ export function CaptionedTile() {
       : !isAi && speechState === 'transcribing'
         ? '⏳ Transcribing…'
         : !isAi && speechState === 'failed'
-          ? '⚠️ Kaki could not hear that — please say it again'
+          ? `⚠️ ${failureText(speechEntry?.code ?? 'speech-failed', { real })}`
           : recognizedCaption;
   const thinking = isAi && npcState.kind === 'thinking';
   const state = speaking ? 'speaking' : thinking ? 'thinking' : 'idle';

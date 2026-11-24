@@ -390,7 +390,7 @@ function TaskCardBody({
           </span>
           <span className="phone-task-step-sep" aria-hidden="true">→</span>
           <span className="phone-task-step" data-active={stepIndex === 2} data-done={stepIndex > 2}>
-            2. Review Draft
+            2. Review draft
           </span>
           <span className="phone-task-step-sep" aria-hidden="true">→</span>
           <span className="phone-task-step" data-active={stepIndex === 3} data-done={false}>
