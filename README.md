@@ -88,7 +88,7 @@ Each person has their own seat under their own name (two people called Sam show 
 
 ### A practice meeting
 
-Open [/practice](https://kaki.southeastasia.cloudapp.azure.com/practice). Each visitor gets their own room, the AI colleagues take the other seats, and the visitor takes part by speaking. A signed-in visitor keeps the minutes and to-dos in their own Nanyang Kopi history; a signed-out visitor reads the minutes on the Nanyang Kopi wiki and is invited to sign in to keep future meetings.
+Open [/practice](https://kaki.southeastasia.cloudapp.azure.com/practice). Each visitor gets their own room, the AI colleagues take the other seats, and the visitor takes part by speaking. A signed-in visitor keeps the minutes and to-dos in their own Nanyang Kopi history; a signed-out visitor who approves the minutes can read them on the Nanyang Kopi wiki, and is invited to sign in to keep future meetings.
 
 ### Links and logins
 

@@ -8,7 +8,7 @@
 - **Owner**: The signed-in account that plans the meeting and opens the room. The owner edits the setup, shares the invite code and runs the shared screen.
 - **Seat**: A place at the meeting, named by the role that fills it. A person or an AI attendee holds it; the join form lists the seats a person can take.
 - **Role card**: The briefing a role carries in a scenario (`RoleCard` in `shared/src/scenarioTypes.ts`): who the person is, the facts they know from their side of the company, and what they are answerable for.
-- **Team meeting vs Practice meeting**: A team meeting is opened by the signed-in owner, and people join with a meeting code. A practice meeting (`/practice`) needs no sign-in: AI colleagues fill the other seats, and one person speaks or types.
+- **Team meeting vs Practice meeting**: A team meeting is opened by the signed-in owner, and people join with a meeting code. A practice meeting (`/practice`) needs no sign-in: AI colleagues fill the other seats, and one person takes part by speaking.
 - **Workspace**: A signed-in person's own place for tools, meetings and history. Each person has a personal one. Real meetings are opened inside a workspace (`server/src/workspace/`).
 - **Sample workspace**: The shared, read-only workspace Nanyang Kopi (`server/src/workspace/sample.ts`). Anyone signed in can open a meeting in it to try the product; nobody can change its tools.
 - **Tool connection**: One workspace's link to an outside tool (Gitea, Mattermost, Mailpit, Wiki.js or Radicale). Its login is stored encrypted under `KAKI_SECRET_KEY`, and the workspace can test it. Approved tasks write through the connections of the meeting's workspace.
