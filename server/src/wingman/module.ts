@@ -232,6 +232,7 @@ export function createWingmanModule(options: WingmanModuleOptions = {}): KakiMod
       const quietChecked = new Set<number>();
       /** Coming-up checks already taken for the item before the next one. */
       const comingUpChecked = new Set<number>();
+      const ownerSkipLogged = new Set<number>();
       /** How many lines each present role has spoken this meeting, for discarding stale guesses. */
       const speechByRole = new Map<Role, number>();
       /** The quiet lead currently shown on the meeting owner's screen, if any. */
@@ -297,30 +298,37 @@ export function createWingmanModule(options: WingmanModuleOptions = {}): KakiMod
         );
       }
 
-      /** The seats people hold right now; a role here is a person actually in the room. */
-      function holderRoles(): Set<Role> {
-        return new Set(
-          (ctx.meetingDetails?.().holders ?? []).map((holder) => holder.seat.trim()),
-        );
-      }
-
-      /** The current holder's name for a seat, so a new person in the same seat is not the old one. */
-      function holderName(role: Role): string | undefined {
-        const holder = ctx.meetingDetails?.().holders.find((entry) => entry.seat.trim() === role);
-        return holder?.displayName?.trim() || holder?.name.trim();
-      }
-
       function itemOwnerRole(agendaIndex: number): Role | undefined {
         const role = ctx.activeScenario().agenda[agendaIndex]?.ownerRole?.trim();
         if (role === undefined || role === '' || role === PLACEHOLDER_ROLE) return undefined;
         return role;
       }
 
-      /** The current item's owner when that role is held by a person in the room right now. */
+      /** Resolve exactly one present holder by seat identity; display names are only labels. */
       function presentItemOwner(agendaIndex: number): Person | undefined {
         const role = itemOwnerRole(agendaIndex);
-        if (role === undefined || !holderRoles().has(role)) return undefined;
-        return peopleInMeeting(ctx).find((person) => person.role === role);
+        const holders = (ctx.meetingDetails?.().holders ?? []).filter((holder) => holder.seat === role);
+        const roles = ctx.activeScenario().roles.filter((entry) => entry.id === role);
+        if (role !== undefined && holders.length === 1 && roles.length === 1) {
+          const holder = holders[0]!;
+          return { role, name: holder.displayName?.trim() || holder.name.trim() };
+        }
+        if (!ownerSkipLogged.has(agendaIndex)) {
+          ownerSkipLogged.add(agendaIndex);
+          const reason = role === undefined ? 'no uniquely resolved owner seat assigned'
+            : holders.length === 0 ? 'owner seat is absent'
+            : holders.length > 1 ? 'owner seat has multiple holders'
+            : 'owner seat is not a unique scenario role';
+          console.warn(`kaki wingman: agenda cues skipped for item ${agendaIndex + 1}: ${reason}`);
+        }
+        return undefined;
+      }
+
+      /** Real speech must identify its seat. Practice keeps its existing name matching. */
+      function personIsSpeaking(line: WingmanLine, person: Person): boolean {
+        return ctx.meetingKind?.() === 'real'
+          ? line.role === person.role
+          : isPersonSpeaking(line, person);
       }
 
       /** The meeting owner's seat: the shared screen also receives this seat's private notes. */
@@ -371,7 +379,6 @@ export function createWingmanModule(options: WingmanModuleOptions = {}): KakiMod
       function cueStillCurrent(
         agendaIndex: number,
         ownerRole: Role,
-        expectedName: string,
         startedIn: number,
         speechAtStart: number,
       ): boolean {
@@ -386,8 +393,7 @@ export function createWingmanModule(options: WingmanModuleOptions = {}): KakiMod
         ) {
           return false;
         }
-        if (itemOwnerRole(agendaIndex) !== ownerRole || !holderRoles().has(ownerRole)) return false;
-        if (holderName(ownerRole) !== expectedName) return false;
+        if (presentItemOwner(agendaIndex)?.role !== ownerRole) return false;
         return (speechByRole.get(ownerRole) ?? 0) === speechAtStart;
       }
 
@@ -430,6 +436,7 @@ export function createWingmanModule(options: WingmanModuleOptions = {}): KakiMod
         }
         // Only a grounded suggestion is worth a workspace lookup. With none, the owner gets the
         // plain item and question note, never a record fetched for nothing.
+        if (!cueStillCurrent(agendaIndex, owner.role, startedIn, speechAtStart)) return;
         let facts: Fact[] = [];
         if (suggestion !== undefined && suggestion !== '') {
           facts = await workspaceFacts(question ?? itemTitle, owner.role, MAX_RECORD_FACTS);
@@ -437,7 +444,7 @@ export function createWingmanModule(options: WingmanModuleOptions = {}): KakiMod
           // after the await so a person who became a guest, or lost search, gets no records or sources.
           if (isGuest(owner.role) || !searchEnabled()) facts = [];
         }
-        if (!cueStillCurrent(agendaIndex, owner.role, owner.name, startedIn, speechAtStart)) return;
+        if (!cueStillCurrent(agendaIndex, owner.role, startedIn, speechAtStart)) return;
         const text = [`You own "${itemTitle}".`];
         if (question !== undefined) text.push(`Open question: ${question}`);
         if (suggestion !== undefined && suggestion !== '') text.push(`Suggestion: ${suggestion}`);
@@ -475,8 +482,7 @@ export function createWingmanModule(options: WingmanModuleOptions = {}): KakiMod
           leadNote !== undefined &&
           (leadNote.agendaIndex !== payload.agendaIndex ||
             leadNote.hostRole !== hostRole ||
-            itemOwnerRole(leadNote.agendaIndex) !== leadNote.ownerRole ||
-            !holderRoles().has(leadNote.ownerRole))
+            presentItemOwner(leadNote.agendaIndex)?.role !== leadNote.ownerRole)
         ) {
           clearLead();
         }
@@ -524,7 +530,7 @@ export function createWingmanModule(options: WingmanModuleOptions = {}): KakiMod
       function clearAskedWhenSpeaking(line: WingmanLine): void {
         for (const person of peopleInMeeting(ctx)) {
           const id = `asked:${person.role}`;
-          if (notes.has(id) && isPersonSpeaking(line, person)) clearNote(id);
+          if (notes.has(id) && personIsSpeaking(line, person)) clearNote(id);
         }
       }
 
@@ -570,7 +576,7 @@ export function createWingmanModule(options: WingmanModuleOptions = {}): KakiMod
         if (notes.has(`asked:${person.role}`)) return;
         const latest = lines[lines.length - 1];
         if (latest === undefined) return;
-        if (isPersonSpeaking(latest, person)) return;
+        if (personIsSpeaking(latest, person)) return;
         if (isAiHostLine(ctx.activeScenario(), latest)) return;
         try {
           const raw = await llm!.complete(askedMessages(person.name, lines), {
@@ -585,7 +591,7 @@ export function createWingmanModule(options: WingmanModuleOptions = {}): KakiMod
             console.warn('kaki wingman: ignored a direct question whose quoted line is not in the transcript');
             return;
           }
-          if (isPersonSpeaking(line, person) || isAiHostLine(ctx.activeScenario(), line)) return;
+          if (personIsSpeaking(line, person) || isAiHostLine(ctx.activeScenario(), line)) return;
           const key = `${person.role}\u0000${normaliseKey(verdict.question)}`;
           if (askedKeys.has(key)) return;
           askedKeys.add(key);
@@ -839,7 +845,7 @@ export function createWingmanModule(options: WingmanModuleOptions = {}): KakiMod
         };
         transcript = [...transcript, line].slice(-MAX_TRANSCRIPT_LINES);
         for (const person of peopleInMeeting(ctx)) {
-          if (!isPersonSpeaking(line, person)) continue;
+          if (!personIsSpeaking(line, person)) continue;
           speechByRole.set(person.role, (speechByRole.get(person.role) ?? 0) + 1);
           if (leadNote?.ownerRole === person.role) clearLead();
         }
@@ -869,6 +875,7 @@ export function createWingmanModule(options: WingmanModuleOptions = {}): KakiMod
         latestRecord = undefined;
         quietChecked.clear();
         comingUpChecked.clear();
+        ownerSkipLogged.clear();
         speechByRole.clear();
         leadNote = undefined;
         if (askedTimer !== undefined) clearTimeout(askedTimer);

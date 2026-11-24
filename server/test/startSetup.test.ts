@@ -1433,23 +1433,24 @@ describe('Start applies the validated setup', () => {
       title: 'Floor huddle',
       agenda: [{ title: 'Opening checklist', minutes: 5 }],
     });
+    expect((await joinReal(app, 'Alice')).status).toBe(200);
+    expect((await joinReal(app, 'Ben')).status).toBe(200);
+    const alice = app.session.holders().find((holder) => holder.displayName === 'Alice');
+    if (alice === undefined) throw new Error('Alice did not join');
     const setup = humanOnlySetup(pack);
+    setup.roles.push({ id: alice.seat, label: 'Alice', facilitator: false });
     setup.pace = { ownerQuietBelow: 20, quietCheckAfter: 90, comingUpBefore: 45 };
     setup.agenda = [
-      { id: 'agenda-1', title: 'Opening checklist', minutes: 5, ownerRoleId: 'operations_director' },
+      { id: 'agenda-1', title: 'Opening checklist', minutes: 5, ownerRoleId: alice.seat },
     ];
     setup.seats = [
-      { displayName: 'Alice', roleId: 'operations_director', kind: 'person' },
+      { displayName: 'Alice', roleId: alice.seat, kind: 'person' },
       { displayName: 'Ben', roleId: 'tech_pos_lead', kind: 'person' },
     ];
     expect((await putSetup(app, setup)).status).toBe(200);
 
-    expect((await joinReal(app, 'Alice')).status).toBe(200);
-    expect((await joinReal(app, 'Ben')).status).toBe(200);
     expect((await startMeeting(app)).status).toBe(200);
 
-    const alice = app.session.holders().find((holder) => holder.name.toLowerCase() === 'alice');
-    expect(alice).toBeDefined();
     const sealed = app.session.sealed();
     expect(sealed?.pace).toEqual(setup.pace);
     expect(sealed?.agenda[0]?.ownerRoleId).toBe(alice?.seat);
@@ -1463,21 +1464,21 @@ describe('Start applies the validated setup', () => {
       title: 'Floor huddle',
       agenda: [{ title: 'Opening checklist', minutes: 5 }],
     });
+    expect((await joinReal(app, 'Alice')).status).toBe(200);
+    expect((await joinReal(app, 'Ben')).status).toBe(200);
+    const alice = app.session.holders().find((holder) => holder.displayName === 'Alice');
+    if (alice === undefined) throw new Error('Alice did not join');
     const setup = humanOnlySetup(pack);
+    setup.roles.push({ id: alice.seat, label: 'Alice', facilitator: false });
     setup.agenda = [
-      { id: 'agenda-1', title: 'Opening checklist', minutes: 5, ownerRoleId: 'operations_director' },
+      { id: 'agenda-1', title: 'Opening checklist', minutes: 5, ownerRoleId: alice.seat },
     ];
     setup.seats = [
-      { displayName: 'Alice', roleId: 'operations_director', kind: 'person' },
+      { displayName: 'Alice', roleId: alice.seat, kind: 'person' },
       { displayName: 'Ben', roleId: 'tech_pos_lead', kind: 'person' },
     ];
     expect((await putSetup(app, setup)).status).toBe(200);
-    expect((await joinReal(app, 'Alice')).status).toBe(200);
-    expect((await joinReal(app, 'Ben')).status).toBe(200);
     expect((await startMeeting(app)).status).toBe(200);
-
-    const alice = app.session.holders().find((holder) => holder.name.toLowerCase() === 'alice');
-    expect(alice).toBeDefined();
 
     // A person who joins after Start refreshes the roster: the owner must survive, and the late
     // joiner must get their own plain seat, with no AI attendee appearing.

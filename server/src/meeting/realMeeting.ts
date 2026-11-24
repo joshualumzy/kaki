@@ -69,11 +69,7 @@ export function realScenarioWithPeople(base: Scenario, holders: readonly SeatHol
   };
 }
 
-/**
- * The owner role an agenda item should run with. A real meeting only names an owner the room can
- * actually nudge: a role held by a person who is present. The generic `everyone` role and a role
- * that is absent or no longer held stay unowned.
- */
+/** Bind only an exact, uniquely held seat id. Names never establish agenda ownership. */
 function realAgendaOwner(
   configured: MeetingSetup | undefined,
   item: Scenario['agenda'][number],
@@ -81,25 +77,16 @@ function realAgendaOwner(
   holders: readonly SeatHolder[],
 ): string {
   const candidate = configured?.agenda.find((entry) => entry.title === item.title) ?? configured?.agenda[index];
-  if (candidate === undefined || candidate.ownerRoleId === REAL_BASE_ROLE) return REAL_BASE_ROLE;
-  const roleId = candidate.ownerRoleId.trim();
-  // A real meeting's people keep their own stable seat ids, so a setup role reaches a person by
-  // the seat they were listed under, never by the setup's role id surviving into the room.
-  const direct = holders.find((holder) => holder.seat.trim() === roleId);
-  if (direct !== undefined) return direct.seat;
-  const seat = configured?.seats.find(
-    (entry) => entry.kind === 'person' && entry.roleId.trim() === roleId,
-  );
-  if (seat === undefined) return REAL_BASE_ROLE;
-  const named = seat.displayName.trim().toLowerCase();
-  const holder = holders.find((entry) => personName(entry).trim().toLowerCase() === named);
-  return holder?.seat ?? REAL_BASE_ROLE;
+  const role = candidate?.ownerRoleId.trim();
+  if (role === undefined || role === REAL_BASE_ROLE) return REAL_BASE_ROLE;
+  const matches = holders.filter((holder) => holder.seat === role);
+  return matches.length === 1 ? matches[0]!.seat : REAL_BASE_ROLE;
 }
 
 /**
  * The setup Start seals for a real meeting: its people are the seats, its agenda is the meeting's.
- * The owner's configured pace and an agenda owner held by a present person carry over from the
- * draft, so the meeting nudges at the timings the owner chose.
+ * The owner's configured pace and the agenda owner's seat identity carry over from the
+ * draft. Cue delivery resolves that identity against the current holders, never their names.
  */
 export function realMeetingSetup(
   base: Scenario,

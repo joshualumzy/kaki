@@ -160,6 +160,45 @@ async function build(): Promise<{ app: KakiApp; base: string; store: AuthStore; 
 }
 
 describe('real meeting seats', () => {
+  it('routes cue notes and retained notes only to their seat, including two people named Raj', async () => {
+    const { app, base, store } = await build();
+    const owner = await signIn(store, 'Ada');
+    const first = await signIn(store, 'Raj');
+    const second = await signIn(store, 'Raj');
+    const meeting = await app.registry.create({ workspaceId: 'workspace-1', ownerUserId: owner.userId,
+      title: 'Cue privacy', agenda: [{ title: 'Budget', minutes: 10 }] });
+    const ownerSeat = await seat(base, meeting.id, owner.cookie);
+    const firstSeat = await seat(base, meeting.id, first.cookie);
+    const secondSeat = await seat(base, meeting.id, second.cookie);
+    expect(new Set([ownerSeat.seat, firstSeat.seat, secondSeat.seat]).size).toBe(3);
+    const instance = await app.registry.get(meeting.id);
+    if (instance === undefined) throw new Error('Meeting did not load');
+    const screen = await connect(base, meeting.id, 'screen', ownerSeat.cookie);
+    const firstView = await connect(base, meeting.id, 'participant', firstSeat.cookie);
+    const secondView = await connect(base, meeting.id, 'participant', secondSeat.cookie);
+    sockets.push(screen, firstView, secondView);
+    const cues: KakiEvent[] = [
+      { type: 'WINGMAN_NOTE', audience: { kind: 'role', role: ownerSeat.seat },
+        payload: { id: 'privacy-lead', kind: 'lead', urgency: 'quiet', title: 'Quiet agenda item', text: 'Raj owns this item.' } },
+      { type: 'WINGMAN_NOTE', audience: { kind: 'role', role: secondSeat.seat },
+        payload: { id: 'privacy-prompt', kind: 'nudge', urgency: 'quiet', title: 'Your item: Budget', text: 'You own Budget.' } },
+      { type: 'WINGMAN_NOTE', audience: { kind: 'role', role: firstSeat.seat },
+        payload: { id: 'privacy-upcoming', kind: 'nudge', urgency: 'quiet', title: 'Your next item', text: 'Up next: Hiring.' } },
+    ];
+    for (const cue of cues) instance.hub.publish(cue, { retainKey: `wingman:${cue.type === 'WINGMAN_NOTE' ? cue.payload.id : ''}` });
+    const received = (view: Socket): KakiEvent[] => view.messages.filter((event) => event.type === 'WINGMAN_NOTE');
+    await waitFor(() => received(secondView).length === 1 ? true : undefined);
+    await settle();
+    expect(received(screen)).toEqual([cues[0]]);
+    expect(received(firstView)).toEqual([cues[2]]);
+    expect(received(secondView)).toEqual([cues[1]]);
+    const reconnected = await connect(base, meeting.id, 'participant', secondSeat.cookie);
+    sockets.push(reconnected);
+    await waitFor(() => received(reconnected).length === 1 ? true : undefined);
+    await settle();
+    expect(received(reconnected)).toEqual([{ ...cues[1], replayed: true }]);
+  });
+
   it('starts from its own empty scenario, with no practice roles, briefing or AI colleagues', async () => {
     const { app, base, store } = await build();
     const owner = await signIn(store, 'Ada');
