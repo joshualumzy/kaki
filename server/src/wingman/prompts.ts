@@ -8,7 +8,7 @@ import {
   type Scenario,
   type Task,
 } from '@kaki/shared';
-import { LlmError, parseJsonReply, type ChatMessage } from '../services/llm';
+import { LlmError, parseJsonReply, type ChatMessage, type LlmClient } from '../services/llm';
 
 /** One finished transcript line the Wingman remembers. */
 export interface WingmanLine {
@@ -307,33 +307,11 @@ export function parseRecordReply(raw: string): RecordVerdict | undefined {
   return { verdict: json.verdict, snippet: json.snippet.trim(), source: json.source.trim() };
 }
 
-/**
- * Common linking words a suggestion may use without a claim of their own. Every other word must
- * appear in the quoted evidence, so a suggestion can never invent a fact, number or name.
- */
-const SUGGESTION_FILLER = new Set([
-  'a', 'about', 'an', 'and', 'are', 'as', 'at', 'ask', 'be', 'been', 'before', 'but', 'by', 'can',
-  'clarify', 'could', 'did', 'do', 'does', 'for', 'from', 'had', 'has', 'have', 'he', 'her', 'here',
-  'him', 'his', 'how', 'if', 'in', 'into', 'is', 'it', 'its', 'just', 'maybe', 'me', 'mention',
-  'might', 'more', 'most', 'my', 'no', 'not', 'now', 'of', 'on', 'or', 'our', 'out', 'over',
-  'please', 'propose', 'question', 'raise', 'should', 'so', 'some', 'suggest', 'than', 'that',
-  'the', 'their', 'them', 'then', 'there', 'these', 'they', 'this', 'those', 'through', 'to', 'up',
-  'us', 'was', 'we', 'were', 'what', 'when', 'where', 'whether', 'which', 'while', 'who', 'why',
-  'will', 'with', 'would', 'you', 'your',
-]);
-
-/** True when every claim-bearing word in a suggestion appears in its quoted evidence. */
-function suggestionSupportedBy(suggestion: string, evidence: string): boolean {
-  const evidenceWords = new Set(normalise(evidence).split(' ').filter(Boolean));
-  const words = normalise(suggestion)
-    .split(' ')
-    .filter((word) => word !== '' && !SUGGESTION_FILLER.has(word));
-  return words.length > 0 && words.every((word) => evidenceWords.has(word));
-}
-
 /** One point a silent person could add, grounded in the meeting or in one workspace record. */
 export interface CatchupVerdict {
   suggestion: string;
+  /** The verbatim evidence the suggestion was drawn from. */
+  evidence: string;
   /** Where the point came from: a transcript line time, or a record source and date. */
   source: string;
   /** The workspace record the point came from, when it did not come from the meeting. */
@@ -378,7 +356,7 @@ Decide whether there is ONE genuinely useful point ${personName} could add to th
 High bar: the point must be directly relevant and new, never general background, advice, or a repeat of what someone already said. If nothing clears that bar, return no suggestion. Never invent a fact, and never say or imply that ${personName} is expected to speak.
 Return strict JSON and nothing else: {"suggestion":"","basis":"meeting"|"workspace"|"none","evidence":"","source":""}
 When there is a point:
-- "suggestion" is one short, plain sentence ${personName} could add, built only from the words of that evidence plus common linking words. Never add a fact, number, name or claim that the evidence does not contain.
+- "suggestion" is one short, plain sentence ${personName} could add. It must be supported by that evidence: say it in your own words if you like, but never add a fact, number, name or claim that the evidence does not contain.
 - basis "meeting": "evidence" is copied word for word from one transcript line that supports it, and "source" is empty.
 - basis "workspace": "evidence" is copied word for word from one workspace record below, and "source" is that record's source label.
 Otherwise return basis "none" with an empty suggestion, evidence and source.`,
@@ -397,7 +375,7 @@ ${facts.length === 0 ? '(none available)' : recordBlock(facts)}`,
   ];
 }
 
-/** Read a grounded catch-up point; anything ungrounded, empty or invented is refused. */
+/** Read a catch-up point whose evidence quote is real; the support check is a separate model judgement. */
 export function parseCatchupReply(
   raw: string,
   lines: readonly WingmanLine[],
@@ -413,11 +391,14 @@ export function parseCatchupReply(
   if (!isString(json.evidence) || json.evidence.trim() === '') return undefined;
   const suggestion = json.suggestion.trim();
   const evidence = json.evidence.trim();
-  if (!suggestionSupportedBy(suggestion, evidence)) return undefined;
   if (json.basis === 'meeting') {
     const line = groundedLine(evidence, lines);
     if (line === undefined) return undefined;
-    return { suggestion, source: `${speakerName(line.speaker)} · ${line.timestamp}` };
+    return {
+      suggestion,
+      evidence: line.text,
+      source: `${speakerName(line.speaker)} · ${line.timestamp}`,
+    };
   }
   if (json.basis === 'workspace') {
     if (!isString(json.source) || json.source.trim() === '') return undefined;
@@ -426,7 +407,83 @@ export function parseCatchupReply(
       (candidate) => candidate.source === source && candidate.text.includes(evidence),
     );
     if (fact === undefined) return undefined;
-    return { suggestion, source: `${fact.source} (${fact.date})`, fact };
+    return { suggestion, evidence, source: `${fact.source} (${fact.date})`, fact };
   }
   return undefined;
+}
+
+/** The strict schema for the support judgement of one catch-up suggestion. */
+export const CATCHUP_CHECK_SCHEMA = {
+  name: 'wingman_catchup_check',
+  schema: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['supported'],
+    properties: {
+      supported: { type: 'boolean' },
+    },
+  },
+};
+
+/** The messages for judging whether a catch-up suggestion is supported by its quoted evidence. */
+export function catchupCheckMessages(suggestion: string, evidence: string): ChatMessage[] {
+  return [
+    {
+      role: 'system',
+      content: `[KAKI_WINGMAN_CATCHUP_CHECK]
+You judge one thing: is this catch-up suggestion supported by the quoted evidence?
+Judge the meaning, not word overlap. A faithful paraphrase is supported. A suggestion is supported only when every claim it makes is stated in, or follows directly from, the evidence. It is not supported when it adds a fact, number, name, claim or implication the evidence does not contain.
+Return strict JSON and nothing else: {"supported":true} or {"supported":false}.`,
+    },
+    {
+      role: 'user',
+      content: `Suggestion: "${suggestion}"
+Evidence: "${evidence}"`,
+    },
+  ];
+}
+
+/** Read the support judgement; anything but a clear boolean is unreadable. */
+export function parseCatchupCheckReply(raw: string): boolean | undefined {
+  let json: unknown;
+  try {
+    json = parseJsonReply(raw);
+  } catch {
+    return undefined;
+  }
+  return isObject(json) && typeof json.supported === 'boolean' ? json.supported : undefined;
+}
+
+/**
+ * Ask the model whether a catch-up suggestion is supported by its evidence. A failed call or an
+ * unreadable reply is retried once, like the notetaker's semantic verifier; if both fail it throws,
+ * so the caller drops the suggestion instead of treating a transport problem as a pass.
+ */
+export async function verifyCatchupSuggestion(
+  verifier: LlmClient,
+  suggestion: string,
+  evidence: string,
+  log: (message: string) => void,
+): Promise<boolean> {
+  const messages = catchupCheckMessages(suggestion, evidence);
+  let lastFailure: string | undefined;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const reply = await verifier.complete(messages, {
+        json: true,
+        schema: CATCHUP_CHECK_SCHEMA,
+        temperature: 0,
+      });
+      const supported = parseCatchupCheckReply(reply);
+      if (supported !== undefined) return supported;
+      lastFailure = 'its reply could not be read';
+      log(`could not read the catch-up check (attempt ${attempt + 1})`);
+    } catch (error) {
+      lastFailure = error instanceof Error ? error.message : String(error);
+      log(`the catch-up check failed (attempt ${attempt + 1}): ${lastFailure}`);
+    }
+  }
+  throw new Error(
+    `the catch-up check could not judge the suggestion after 2 attempts (${lastFailure ?? 'no reason given'})`,
+  );
 }

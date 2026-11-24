@@ -17,7 +17,7 @@ import type { Hub } from '../../src/core/hub';
 import type { TaskStore } from '../../src/meeting/tasks';
 import type { MeetingSession } from '../../src/meeting/session';
 import type { SavedMeetingDetails } from '../../src/persist/state';
-import { createFakeLlm } from '../../src/services/llm';
+import { createFakeLlm, type ChatMessage } from '../../src/services/llm';
 import { createWingmanModules } from '../../src/wingman';
 import { createWingmanModule } from '../../src/wingman/module';
 import { waitFor } from '../helpers';
@@ -772,11 +772,19 @@ function activeNotes(events: readonly KakiEvent[], kind: 'lead' | 'nudge'): Note
 }
 
 const noPointReply = JSON.stringify({ suggestion: '', basis: 'none', evidence: '', source: '' });
+const supportedReply = JSON.stringify({ supported: true });
 
-function catchupLlm(reply: string): ReturnType<typeof createFakeLlm> {
-  return createFakeLlm((messages) =>
-    messages[0]?.content.includes('[KAKI_WINGMAN_CATCHUP]') ? reply : noPointReply,
-  );
+function catchupLlm(
+  reply: string,
+  check: string | ((messages: ChatMessage[]) => string | Promise<string>) = supportedReply,
+): ReturnType<typeof createFakeLlm> {
+  return createFakeLlm((messages) => {
+    if (messages[0]?.content.includes('[KAKI_WINGMAN_CATCHUP]')) return reply;
+    if (messages[0]?.content.includes('[KAKI_WINGMAN_CATCHUP_CHECK]')) {
+      return typeof check === 'function' ? check(messages) : check;
+    }
+    return noPointReply;
+  });
 }
 
 describe('wingman real-meeting pace cues', () => {
@@ -825,7 +833,7 @@ describe('wingman real-meeting pace cues', () => {
       hub: fake,
       llm: catchupLlm(
         JSON.stringify({
-          suggestion: 'Ask whether we need the budget figure before we decide.',
+          suggestion: 'Should we settle the numbers first?',
           basis: 'meeting',
           evidence: 'We need the budget figure before we decide.',
           source: '',
@@ -858,9 +866,7 @@ describe('wingman real-meeting pace cues', () => {
       expect(note.payload.kind).toBe('nudge');
       expect(note.payload.text).toContain('Now: "Budget".');
       expect(note.payload.text).toContain('Open question: Do we still have launch budget?');
-      expect(note.payload.text).toContain(
-        'One point you could add: Ask whether we need the budget figure before we decide.',
-      );
+      expect(note.payload.text).toContain('One point you could add: Should we settle the numbers first?');
       expect(note.payload.sources).toEqual(['Ada · 2026-11-22T10:00:00.000Z']);
       expect(note.payload.facts).toBeUndefined();
       expect(note.payload.text).not.toMatch(/expected|haven't spoken|have not spoken/i);
@@ -881,6 +887,88 @@ describe('wingman real-meeting pace cues', () => {
       ).toBe(true);
     } finally {
       stop();
+    }
+  });
+
+  it('drops a suggestion the model says its evidence does not support', async () => {
+    const warnings = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      const fake = fakeHub();
+      const stop = start({
+        hub: fake,
+        llm: catchupLlm(
+          JSON.stringify({
+            suggestion: 'The approved budget is $5000000.',
+            basis: 'meeting',
+            evidence: 'We need the budget figure before we decide.',
+            source: '',
+          }),
+          JSON.stringify({ supported: false }),
+        ),
+        search: async () => [],
+        holders: cueHolders,
+        meetingKind: 'real',
+        scenario: cueScenario,
+        sealed: sealedCue(),
+      });
+      try {
+        fake.emit(transcriptLine('We need the budget figure before we decide.', { speaker: 'Ada', role: 'host' }));
+        fake.emit(cueRecord({ elapsedSeconds: 121, speakerTalkSeconds: { host: 40, mei: 6 } }));
+        const note = await waitFor(
+          () => wingmanNotes(fake.published).find((event) => event.payload.id === 'catchup:raj:0'),
+          'the plain catch-up',
+        );
+        expect(note.payload.text).toBe('Now: "Budget".');
+        expect(note.payload.text).not.toContain('One point you could add');
+        expect(note.payload.sources).toBeUndefined();
+        expect(warnings).toHaveBeenCalledWith(expect.stringContaining('does not support it'));
+      } finally {
+        stop();
+      }
+    } finally {
+      warnings.mockRestore();
+    }
+  });
+
+  it('drops the suggestion when the support check itself fails, and still sends the plain catch-up', async () => {
+    const warnings = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      const fake = fakeHub();
+      const stop = start({
+        hub: fake,
+        llm: catchupLlm(
+          JSON.stringify({
+            suggestion: 'Should we settle the numbers first?',
+            basis: 'meeting',
+            evidence: 'We need the budget figure before we decide.',
+            source: '',
+          }),
+          () => {
+            throw new Error('verifier down');
+          },
+        ),
+        search: async () => [],
+        holders: cueHolders,
+        meetingKind: 'real',
+        scenario: cueScenario,
+        sealed: sealedCue(),
+      });
+      try {
+        fake.emit(transcriptLine('We need the budget figure before we decide.', { speaker: 'Ada', role: 'host' }));
+        fake.emit(cueRecord({ elapsedSeconds: 121, speakerTalkSeconds: { host: 40, mei: 6 } }));
+        const note = await waitFor(
+          () => wingmanNotes(fake.published).find((event) => event.payload.id === 'catchup:raj:0'),
+          'the plain catch-up',
+        );
+        expect(note.payload.text).toBe('Now: "Budget".');
+        expect(note.payload.text).not.toContain('One point you could add');
+        expect(note.payload.sources).toBeUndefined();
+        expect(warnings).toHaveBeenCalledWith(expect.stringContaining('support check failed'), expect.any(Error));
+      } finally {
+        stop();
+      }
+    } finally {
+      warnings.mockRestore();
     }
   });
 

@@ -36,6 +36,7 @@ import {
   parseCatchupReply,
   parseRecordReply,
   recordMessages,
+  verifyCatchupSuggestion,
   type AnswerPart,
   type WingmanLine,
 } from './prompts';
@@ -460,9 +461,29 @@ export function createWingmanModule(options: WingmanModuleOptions = {}): KakiMod
             if (stopped || startedIn !== generation) return;
             const verdict = parseCatchupReply(raw, lines, facts);
             if (verdict !== undefined) {
-              suggestion = shortenSuggestion(verdict.suggestion);
-              fact = verdict.fact;
-              source = verdict.source;
+              try {
+                const supported = await verifyCatchupSuggestion(
+                  llm,
+                  verdict.suggestion,
+                  verdict.evidence,
+                  (message) => console.warn(`kaki wingman: ${message}`),
+                );
+                if (stopped || startedIn !== generation) return;
+                if (supported) {
+                  suggestion = shortenSuggestion(verdict.suggestion);
+                  fact = verdict.fact;
+                  source = verdict.source;
+                } else {
+                  console.warn(
+                    `kaki wingman: dropped the catch-up suggestion for ${person.role} on "${itemTitle}"; the evidence does not support it`,
+                  );
+                }
+              } catch (error) {
+                console.warn(
+                  `kaki wingman: dropped the catch-up suggestion for ${person.role} on "${itemTitle}"; the support check failed`,
+                  error,
+                );
+              }
             }
           } catch (error) {
             console.error(
