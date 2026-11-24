@@ -206,18 +206,27 @@ describe('Tell Kaki API', () => {
     expect(llm.calls[0]?.[1]?.content).toBe('We need 10 minutes on the budget, then hiring.');
   });
 
-  it('answers 502 when the model reply is malformed', async () => {
-    const llm = createFakeLlm(() => '{"title":"Budget","agenda":[{"title":"Budget","owner":"Ada"}]}');
+  it('answers 502 and logs when the model reply is malformed', async () => {
+    const reply = '{"title":"Budget","agenda":[{"title":"Budget","owner":"Ada"}]}';
+    const llm = createFakeLlm(() => reply);
     const { base, store } = await buildApp({ llm });
     const ada = await signIn(store, 'Ada');
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-    const response = await request(base, '/api/tell-kaki', {
-      method: 'POST',
-      cookie: ada.cookie,
-      body: { text: 'Budget' },
-    });
-    expect(response.status).toBe(502);
-    expect(await response.json()).toEqual({ error: "Couldn't read that; fill it in yourself." });
+    try {
+      const response = await request(base, '/api/tell-kaki', {
+        method: 'POST',
+        cookie: ada.cookie,
+        body: { text: 'Budget' },
+      });
+      expect(response.status).toBe(502);
+      expect(await response.json()).toEqual({ error: "Couldn't read that; fill it in yourself." });
+      expect(error).toHaveBeenCalledWith(
+        `kaki tell-kaki: could not read the model's reply: ${reply.slice(0, 300)}`,
+      );
+    } finally {
+      error.mockRestore();
+    }
   });
 
   it('answers 503 when the model fails or is not configured', async () => {

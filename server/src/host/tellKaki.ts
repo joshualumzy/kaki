@@ -66,15 +66,20 @@ function hasOnlyKeys(value: Record<string, unknown>, allowed: readonly string[])
   return Object.keys(value).every((key) => allowed.includes(key));
 }
 
+function rejectReply(content: string): never {
+  console.error(`kaki tell-kaki: could not read the model's reply: ${content.slice(0, 300)}`);
+  throw new TellKakiReplyError();
+}
+
 export function parseTellKakiReply(content: string): TellKakiReply {
   let value: unknown;
   try {
     value = parseJsonReply(content);
   } catch {
-    throw new TellKakiReplyError();
+    rejectReply(content);
   }
   if (!isObject(value) || !hasOnlyKeys(value, ['title', 'agenda'])) {
-    throw new TellKakiReplyError();
+    rejectReply(content);
   }
 
   const rawTitle = value.title;
@@ -83,18 +88,18 @@ export function parseTellKakiReply(content: string): TellKakiReply {
     title = null;
   } else if (typeof rawTitle === 'string') {
     title = rawTitle.trim();
-    if (title.length < 1 || title.length > MAX_AGENDA_TITLE_LENGTH) throw new TellKakiReplyError();
+    if (title.length < 1 || title.length > MAX_AGENDA_TITLE_LENGTH) rejectReply(content);
   } else {
-    throw new TellKakiReplyError();
+    rejectReply(content);
   }
 
   if (!Array.isArray(value.agenda) || value.agenda.length > MAX_AGENDA_ITEMS) {
-    throw new TellKakiReplyError();
+    rejectReply(content);
   }
   const agenda: AgendaItem[] = [];
   for (const rawItem of value.agenda) {
     const item = parseModelAgendaItem(rawItem);
-    if (item === undefined) throw new TellKakiReplyError();
+    if (item === undefined) rejectReply(content);
     agenda.push(item);
   }
   return { title, agenda };

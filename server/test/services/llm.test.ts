@@ -93,6 +93,8 @@ describe('OpenAI-compatible LLM client', () => {
       type: 'json_schema',
       json_schema: { name: 'reply', strict: true, schema: schema.schema },
     });
+    // The schema went natively, so no schema system message is added.
+    expect(request.messages).toEqual([]);
   });
 
   it('falls back once to plain JSON mode when the model refuses a JSON schema, then remembers it', async () => {
@@ -124,6 +126,85 @@ describe('OpenAI-compatible LLM client', () => {
       expect(warn).toHaveBeenCalledTimes(1);
       expect(String(warn.mock.calls[0]?.[0])).toContain('qwen3.6:35b');
       expect(String(warn.mock.calls[0]?.[0])).toContain('refused a JSON schema');
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('tells the model the shape in a system message when it cannot take the schema natively', async () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const schema = {
+      name: 'reply',
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['ok'],
+        properties: { ok: { type: 'boolean' } },
+      },
+    };
+    const llm = createOpenAiLlm({
+      baseUrl: 'https://gateway.example',
+      apiKey: 'k',
+      model: 'qwen3.6:35b',
+      fetchImpl: async (_url, init) => {
+        const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        bodies.push(body);
+        if ((body.response_format as { type?: string } | undefined)?.type === 'json_schema') {
+          return new Response('{"error":"json_schema is not supported by this model"}', { status: 400 });
+        }
+        return new Response(JSON.stringify({ choices: [{ message: { content: '{"ok":true}' } }] }));
+      },
+    });
+    const messages = [
+      { role: 'system' as const, content: 'original instructions' },
+      { role: 'user' as const, content: 'hi' },
+    ];
+    const schemaMessage = {
+      role: 'system',
+      content: expect.stringContaining(JSON.stringify(schema.schema)),
+    };
+
+    try {
+      await llm.complete(messages, { json: true, schema });
+      // (a) The retry after the refusal carries the schema system message and json_object.
+      expect(bodies[1]!.response_format).toEqual({ type: 'json_object' });
+      expect(bodies[1]!.messages).toEqual([...messages, schemaMessage]);
+      expect((bodies[1]!.messages as Array<{ content: string }>)[2]!.content).toContain('JSON Schema');
+
+      // (b) A later call, after the refusal, carries it too.
+      await llm.complete(messages, { json: true, schema });
+      expect(bodies[2]!.response_format).toEqual({ type: 'json_object' });
+      expect(bodies[2]!.messages).toEqual([...messages, schemaMessage]);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('tells the model the shape in a system message when json mode is unsupported', async () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const schema = { name: 'reply', schema: { type: 'object' } };
+    const llm = createOpenAiLlm({
+      baseUrl: 'https://gateway.example',
+      apiKey: 'k',
+      model: 'm',
+      fetchImpl: async (_url, init) => {
+        const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        bodies.push(body);
+        if ('response_format' in body) {
+          return new Response('{"error":"response_format is not supported by this model"}', { status: 400 });
+        }
+        return new Response(JSON.stringify({ choices: [{ message: { content: '{}' } }] }));
+      },
+    });
+
+    try {
+      expect(await llm.complete([], { json: true, schema })).toBe('{}');
+      expect(bodies.at(-1)).not.toHaveProperty('response_format');
+      expect(bodies.at(-1)!.messages).toEqual([
+        { role: 'system', content: expect.stringContaining(JSON.stringify(schema.schema)) },
+      ]);
     } finally {
       warn.mockRestore();
     }

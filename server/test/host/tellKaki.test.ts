@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createFakeLlm } from '../../src/services/llm';
 import {
   askTellKaki,
@@ -33,8 +33,16 @@ describe('Tell Kaki', () => {
     ['a zero duration', '{"title":"Budget","agenda":[{"title":"Budget","minutes":0}]}'],
     ['an overlong duration', '{"title":"Budget","agenda":[{"title":"Budget","minutes":241}]}'],
   ])('rejects %s', (_label, content) => {
-    expect(() => parseTellKakiReply(content)).toThrow(TellKakiReplyError);
-    expect(() => parseTellKakiReply(content)).toThrow(TELL_KAKI_REPLY_MESSAGE);
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      expect(() => parseTellKakiReply(content)).toThrow(TellKakiReplyError);
+      expect(() => parseTellKakiReply(content)).toThrow(TELL_KAKI_REPLY_MESSAGE);
+      expect(error).toHaveBeenCalledWith(
+        `kaki tell-kaki: could not read the model's reply: ${content.slice(0, 300)}`,
+      );
+    } finally {
+      error.mockRestore();
+    }
   });
 
   it('asks the model for the strict reply shape and keeps the person text intact', async () => {

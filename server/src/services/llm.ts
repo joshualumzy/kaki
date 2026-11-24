@@ -105,6 +105,23 @@ export function parseJsonReply(text: string): unknown {
   return JSON.parse((match === null ? text : match[1]!).trim());
 }
 
+/**
+ * Tell a model the reply shape in a system message when it cannot take the schema as
+ * `response_format.json_schema`: the response_format fallback loses the shape otherwise.
+ */
+function withSchemaInstruction(
+  messages: ChatMessage[],
+  schema: { name: string; schema: Record<string, unknown> },
+): ChatMessage[] {
+  return [
+    ...messages,
+    {
+      role: 'system',
+      content: `Reply with only a JSON object that matches this JSON Schema:\n${JSON.stringify(schema.schema)}`,
+    },
+  ];
+}
+
 // Pull choices[0].message.content out of a chat completions reply.
 function contentOf(body: unknown): string | undefined {
   if (!isObject(body) || !Array.isArray(body.choices)) return undefined;
@@ -213,13 +230,6 @@ export function createOpenAiLlm({
       const timeout = AbortSignal.timeout(timeoutMs);
       const signal = options.signal === undefined ? timeout : AbortSignal.any([timeout, options.signal]);
       const effort = options.reasoningEffort ?? (options.json === true && controlReasoning ? 'none' : undefined);
-      const request = {
-        model,
-        messages,
-        temperature: options.temperature ?? 0,
-        ...(options.maxTokens === undefined ? {} : { max_tokens: options.maxTokens }),
-        ...(controlReasoning && effort !== undefined ? { reasoning_effort: effort } : {}),
-      };
       const wantsSchema = options.json === true && options.schema !== undefined && jsonSchemaSupported;
       const responseFormat = options.json !== true || !jsonModeSupported
         ? undefined
@@ -229,6 +239,18 @@ export function createOpenAiLlm({
               json_schema: { name: options.schema!.name, strict: true, schema: options.schema!.schema },
             }
           : { type: 'json_object' };
+      // Whenever the schema is not sent natively, the model only learns the shape from this message.
+      const schemaMessages = options.schema === undefined
+        ? messages
+        : withSchemaInstruction(messages, options.schema);
+      const request = {
+        model,
+        messages: responseFormat?.type === 'json_schema' ? messages : schemaMessages,
+        temperature: options.temperature ?? 0,
+        ...(options.maxTokens === undefined ? {} : { max_tokens: options.maxTokens }),
+        ...(controlReasoning && effort !== undefined ? { reasoning_effort: effort } : {}),
+      };
+      const fallbackRequest = { ...request, messages: schemaMessages };
       const timeoutReason = () => (timeout.aborted ? `timed out after ${timeoutMs} ms` : undefined);
 
       let response = await post(
@@ -244,7 +266,7 @@ export function createOpenAiLlm({
           jsonSchemaSupported = false;
           console.warn(`kaki llm: ${model} refused a JSON schema; falling back to plain JSON mode`);
           response = await post(
-            jsonModeSupported ? { ...request, response_format: { type: 'json_object' } } : request,
+            jsonModeSupported ? { ...fallbackRequest, response_format: { type: 'json_object' } } : fallbackRequest,
             signal,
             timeoutReason,
           );
@@ -252,7 +274,7 @@ export function createOpenAiLlm({
         }
         if (jsonModeSupported && response.status === 400 && detail.includes('response_format')) {
           jsonModeSupported = false;
-          response = await post(request, signal, timeoutReason);
+          response = await post(fallbackRequest, signal, timeoutReason);
           detail = response.ok ? '' : (await response.text().catch(() => '')).slice(0, 200);
         }
       }
