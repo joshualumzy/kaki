@@ -246,6 +246,27 @@ describe('wingman module', () => {
     }
   });
 
+  it('answers from the meeting only when the workspace has no qualifying record', async () => {
+    const fake = fakeHub();
+    const llm = createFakeLlm(() =>
+      JSON.stringify({
+        parts: [{ text: 'You missed the prep decision.', evidence: 'We agreed to prep early.', taskId: null }],
+      }),
+    );
+    const stop = start({ hub: fake, llm, search: async () => [] });
+    try {
+      fake.emit(transcriptLine('We agreed to prep early.'));
+      await fake.runCommand({ type: 'ASK_WINGMAN', question: 'What is for lunch?' }, roleAudience('chef'));
+
+      const note = wingmanNotes(fake.published).find((event) => event.payload.kind === 'answer');
+      expect(note?.payload.text).toBe('You missed the prep decision.');
+      expect(note?.payload.facts).toBeUndefined();
+      expect(note?.payload.sources?.every((source) => source.includes('Ada'))).toBe(true);
+    } finally {
+      stop();
+    }
+  });
+
   it('answers a guest in a real meeting from the meeting only, never the workspace', async () => {
     const fake = fakeHub();
     const llm = createFakeLlm(() =>

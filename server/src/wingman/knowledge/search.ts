@@ -7,6 +7,14 @@ const RETRIEVAL_LIMIT = 8;
 const MAX_FACTS = 3;
 /** RRF dampening constant from the original paper; larger flattens the rank gaps. */
 const RRF_K = 60;
+/**
+ * The lowest cosine similarity a vector match may have and still count. Set at 0.45, the midpoint
+ * of the usual unrelated and on-topic bands for the 1024-dimension embeddings this stack indexes,
+ * so a paraphrased on-topic record still retrieves while one from another part of the shop does
+ * not. Re-check it with `npm run knowledge:check` after changing the embedding model. Keyword
+ * matches bypass it; they must instead match the full-text query.
+ */
+export const MIN_VECTOR_SIMILARITY = 0.45;
 
 /** A knowledge chunk returned by the vector search, with its source date. */
 export interface RetrievedChunk {
@@ -90,6 +98,23 @@ interface ChunkRow {
   ref: string;
   text: string;
   published_at: Date | string;
+  /** Cosine similarity for a vector row, or its complement (cosine distance) if selected instead. */
+  similarity?: number | string | null;
+  distance?: number | string | null;
+}
+
+/**
+ * A vector row must clear the same minimum the SQL applies. The check also runs here so a test can
+ * exercise the cut-off without a database; a row with no score is one the SQL already accepted.
+ */
+function meetsVectorThreshold(row: ChunkRow): boolean {
+  if (row.similarity !== undefined && row.similarity !== null) {
+    return Number(row.similarity) >= MIN_VECTOR_SIMILARITY;
+  }
+  if (row.distance !== undefined && row.distance !== null) {
+    return 1 - Number(row.distance) >= MIN_VECTOR_SIMILARITY;
+  }
+  return true;
 }
 
 /**
@@ -148,12 +173,15 @@ export function buildRetrievalQueries(
 ): RetrievalQueries {
   return {
     vector: {
-      text: `SELECT source, ref, text, published_at
+      text: `SELECT source, ref, text, published_at,
+              1 - (embedding <=> $2::vector) AS similarity
          FROM knowledge_chunks
-        WHERE workspace_id = $1 AND embedding IS NOT NULL
+        WHERE workspace_id = $1
+          AND embedding IS NOT NULL
+          AND 1 - (embedding <=> $2::vector) >= $4
         ORDER BY embedding <=> $2::vector
         LIMIT $3`,
-      values: [workspaceId, `[${embedding.join(',')}]`, limit],
+      values: [workspaceId, `[${embedding.join(',')}]`, limit, MIN_VECTOR_SIMILARITY],
     },
     // Questions are full sentences, so any of their words may match (OR), and chunks matching more of them
     // rank higher. The lexemes come from the same 'english' parser as text_tsv, quoted so they cast to a
@@ -174,9 +202,10 @@ export function buildRetrievalQueries(
 }
 
 /**
- * Read the hybrid candidates from Postgres: nearest chunks by pgvector cosine distance
- * plus full-text matches ranked by ts_rank_cd, merged with RRF.
- * A question whose full-text query has no usable words simply contributes no keyword rows.
+ * Read the hybrid candidates from Postgres: nearest chunks by pgvector cosine distance that clear
+ * MIN_VECTOR_SIMILARITY, plus full-text matches that actually match the question, merged with RRF.
+ * A question whose full-text query has no usable words simply contributes no keyword rows; a
+ * question with no qualifying vector or keyword rows returns no chunks at all.
  */
 export async function retrieveFromPostgres(
   pool: Pool,
@@ -190,7 +219,10 @@ export async function retrieveFromPostgres(
     pool.query<ChunkRow>(queries.vector.text, queries.vector.values),
     pool.query<ChunkRow>(queries.keyword.text, queries.keyword.values),
   ]);
-  return reciprocalRankFusion([toChunks(vector.rows), toChunks(keyword.rows)], limit);
+  return reciprocalRankFusion(
+    [toChunks(vector.rows.filter(meetsVectorThreshold)), toChunks(keyword.rows)],
+    limit,
+  );
 }
 
 /** Build the search for one workspace from env and a Postgres pool. */

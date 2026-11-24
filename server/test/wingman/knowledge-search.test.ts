@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
+import type { Pool } from 'pg';
 import {
+  MIN_VECTOR_SIMILARITY,
   createSearchCompanyData,
   parseFactsResponse,
   reciprocalRankFusion,
+  retrieveFromPostgres,
   type RetrievedChunk,
   type SearchDeps,
 } from '../../src/wingman/knowledge/search';
@@ -150,5 +153,46 @@ describe('reciprocal rank fusion', () => {
   it('falls back to the vector list when the full-text query finds nothing', () => {
     const vector = [chunk('a'), chunk('b')];
     expect(reciprocalRankFusion([vector, []], 8)).toEqual(vector);
+  });
+});
+
+interface SearchRow {
+  source: string;
+  ref: string;
+  text: string;
+  published_at: string;
+  similarity?: number;
+  distance?: number;
+}
+
+function searchRow(ref: string, score: { similarity?: number; distance?: number }): SearchRow {
+  return { source: 'wiki', ref, text: ref, published_at: '2026-11-10', ...score };
+}
+
+function postgresDouble(vector: SearchRow[], keyword: SearchRow[]): Pool {
+  return {
+    query: async (text: string) => ({ rows: text.includes('<=>') ? vector : keyword }),
+  } as unknown as Pool;
+}
+
+describe('retrieval thresholds', () => {
+  it('keeps an on-topic vector match and drops one below the minimum similarity', async () => {
+    const pool = postgresDouble(
+      [
+        searchRow('on-topic', { similarity: MIN_VECTOR_SIMILARITY + 0.2 }),
+        searchRow('off-topic', { similarity: MIN_VECTOR_SIMILARITY - 0.2 }),
+      ],
+      [],
+    );
+
+    expect(await retrieveFromPostgres(pool, 'ws-a', [0.1], 'kopi prices?', 8)).toEqual([
+      chunk('on-topic'),
+    ]);
+  });
+
+  it('returns nothing when no vector match clears the threshold and no keyword chunk matches', async () => {
+    const pool = postgresDouble([searchRow('off-topic', { distance: 1 - (MIN_VECTOR_SIMILARITY - 0.2) })], []);
+
+    expect(await retrieveFromPostgres(pool, 'ws-a', [0.1], 'what is for lunch?', 8)).toEqual([]);
   });
 });

@@ -9,6 +9,7 @@ import {
   type KnowledgeSource,
 } from '../../src/wingman/knowledge/indexer';
 import {
+  MIN_VECTOR_SIMILARITY,
   buildRetrievalQueries,
   retrieveFromPostgres,
 } from '../../src/wingman/knowledge/search';
@@ -23,8 +24,10 @@ describe('workspace-scoped retrieval queries', () => {
     const queries = buildRetrievalQueries('ws-a', [0.1, 0.2], 'how much?', 8);
 
     expect(queries.vector.text).toContain('workspace_id = $1');
-    expect(queries.vector.values).toEqual(['ws-a', '[0.1,0.2]', 8]);
+    expect(queries.vector.text).toContain('1 - (embedding <=> $2::vector) >= $4');
+    expect(queries.vector.values).toEqual(['ws-a', '[0.1,0.2]', 8, MIN_VECTOR_SIMILARITY]);
     expect(queries.keyword.text).toContain('workspace_id = $2');
+    expect(queries.keyword.text).toContain('text_tsv @@ q.query');
     expect(queries.keyword.values).toEqual(['how much?', 'ws-a', 8]);
   });
 

@@ -241,7 +241,7 @@ The server decides, per seat, which messages each connection receives.
 
 While the room is off the record, its words are not transcribed, analysed or stored, and the minutes show the span with no content. Anyone in the meeting can turn it on or off. A person who leaves keeps their seat for a grace window, and the owner or an admin can end the meeting for everyone.
 
-The Wingman answers from the transcript, record and to-dos first, then the workspace, and otherwise stays silent. Company search merges pgvector similarity search with Postgres full-text search using reciprocal rank fusion (RRF), then writes a role-aware answer with a source and date for each fact.
+The Wingman answers from the transcript, record and to-dos first, then the workspace, and otherwise stays silent. Company search merges pgvector similarity search with Postgres full-text search using reciprocal rank fusion (RRF); a vector record must clear a minimum cosine similarity and a keyword record must actually match the question, so unrelated records are never shown. If nothing qualifies, the Wingman answers from the meeting only or says it found nothing in the records. It then writes a role-aware answer with a source and date for each fact.
 
 The runner recognises each person's speech with Azure STT. In a practice meeting the Director plays every AI colleague from the scenario profiles and speaks through Azure TTS. Voice activity detection (VAD) on the visitor's microphone lets the visitor interrupt.
 
