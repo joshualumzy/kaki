@@ -6,7 +6,42 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { WingmanNotePayload } from '@kaki/shared';
 import { WingmanPanel } from './WingmanPanel';
 
-afterEach(cleanup);
+afterEach(() => {
+  restoreTextHeights();
+  cleanup();
+});
+
+const originalScrollHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollHeight');
+const originalClientHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientHeight');
+
+/** Makes jsdom report a clamped note's height, so the More/Less overflow check can be tested. */
+function mockTextHeights(longTextLength: number): void {
+  Object.defineProperty(HTMLElement.prototype, 'scrollHeight', {
+    configurable: true,
+    get(this: HTMLElement) {
+      return (this.textContent ?? '').length >= longTextLength ? 60 : 20;
+    },
+  });
+  Object.defineProperty(HTMLElement.prototype, 'clientHeight', {
+    configurable: true,
+    get() {
+      return 20;
+    },
+  });
+}
+
+function restoreTextHeights(): void {
+  if (originalScrollHeight === undefined) {
+    delete (HTMLElement.prototype as unknown as Record<string, unknown>).scrollHeight;
+  } else {
+    Object.defineProperty(HTMLElement.prototype, 'scrollHeight', originalScrollHeight);
+  }
+  if (originalClientHeight === undefined) {
+    delete (HTMLElement.prototype as unknown as Record<string, unknown>).clientHeight;
+  } else {
+    Object.defineProperty(HTMLElement.prototype, 'clientHeight', originalClientHeight);
+  }
+}
 
 const quietNotes: WingmanNotePayload[] = [
   {
@@ -171,6 +206,72 @@ describe('WingmanPanel', () => {
       />,
     );
     expect(screen.getByRole('alert').textContent).toContain('Only a person in a seat can ask the Wingman');
+  });
+
+  it('clamps a long note to two lines, hiding its evidence until More, and collapses again on Less', () => {
+    const longText =
+      'The cash box moves to the back counter so the morning queue keeps moving and nobody waits at the door.';
+    mockTextHeights(longText.length);
+    const note: WingmanNotePayload = {
+      id: 'answer:long',
+      kind: 'answer',
+      urgency: 'quiet',
+      title: 'Wingman',
+      text: longText,
+      facts: [{ text: 'The cash box moves to the back counter.', source: 'wiki SOP', date: '2026-11-06' }],
+      sources: ['wiki SOP (2026-11-06)'],
+    };
+    render(<WingmanPanel notes={[note]} onAsk={vi.fn(() => true)} onDismiss={vi.fn()} />);
+
+    expect(screen.getByText(longText).getAttribute('data-clamp')).toBe('2');
+    const more = screen.getByRole('button', { name: 'More' });
+    expect(more.getAttribute('aria-expanded')).toBe('false');
+    expect(screen.queryByLabelText('Facts in this note')).toBeNull();
+
+    fireEvent.click(more);
+    const less = screen.getByRole('button', { name: 'Less' });
+    expect(less.getAttribute('aria-expanded')).toBe('true');
+    expect(screen.getByLabelText('Facts in this note')).toBeTruthy();
+    expect(screen.getByText(longText).getAttribute('data-clamp')).toBeNull();
+
+    fireEvent.click(less);
+    expect(screen.getByRole('button', { name: 'More' })).toBeTruthy();
+  });
+
+  it('shows no More button for a note that fits in two lines, and keeps its evidence visible', () => {
+    mockTextHeights(Number.MAX_SAFE_INTEGER);
+    const note: WingmanNotePayload = {
+      id: 'answer:short',
+      kind: 'answer',
+      urgency: 'quiet',
+      title: 'Wingman',
+      text: 'Short answer.',
+      facts: [{ text: 'Short fact.', source: 'wiki SOP', date: '2026-11-06' }],
+      sources: ['wiki SOP (2026-11-06)'],
+    };
+    render(<WingmanPanel notes={[note]} onAsk={vi.fn(() => true)} onDismiss={vi.fn()} />);
+
+    expect(screen.queryByRole('button', { name: 'More' })).toBeNull();
+    expect(screen.getByLabelText('Facts in this note')).toBeTruthy();
+  });
+
+  it('collapses an older history note to one line', () => {
+    mockTextHeights(Number.MAX_SAFE_INTEGER);
+    const cleared: WingmanNotePayload = {
+      id: 'answer:old',
+      kind: 'answer',
+      urgency: 'quiet',
+      title: 'Wingman',
+      text: 'An older cleared answer.',
+      clears: true,
+      at: '2026-11-06T10:05:00.000Z',
+    };
+    render(
+      <WingmanPanel notes={[]} history={[{ note: cleared }]} onAsk={vi.fn(() => true)} onDismiss={vi.fn()} />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /Earlier · 1 more/ }));
+    expect(screen.getByText('An older cleared answer.').getAttribute('data-clamp')).toBe('1');
   });
 });
 

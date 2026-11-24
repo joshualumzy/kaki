@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import type { WingmanNotePayload } from '@kaki/shared';
 import type { WingmanHistoryEntry } from '../../kaki';
 
@@ -69,14 +69,33 @@ function triggerText(entry: WingmanHistoryEntry): string | undefined {
 function HistoryNote({
   entry,
   active,
+  collapsedLines,
   onDismiss,
 }: {
   entry: WingmanHistoryEntry;
   active: boolean;
+  /** Lines the note shows before More: 2 for a live note, 1 for an older one. */
+  collapsedLines: number;
   onDismiss?: (id: string) => void;
 }) {
   const { note } = entry;
   const trigger = triggerText(entry);
+  const textRef = useRef<HTMLParagraphElement>(null);
+  const [expanded, setExpanded] = useState(false);
+  // Whether the clamped note actually overflows. A short note needs no More button and shows its
+  // evidence straight away; only a note that would flood the panel starts collapsed.
+  const [overflowing, setOverflowing] = useState(false);
+
+  useLayoutEffect(() => {
+    // Measure only while clamped: an expanded note fills its box, so it would always look short.
+    if (expanded) return;
+    const element = textRef.current;
+    if (element === null) return;
+    setOverflowing(element.scrollHeight > element.clientHeight);
+  }, [expanded, note.text, collapsedLines]);
+
+  const showAll = expanded || !overflowing;
+
   return (
     <li className="kd-wingman-note" data-kind={note.kind} data-urgency={note.urgency}>
       <div className="kd-wingman-note-head">
@@ -94,8 +113,34 @@ function HistoryNote({
         ) : null}
       </div>
       {trigger !== undefined ? <p className="kd-wingman-trigger">{trigger}</p> : null}
-      <p className="kd-wingman-text">{note.text}</p>
-      <NoteEvidence note={note} />
+      <p
+        ref={textRef}
+        className="kd-wingman-text"
+        data-clamp={expanded ? undefined : collapsedLines}
+        style={
+          expanded
+            ? undefined
+            : {
+                display: '-webkit-box',
+                WebkitBoxOrient: 'vertical',
+                WebkitLineClamp: collapsedLines,
+                overflow: 'hidden',
+              }
+        }
+      >
+        {note.text}
+      </p>
+      {overflowing ? (
+        <button
+          type="button"
+          className="kd-wingman-more"
+          aria-expanded={expanded}
+          onClick={() => setExpanded((previous) => !previous)}
+        >
+          {expanded ? 'Less' : 'More'}
+        </button>
+      ) : null}
+      {showAll ? <NoteEvidence note={note} /> : null}
     </li>
   );
 }
@@ -143,6 +188,7 @@ export function WingmanHistory({
               key={entry.note.id}
               entry={entry}
               active={isActive(entry)}
+              collapsedLines={2}
               {...(onDismiss === undefined ? {} : { onDismiss })}
             />
           ))}
@@ -165,6 +211,7 @@ export function WingmanHistory({
               key={entry.note.id}
               entry={entry}
               active={isActive(entry)}
+              collapsedLines={1}
               {...(onDismiss === undefined ? {} : { onDismiss })}
             />
           ))}

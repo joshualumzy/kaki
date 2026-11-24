@@ -362,6 +362,7 @@ export function MeetingPanel({
             record={record}
             scenario={scenario}
             ended={meetingEnded}
+            isHost={isHost}
             showOpenQuestions={meetingEnded}
             hideWhenEmptyAgenda={real}
           />
@@ -545,6 +546,37 @@ export function MeetingPanel({
             onDismiss={(id) => send({ type: 'DISMISS_WINGMAN_NOTE', id })}
             askRejection={askRejection}
             {...(onWingmanBadgeChange === undefined ? {} : { onQuietCountChange: onWingmanBadgeChange })}
+            {...(practice
+              ? {
+                  belowAsk: (
+                    <div className="kd-wingman-ideas">
+                      <button
+                        type="button"
+                        className="kd-chip"
+                        aria-expanded={showIdeas}
+                        onClick={() => setShowIdeas((previous) => !previous)}
+                      >
+                        {showIdeas ? 'Hide ideas' : '💡 Need an idea?'}
+                      </button>
+                      {showIdeas && (
+                        // Ideas to say out loud: speaking is the only way in, so nothing here sends a line.
+                        <ul className="kd-starter-chips">
+                          {starterChips.map((chip) => (
+                            <li key={chip} className="kd-starter-chip">
+                              💬 {chip}
+                            </li>
+                          ))}
+                          {hasVisitorSpokenOnTopic && (
+                            <li className="kd-starter-chip">
+                              ⏭️ We&apos;re split on this — let&apos;s table it for now and set up a follow-up to settle it later.
+                            </li>
+                          )}
+                        </ul>
+                      )}
+                    </div>
+                  ),
+                }
+              : {})}
           />
         )}
         {record !== undefined && !meetingEnded && topicBriefingStarted && (
@@ -556,33 +588,6 @@ export function MeetingPanel({
             events={events}
             agendaIndex={record.payload.agendaIndex}
           />
-        )}
-        {practice && role !== undefined && (
-          <div className="kd-wingman-ideas">
-            <button
-              type="button"
-              className="kd-chip"
-              aria-expanded={showIdeas}
-              onClick={() => setShowIdeas((previous) => !previous)}
-            >
-              {showIdeas ? 'Hide ideas' : '💡 Need an idea?'}
-            </button>
-            {showIdeas && (
-              // Ideas to say out loud: speaking is the only way in, so nothing here sends a line.
-              <ul className="kd-starter-chips">
-                {starterChips.map((chip) => (
-                  <li key={chip} className="kd-starter-chip">
-                    💬 {chip}
-                  </li>
-                ))}
-                {hasVisitorSpokenOnTopic && (
-                  <li className="kd-starter-chip">
-                    ⏭️ We&apos;re split on this — let&apos;s table it for now and set up a follow-up to settle it later.
-                  </li>
-                )}
-              </ul>
-            )}
-          </div>
         )}
       </section>
 

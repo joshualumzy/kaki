@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import type { WingmanNotePayload } from '@kaki/shared';
 import type { KakiRejection, WingmanHistoryEntry } from '../../kaki';
 import { DID_NOT_WORK, plainServerText } from '../../net/plainFailure';
@@ -15,6 +15,7 @@ export function WingmanPanel({
   onDismiss,
   askRejection,
   onQuietCountChange,
+  belowAsk,
 }: {
   notes: readonly WingmanNotePayload[];
   /** Every hint this seat saw, including cleared ones. Falls back to the active notes. */
@@ -25,6 +26,8 @@ export function WingmanPanel({
   askRejection?: KakiRejection | null;
   /** Reports the quiet note count so the room can badge the Wingman without any motion. */
   onQuietCountChange?(count: number): void;
+  /** Extra controls that belong directly under the ask box, such as the practice ideas. */
+  belowAsk?: ReactNode;
 }) {
   const [question, setQuestion] = useState('');
   // The ask in flight: what the panel showed when it was sent, so any new note or refusal ends the wait.
@@ -78,7 +81,7 @@ export function WingmanPanel({
   const thinking = waiting !== null && !timedOut;
 
   return (
-    <section className="kd-role kd-wingman" aria-label="Wingman">
+    <div className="kd-wingman" role="group" aria-label="Wingman">
       <p className="kd-wingman-hint">
         Answers come from company records, with a source.
         {quietCount > 0 && (
@@ -109,6 +112,7 @@ export function WingmanPanel({
           </button>
         </div>
       </form>
+      {belowAsk}
       {thinking && (
         <p className="kd-hint" role="status">
           Wingman is thinking…
@@ -120,6 +124,6 @@ export function WingmanPanel({
         </p>
       )}
       <WingmanHistory entries={entries} activeIds={activeIds} onDismiss={onDismiss} />
-    </section>
+    </div>
   );
 }

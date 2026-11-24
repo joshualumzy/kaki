@@ -34,27 +34,107 @@ function formatMinutes(totalSeconds: number): string {
   return `${minutes}:${String(Math.floor(totalSeconds % 60)).padStart(2, '0')}`;
 }
 
+function AgendaSteps({
+  scenario,
+  agendaIndex,
+  ended,
+}: {
+  scenario: Scenario;
+  agendaIndex: number;
+  ended: boolean;
+}) {
+  if (scenario.agenda.length <= 1) return null;
+  return (
+    <ol className="sc-steps">
+      {scenario.agenda.map((step, index) => (
+        <li key={step.title} data-state={ended || index < agendaIndex ? 'done' : index === agendaIndex ? 'now' : 'next'}>
+          <i />
+          <span>{step.title}</span>
+          <em>{step.minutes}m</em>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
 /** The compact Host card: the clock, agenda steps, and (once the meeting ends) its unanswered questions. */
 export function MeetingRecordCard({
   record,
   scenario,
   ended = false,
+  isHost = false,
   showOpenQuestions = true,
   hideWhenEmptyAgenda = false,
 }: {
   record: RecordEvent;
   scenario: Scenario;
   ended?: boolean;
+  /** The host keeps the full card and its agenda; everyone else gets one compact clock row. */
+  isHost?: boolean;
   showOpenQuestions?: boolean;
   /** A real meeting with no agenda has no clock or item to show, so the card stays out of the way. */
   hideWhenEmptyAgenda?: boolean;
 }) {
   const { agendaIndex, openQuestions, paused, reviewIssues = [] } = record.payload;
   const elapsed = useCountUp(record.payload.elapsedSeconds, record, ended || paused === true);
+  const [showAgenda, setShowAgenda] = useState(false);
   const item = scenario.agenda[agendaIndex];
   const limit = (item?.minutes ?? 0) * 60;
   const over = limit > 0 && elapsed >= limit;
   if (hideWhenEmptyAgenda && scenario.agenda.length === 0) return null;
+
+  // The end-of-meeting card is unchanged, and the host keeps the full card throughout.
+  const full = isHost || ended;
+  const barWidth = `${ended ? 100 : limit === 0 ? 0 : Math.min(100, (elapsed / limit) * 100)}%`;
+  const reviewBlock = reviewIssues.length > 0 && (
+    <div style={{ marginTop: 10 }} role="status">
+      <p className="eyebrow" style={{ marginBottom: 4 }}>Needs a person's eye · {reviewIssues.length}</p>
+      <ul className="sc-questions" style={{ margin: 0, paddingLeft: 18 }}>
+        {reviewIssues.map((issue) => (
+          <li key={issue.id}>{issue.text}</li>
+        ))}
+      </ul>
+    </div>
+  );
+
+  if (!full) {
+    const left =
+      limit === 0
+        ? `${formatMinutes(elapsed)} elapsed`
+        : over
+          ? `${formatMinutes(elapsed - limit)} over`
+          : `${formatMinutes(Math.max(0, limit - elapsed))} left`;
+    return (
+      <Card>
+        <div className="kd-record-now-row">
+          <p className="kd-record-now">
+            <span className="kd-record-now-label">Now · {agendaIndex + 1} of {scenario.agenda.length} · </span>
+            <span className="kd-record-now-title">{item?.title ?? 'Meeting'}</span>
+          </p>
+          <span className="kd-record-now-left">{paused ? 'paused' : left}</span>
+        </div>
+        <div className="kd-host-bar">
+          <i style={{ width: barWidth }} />
+        </div>
+        {scenario.agenda.length > 1 && (
+          <button
+            type="button"
+            className="kd-chip kd-record-agenda-toggle"
+            aria-expanded={showAgenda}
+            onClick={() => setShowAgenda((previous) => !previous)}
+          >
+            {showAgenda ? 'Hide agenda' : 'Agenda'}
+          </button>
+        )}
+        {showAgenda && scenario.agenda.length > 1 && (
+          <div style={{ marginTop: 8 }}>
+            <AgendaSteps scenario={scenario} agendaIndex={agendaIndex} ended={ended} />
+          </div>
+        )}
+        {reviewBlock}
+      </Card>
+    );
+  }
 
   return (
     <Card>
@@ -75,18 +155,12 @@ export function MeetingRecordCard({
         </div>
       </div>
       <div className="kd-host-bar">
-        <i style={{ width: `${ended ? 100 : limit === 0 ? 0 : Math.min(100, (elapsed / limit) * 100)}%` }} />
+        <i style={{ width: barWidth }} />
       </div>
       {scenario.agenda.length > 1 && (
-        <ol className="sc-steps" style={{ marginTop: 10, marginBottom: showOpenQuestions && openQuestions.length > 0 ? 10 : 0 }}>
-          {scenario.agenda.map((step, index) => (
-            <li key={step.title} data-state={ended || index < agendaIndex ? 'done' : index === agendaIndex ? 'now' : 'next'}>
-              <i />
-              <span>{step.title}</span>
-              <em>{step.minutes}m</em>
-            </li>
-          ))}
-        </ol>
+        <div style={{ marginTop: 10, marginBottom: showOpenQuestions && openQuestions.length > 0 ? 10 : 0 }}>
+          <AgendaSteps scenario={scenario} agendaIndex={agendaIndex} ended={ended} />
+        </div>
       )}
       {showOpenQuestions && openQuestions.length > 0 && (
         <div style={{ marginTop: 10 }}>
@@ -103,16 +177,7 @@ export function MeetingRecordCard({
           </ul>
         </div>
       )}
-      {reviewIssues.length > 0 && (
-        <div style={{ marginTop: 10 }} role="status">
-          <p className="eyebrow" style={{ marginBottom: 4 }}>Needs a person's eye · {reviewIssues.length}</p>
-          <ul className="sc-questions" style={{ margin: 0, paddingLeft: 18 }}>
-            {reviewIssues.map((issue) => (
-              <li key={issue.id}>{issue.text}</li>
-            ))}
-          </ul>
-        </div>
-      )}
+      {reviewBlock}
     </Card>
   );
 }

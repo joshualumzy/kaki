@@ -185,6 +185,76 @@ describe('MeetingPanel', () => {
     expect(headings.slice(0, 3)).toEqual(['Host', 'Wingman', 'Action board']);
   });
 
+  it('puts the Need an idea button inside the Wingman section, under the ask box', () => {
+    render(<MeetingPanel viewer={{ name: 'Joshua', seatName: 'Wei Ling' }} role={scenario.roles[0]} practice />);
+
+    const wingman = screen.getByLabelText('Wingman section');
+    const ask = within(wingman).getByLabelText('Ask Kaki about this meeting');
+    const idea = within(wingman).getByRole('button', { name: /Need an idea/ });
+    expect(wingman.contains(ask)).toBe(true);
+    expect(ask.compareDocumentPosition(idea) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  describe('the panel clock', () => {
+    const twoItemScenario: Scenario = {
+      ...scenario,
+      agenda: [
+        { ...scenario.agenda[0]!, minutes: 3 },
+        { ...scenario.agenda[0]!, title: 'Stock for the rush', minutes: 2 },
+      ],
+    };
+    const record: KakiEvent = {
+      type: 'MEETING_RECORD_UPDATED',
+      audience: { kind: 'all' },
+      payload: { agendaIndex: 0, openQuestions: [], elapsedSeconds: 66, speakerTalkSeconds: {} },
+    };
+
+    function renderClock(isHost: boolean): void {
+      mocks.useScenario.mockReturnValue(twoItemScenario);
+      mocks.useKaki.mockReturnValue(withSpeech({
+        events: [record],
+        tasks: new Map(),
+        connected: true,
+        rejection: null,
+        send: vi.fn(),
+      }));
+      render(<MeetingPanel viewer={{ name: 'Joshua', seatName: 'Wei Ling' }} role={scenario.roles[0]} isHost={isHost} />);
+    }
+
+    it('gives a non-host one compact row with the item and time left, no agenda list', () => {
+      vi.useFakeTimers();
+      try {
+        vi.setSystemTime(new Date('2026-11-24T10:00:00Z'));
+        renderClock(false);
+
+        expect(screen.getByText(/Now · 1 of 2/)).toBeTruthy();
+        expect(screen.getByText('Elderly regulars turned away at cashless kiosks')).toBeTruthy();
+        expect(screen.getByText('1:54 left')).toBeTruthy();
+        expect(screen.queryByText('2m')).toBeNull();
+
+        fireEvent.click(screen.getByRole('button', { name: 'Agenda' }));
+        expect(screen.getByText('2m')).toBeTruthy();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('keeps the full clock and agenda for the host', () => {
+      vi.useFakeTimers();
+      try {
+        vi.setSystemTime(new Date('2026-11-24T10:00:00Z'));
+        renderClock(true);
+
+        expect(screen.getByText(/Now · item 1 of 2/)).toBeTruthy();
+        expect(screen.getByText('3m')).toBeTruthy();
+        expect(screen.getByText('2m')).toBeTruthy();
+        expect(screen.queryByRole('button', { name: 'Agenda' })).toBeNull();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
   it('offers starter ideas in a practice meeting and never in a real one', () => {
     const { rerender } = render(
       <MeetingPanel viewer={{ name: 'Joshua', seatName: 'Wei Ling' }} role={scenario.roles[0]} practice />,
@@ -1244,7 +1314,7 @@ describe('MeetingPanel real meeting', () => {
     renderReal(scenario.agenda, true);
     expect(screen.getByRole('button', { name: 'Next agenda item' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'End meeting' })).toBeNull();
-    expect(screen.getByText(/Now · item 1 of 1/)).toBeTruthy();
+    expect(screen.getByText(/Now · 1 of 1/)).toBeTruthy();
   });
 
   it('leaves the practice controls exactly as they were', () => {
