@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 
 /** The three jobs Kaki does in a meeting, each with its own icon and accent. */
-export type SectionIconName = 'clock' | 'ear' | 'action';
+export type SectionIconName = 'clock' | 'sparkle' | 'action';
 
 /** One inline icon shared by the panel headings and the stage pill. */
 export function SectionIcon({ name, className }: { name: SectionIconName; className?: string }) {
@@ -25,11 +25,12 @@ export function SectionIcon({ name, className }: { name: SectionIconName; classN
       </svg>
     );
   }
-  if (name === 'ear') {
+  if (name === 'sparkle') {
+    // Wingman: a sparkle, the familiar sign for a tip from an assistant.
     return (
       <svg {...shared}>
-        <path d="M6 9a6 6 0 1 1 12 0c0 3-2 4.5-3.5 6S12 18 12 20" />
-        <path d="M9 9a3 3 0 0 1 6 0c0 1.5-1 2-2 3" />
+        <path d="M10 3.5l1.9 5.1 5.1 1.9-5.1 1.9L10 17.5l-1.9-5.1L3 10.5l5.1-1.9Z" />
+        <path d="M18 14.5l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8Z" />
       </svg>
     );
   }

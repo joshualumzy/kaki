@@ -525,7 +525,7 @@ export function MeetingPanel({
       </section>
 
       <section id="wingman" className="kd-panel-section" aria-label="Wingman section">
-        <SectionHeading icon="ear" tone="wingman" aside="private to you">Wingman</SectionHeading>
+        <SectionHeading icon="sparkle" tone="wingman" aside="private to you">Wingman</SectionHeading>
         {practice && (
           <details
             className="kd-briefing"

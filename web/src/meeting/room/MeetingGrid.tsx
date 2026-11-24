@@ -232,7 +232,7 @@ export function MeetingGrid({
         key: `question:${directQuestion.id}`,
         label: 'Kaki has a question for you · open in Kaki →',
         target: 'wingman',
-        icon: 'ear' as const,
+        icon: 'sparkle' as const,
         tone: 'wingman' as const,
       };
     }
@@ -336,6 +336,8 @@ export function MeetingGrid({
         )}
         {!offTheRecord && stageToastVisible && activeStageToast !== undefined && (
           <div
+            // A new notice remounts the pill so its one gentle pulse plays again; an unchanged one stays still.
+            key={activeStageToast.key}
             className="kd-stage-toast"
             data-tone={activeStageToast.tone}
             role="status"
