@@ -11,7 +11,7 @@ const rooms = vi.hoisted(() => [] as Array<{ emit(event: string, ...args: unknow
 const published = vi.hoisted(() => [] as Array<{ topic?: string; message: unknown }>);
 const audio = vi.hoisted(() => ({ frames: [] as Int16Array[] }));
 const tokens = vi.hoisted(() => [] as string[]);
-const startup = vi.hoisted(() => ({ hold: false, release: undefined as undefined | (() => void) }));
+const startup = vi.hoisted(() => ({ hold: false, failConnects: 0, release: undefined as undefined | (() => void) }));
 const prejoined = vi.hoisted(
   () =>
     [] as Array<{
@@ -28,6 +28,11 @@ vi.mock('../../src/services/livekit', () => ({
     return 'offline-token';
   },
 }));
+vi.mock('../../src/npc/serviceChannel', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/npc/serviceChannel')>();
+  // Keep reconnect tests fast: the real backoff is not what those tests exercise.
+  return { ...actual, reconnectDelayMs: () => 0 };
+});
 vi.mock('@livekit/rtc-node', () => {
   class Room {
     connected = false;
@@ -52,6 +57,10 @@ vi.mock('@livekit/rtc-node', () => {
       for (const handler of this.handlers.get(event) ?? []) handler(...args);
     }
     async connect() {
+      if (startup.failConnects > 0) {
+        startup.failConnects -= 1;
+        throw new Error('LiveKit is unavailable');
+      }
       this.connected = true;
       if (prejoined.length > 0) {
         for (const participant of prejoined) this.remoteParticipants.set(participant.identity, participant);
@@ -1696,10 +1705,10 @@ describe('per-person speech status', () => {
   const frames = (count: number, value: number): Int16Array[] =>
     Array.from({ length: count }, () => new Int16Array(640).fill(value));
 
-  function statusMessages(): Array<{ participants: Record<string, { state: string; message?: string }>; outage?: { message: string } }> {
+  function statusMessages(): Array<{ participants: Record<string, { state: string; code?: string }>; outage?: { code?: string; reason?: string } }> {
     return published
       .filter((entry) => entry.topic === 'kaki.speech-status')
-      .map((entry) => entry.message as { participants: Record<string, { state: string; message?: string }>; outage?: { message: string } });
+      .map((entry) => entry.message as { participants: Record<string, { state: string; code?: string }>; outage?: { code?: string; reason?: string } });
   }
 
   it('shows transcribing only for the person whose finished speech is still being recognised', async () => {
@@ -1783,16 +1792,82 @@ describe('per-person speech status', () => {
         expect(latest?.participants['visitor-1']?.state).toBe('failed');
       });
       expect(statusMessages().at(-1)?.outage).toBeUndefined();
-      expect(statusMessages().at(-1)?.participants['visitor-1']?.message).toMatch(/Please say it again/);
+      expect(statusMessages().at(-1)?.participants['visitor-1']?.code).toBe('speech-failed');
 
       audio.frames.push(...frames(10, 20_000), ...frames(10, 0));
       rooms[0]!.emit('trackSubscribed', { kind: 1 }, undefined, visitor);
       await vi.waitFor(() => {
         const latest = statusMessages().at(-1);
         expect(latest?.participants['visitor-1']?.state).toBe('failed');
-        expect(latest?.outage?.message).toMatch(/Speech recognition is not working.*Azure quota exceeded/i);
+        expect(latest?.outage?.code).toBe('speech-outage');
+        expect(latest?.outage?.reason).toMatch(/Azure quota exceeded/i);
       });
     } finally {
+      await runner.stop();
+    }
+  });
+
+  it('tells the room it is reconnecting when the listener drops, then clears the notice', async () => {
+    rooms.length = 0;
+    published.length = 0;
+    startup.failConnects = 0;
+    const scenario = await loadScenario('kopitiam');
+    const runner = await startNpcRunner({
+      scenario,
+      initialMeeting: runnerSnapshot(scenario, { meetingId: 'meeting-1', version: 0 }),
+      livekitUrl: 'ws://offline.invalid',
+      stream: async function* () {},
+      synthesize: async () => new Int16Array(),
+      postTranscript: () => undefined,
+      postTranscriptUpdate: () => undefined,
+      postHumanLine: () => undefined,
+      responseDelayMs: 0,
+    });
+    try {
+      // One failed rejoin is enough to prove the notice appears before recovery.
+      startup.failConnects = 1;
+      rooms[0]!.emit('disconnected');
+
+      await vi.waitFor(() => {
+        expect(statusMessages().some((message) => message.outage?.code === 'room-reconnecting')).toBe(true);
+      });
+      await vi.waitFor(() => {
+        expect(statusMessages().at(-1)?.outage).toBeUndefined();
+      });
+    } finally {
+      startup.failConnects = 0;
+      await runner.stop();
+    }
+  });
+
+  it('reports room-lost with the last technical reason when the listener cannot rejoin', async () => {
+    rooms.length = 0;
+    published.length = 0;
+    startup.failConnects = 0;
+    const scenario = await loadScenario('kopitiam');
+    const runner = await startNpcRunner({
+      scenario,
+      initialMeeting: runnerSnapshot(scenario, { meetingId: 'meeting-1', version: 0 }),
+      livekitUrl: 'ws://offline.invalid',
+      stream: async function* () {},
+      synthesize: async () => new Int16Array(),
+      postTranscript: () => undefined,
+      postTranscriptUpdate: () => undefined,
+      postHumanLine: () => undefined,
+      responseDelayMs: 0,
+    });
+    try {
+      // Every quick rejoin attempt fails, so the room hears the permanent-loss wording.
+      startup.failConnects = 5;
+      rooms[0]!.emit('disconnected');
+
+      await vi.waitFor(() => {
+        const latest = statusMessages().at(-1);
+        expect(latest?.outage?.code).toBe('room-lost');
+        expect(latest?.outage?.reason).toMatch(/LiveKit is unavailable/i);
+      });
+    } finally {
+      startup.failConnects = 0;
       await runner.stop();
     }
   });

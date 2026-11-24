@@ -48,11 +48,48 @@ export type NpcStateMessage =
 /** One person's microphone state as the server-side recogniser sees it. */
 export type SpeechState = 'listening' | 'transcribing' | 'failed';
 
+/**
+ * A speech or room failure the runner may put on the wire. This list is exactly what the server
+ * sends; a device failure the browser detects itself never travels this way.
+ */
+export type WireFailureCode = 'speech-failed' | 'speech-outage' | 'room-reconnecting' | 'room-lost';
+
+/**
+ * A device failure the browser words for itself before or around joining, plus one local
+ * placeholder for a wire code this browser does not recognise yet.
+ */
+export type DeviceFailureCode =
+  | 'mic-blocked'
+  | 'mic-missing'
+  | 'camera-blocked'
+  | 'camera-missing'
+  | 'media-blocked'
+  | 'mic-unsupported'
+  | 'camera-unsupported'
+  | 'mic-failed'
+  | 'camera-failed';
+
+/** A code the browser turns into one sentence; `speech-unknown` is local only. */
+export type FailureCode = WireFailureCode | DeviceFailureCode | 'speech-unknown';
+
+/** Every code a speech-status message may carry, in one place for the wire parser. */
+export const FAILURE_CODES: readonly WireFailureCode[] = [
+  'speech-failed',
+  'speech-outage',
+  'room-reconnecting',
+  'room-lost',
+];
+
+/** True when a value is a failure code the server may send on the wire. */
+export function isFailureCode(value: unknown): value is WireFailureCode {
+  return typeof value === 'string' && (FAILURE_CODES as readonly string[]).includes(value);
+}
+
 /** What the runner knows about one person's speech right now. */
 export interface SpeechStatusEntry {
   state: SpeechState;
-  /** For `failed`, what the person should do next; shown only on their own screen. */
-  message?: string;
+  /** For `failed`, the code the browser turns into what the person should do next. */
+  code?: FailureCode;
 }
 
 /** What the runner reports on {@link SPEECH_STATUS_TOPIC}. */
@@ -60,7 +97,11 @@ export interface SpeechStatusMessage {
   /** Keyed by LiveKit participant identity, so each tile only shows its own person's state. */
   participants: Record<string, SpeechStatusEntry>;
   /** Present when recognition keeps failing: the whole room should hear instead. */
-  outage?: { message: string };
+  outage?: {
+    code: FailureCode;
+    /** The raw technical reason, for logs only; never shown as written. */
+    reason?: string;
+  };
 }
 
 /** True when `raw` is a complete speech-status message; malformed data is ignored. */
@@ -73,16 +114,31 @@ export function parseSpeechStatusMessage(raw: unknown): SpeechStatusMessage | un
     if (identity.trim() === '' || typeof value !== 'object' || value === null) return undefined;
     const state = (value as { state?: unknown }).state;
     if (state !== 'listening' && state !== 'transcribing' && state !== 'failed') return undefined;
-    const message = (value as { message?: unknown }).message;
-    if (message !== undefined && typeof message !== 'string') return undefined;
-    parsed[identity] = { state, ...(message === undefined ? {} : { message }) };
+    const code = speechFailureCode((value as { code?: unknown }).code);
+    parsed[identity] = { state, ...(code === undefined ? {} : { code }) };
   }
   const outage = (raw as { outage?: unknown }).outage;
   if (outage === undefined) return { participants: parsed };
-  if (typeof outage !== 'object' || outage === null || typeof (outage as { message?: unknown }).message !== 'string') {
-    return undefined;
-  }
-  return { participants: parsed, outage: { message: (outage as { message: string }).message } };
+  if (typeof outage !== 'object' || outage === null) return undefined;
+  const outageCode = speechFailureCode((outage as { code?: unknown }).code);
+  if (outageCode === undefined) return undefined;
+  const reason = (outage as { reason?: unknown }).reason;
+  if (reason !== undefined && typeof reason !== 'string') return undefined;
+  return {
+    participants: parsed,
+    outage: { code: outageCode, ...(reason === undefined ? {} : { reason }) },
+  };
+}
+
+/**
+ * A wire code this browser knows, or a local placeholder so an unrecognised one is still shown
+ * (never silently swallowing the people in the same status message).
+ */
+function speechFailureCode(value: unknown): FailureCode | undefined {
+  if (value === undefined) return undefined;
+  if (isFailureCode(value)) return value;
+  console.warn(`kaki: unknown speech failure code "${String(value)}"; showing a generic message`);
+  return 'speech-unknown';
 }
 
 /**

@@ -39,6 +39,7 @@ vi.mock('../../kaki', () => ({
     latestRecord: undefined,
     speechByTopic: new Map(),
     tasks: new Map(),
+    wingmanNotes: [] as [],
     rejection: null,
     send: vi.fn(),
     connected: true,
@@ -52,7 +53,10 @@ beforeEach(() => {
   mocks.dataHandlers.clear();
 });
 
-function speechStatus(participants: Record<string, { state: string; message?: string }>, outage?: { message: string }): void {
+function speechStatus(
+  participants: Record<string, { state: string; code?: string }>,
+  outage?: { code: string; reason?: string },
+): void {
   const handler = mocks.dataHandlers.get('kaki.speech-status');
   if (handler === undefined) throw new Error('speech status was not subscribed');
   act(() => {
@@ -90,9 +94,9 @@ describe('meeting tiles', () => {
     mocks.localIdentity = 'Owner';
     render(<MeetingGrid role="role_1" />);
 
-    speechStatus({ Owner: { state: 'failed', message: 'Kaki could not hear that. Please say it again.' } });
+    speechStatus({ Owner: { state: 'failed', code: 'speech-failed' } });
     expect(screen.getByRole('alert').textContent).toContain('Kaki could not hear that');
-    expect(screen.getByText(/please say it again/)).toBeTruthy();
+    expect(screen.getAllByText(/say it again/).length).toBeGreaterThan(0);
     expect(screen.queryByText(/type it/)).toBeNull();
     expect(screen.queryByRole('button', { name: /type/i })).toBeNull();
   });
@@ -102,7 +106,7 @@ describe('meeting tiles', () => {
     mocks.localIdentity = 'Owner';
     render(<MeetingGrid role="role_1" />);
 
-    speechStatus({ Ana: { state: 'failed' } }, { message: 'Speech recognition is not working.' });
+    speechStatus({ Ana: { state: 'failed', code: 'speech-failed' } }, { code: 'speech-outage' });
     expect(screen.getByRole('alert').textContent).toContain('Speech recognition is not working');
   });
 

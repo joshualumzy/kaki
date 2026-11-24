@@ -216,7 +216,9 @@ describe('wingman module', () => {
         urgency: 'quiet',
         text: 'You missed the prep decision.',
         questionText: 'What did I miss?',
+        questionFrom: 'you',
       });
+      expect(Number.isFinite(Date.parse(note?.payload.at ?? ''))).toBe(true);
       expect(note?.audience).toEqual({ kind: 'role', role: 'chef' });
       expect(note?.payload.sources?.[0]).toContain('Ada');
       expect(note?.payload.sources?.[0]).toContain('2026-11-22T10:00:00.000Z');
@@ -471,11 +473,15 @@ describe('wingman module', () => {
       expect(note.payload).toMatchObject({
         kind: 'asked_you',
         urgency: 'act_now',
-        text: 'Bao asked you: When is the delivery?',
+        title: 'Bao asked you',
+        text: 'When is the delivery?',
         questionText: 'When is the delivery?',
       });
       expect(note.payload.facts).toEqual([factA]);
       expect(note.payload.sources).toEqual(['Wiki: Delivery (2026-11-01)']);
+      expect(note.payload.questionFrom).toBe('person');
+      expect(note.payload.askedBy).toBe('Bao');
+      expect(Number.isFinite(Date.parse(note.payload.at ?? ''))).toBe(true);
       expect(note.audience).toEqual({ kind: 'role', role: 'chef' });
     } finally {
       stop();
@@ -558,6 +564,8 @@ describe('wingman module', () => {
         (event) => event.payload.id === note.payload.id && event.payload.clears === true,
       );
       expect(cleared?.audience).toEqual({ kind: 'role', role: 'chef' });
+      // A clear keeps the note's original publication time.
+      expect(cleared?.payload.at).toBe(note.payload.at);
     } finally {
       stop();
     }

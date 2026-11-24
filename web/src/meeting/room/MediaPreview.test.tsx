@@ -1,6 +1,7 @@
 /** @vitest-environment jsdom */
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { failureText } from '../../net/failureText';
 import { MediaPreview } from './MediaPreview';
 
 afterEach(() => {
@@ -44,9 +45,7 @@ describe('MediaPreview', () => {
     );
 
     await waitFor(() =>
-      expect(onProblem).toHaveBeenCalledWith(
-        "Your microphone is blocked. Allow it in your browser's site settings to speak in the meeting.",
-      ),
+      expect(onProblem).toHaveBeenCalledWith(failureText('mic-blocked', { real: false })),
     );
   });
 
@@ -69,9 +68,7 @@ describe('MediaPreview', () => {
     );
 
     await waitFor(() =>
-      expect(onProblem).toHaveBeenCalledWith(
-        "Your camera is blocked. Allow it in your browser's site settings to use it.",
-      ),
+      expect(onProblem).toHaveBeenCalledWith(failureText('camera-blocked', { real: false })),
     );
   });
 });

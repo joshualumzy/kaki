@@ -25,6 +25,11 @@ export interface KakiRejection {
   reason: string;
 }
 
+/** One private Wingman hint this browser has seen, kept even after its note is cleared. */
+export interface WingmanHistoryEntry {
+  note: WingmanNotePayload;
+}
+
 /** The server's latest record for the meeting, including the agenda item it is on and its pause. */
 type MeetingRecordEvent = Extract<KakiEvent, { type: 'MEETING_RECORD_UPDATED' }>;
 
@@ -41,6 +46,8 @@ export interface UseKakiResult {
   tasks: Map<string, Task>;
   /** The person's own private Wingman notes, newest last; a cleared note is removed. */
   wingmanNotes: WingmanNotePayload[];
+  /** Every private hint this seat saw this meeting, oldest first; a cleared note stays here. */
+  wingmanHistory: WingmanHistoryEntry[];
   rejections: KakiRejection[];
   rejection: KakiRejection | null;
   connected: boolean;
@@ -76,11 +83,13 @@ export function useKaki(audience: KakiAudience): UseKakiResult {
   const ended = feed?.ended ?? own.ended;
   const audienceKind = audience.kind;
   const audienceRole = audience.kind === 'role' ? audience.role : undefined;
+  const sharedSeat = shared?.seat;
   const [events, setEvents] = useState<KakiEvent[]>([]);
   const [latestRecord, setLatestRecord] = useState<MeetingRecordEvent | undefined>(undefined);
   const [speechByTopic, setSpeechByTopic] = useState<ReadonlyMap<number, TopicSpeech>>(() => new Map());
   const [tasks, setTasks] = useState<Map<string, Task>>(() => new Map());
   const [wingmanNotes, setWingmanNotes] = useState<WingmanNotePayload[]>([]);
+  const [wingmanHistory, setWingmanHistory] = useState<WingmanHistoryEntry[]>([]);
   const [rejections, setRejections] = useState<KakiRejection[]>([]);
   const [restoredAt, setRestoredAt] = useState<string | undefined>(undefined);
   const [started, setStarted] = useState<boolean | undefined>(undefined);
@@ -101,6 +110,7 @@ export function useKaki(audience: KakiAudience): UseKakiResult {
     setSpeechByTopic(new Map());
     setTasks(new Map());
     setWingmanNotes([]);
+    setWingmanHistory([]);
     setRejections([]);
     setRestoredAt(undefined);
     setMeetingIdentity(undefined);
@@ -121,11 +131,26 @@ export function useKaki(audience: KakiAudience): UseKakiResult {
         }
 
         if (parsed.type === 'WINGMAN_NOTE') {
+          // A lifecycle feed has no seat. A screen may show only the seat this page holds: a bare
+          // shared screen never sees anyone's private hint.
+          const feedSeat = audienceRole ?? sharedSeat;
+          if (audienceKind === 'lifecycle') return;
+          if (audienceKind === 'screen' && feedSeat === undefined) return;
+          // A feed with no seat (an unbound participant) may never accept any seat's private note.
+          if (
+            parsed.audience.kind === 'role' &&
+            (feedSeat === undefined || parsed.audience.role !== feedSeat)
+          ) {
+            return;
+          }
           const note = parsed.payload;
           setWingmanNotes((previous) => {
             const without = previous.filter((candidate) => candidate.id !== note.id);
             return note.clears === true ? without : [...without, note];
           });
+          // History keeps cleared notes: the server re-sends the full payload with `clears: true`.
+          // A re-sent or updated note moves to newest, so the list always reads in publication order.
+          setWingmanHistory((previous) => [...previous.filter((entry) => entry.note.id !== note.id), { note }]);
           return;
         }
 
@@ -169,6 +194,7 @@ export function useKaki(audience: KakiAudience): UseKakiResult {
           });
           setTasks(new Map());
           setWingmanNotes([]);
+          setWingmanHistory([]);
           setRestoredAt(undefined);
           return;
         }
@@ -228,6 +254,7 @@ export function useKaki(audience: KakiAudience): UseKakiResult {
       latestRecordRef.current = undefined;
       setTasks(new Map());
       setWingmanNotes([]);
+      setWingmanHistory([]);
       setRestoredAt(undefined);
       setMeetingIdentity(undefined);
       setMeetingState(undefined);
@@ -270,7 +297,7 @@ export function useKaki(audience: KakiAudience): UseKakiResult {
       unsubscribe();
       unsubscribeOpen();
     };
-  }, [link, audienceKind, audienceRole, scopeMeetingId]);
+  }, [link, audienceKind, audienceRole, sharedSeat, scopeMeetingId]);
 
   const send = useCallback((command: KakiCommand): boolean => {
     if (link.send(command)) return true;
@@ -291,6 +318,7 @@ export function useKaki(audience: KakiAudience): UseKakiResult {
     speechByTopic,
     tasks,
     wingmanNotes,
+    wingmanHistory,
     rejections,
     rejection: rejections[rejections.length - 1] ?? null,
     connected,

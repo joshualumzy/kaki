@@ -15,10 +15,14 @@ import { MeetingRecordCard, isRecord, type RecordEvent } from './MeetingRecordCa
 import { CurrentTopicCard } from './CurrentTopicCard';
 import { HostBrief } from './HostBrief';
 import { HostCueCard } from './HostCueCard';
+import { RoleCard } from './RoleCard';
+import { SectionHeading } from './SectionHeading';
+import { SituationCard } from './SituationCard';
 import { TaskControls } from './TaskControls';
 import { WingmanPanel } from './WingmanPanel';
 import type { TranscriptViewer } from './captions';
 import { distinctDisplayNames } from './people';
+import { starterChipsFromAgendaItem, taskDockSection } from './stageModel';
 import { entryForEvent, entryForTask, type TimelineEntry } from './timeline';
 
 function downloadMinutes(title: string, body: string): void {
@@ -85,6 +89,7 @@ export function MeetingPanel({
     speechByTopic,
     meetingState,
     wingmanNotes,
+    wingmanHistory,
     askWingman,
   } = useKaki(sharedAudience === 'participant' ? { kind: 'participant' } : { kind: 'screen' });
   // Only the person the server authorises to drive the shared screen may advance or end the meeting.
@@ -96,6 +101,8 @@ export function MeetingPanel({
   const [entries, setEntries] = useState<TimelineEntry[]>([]);
   const [record, setRecord] = useState<RecordEvent | undefined>();
   const [transcriptOpen, setTranscriptOpen] = useState(false);
+  const [briefingOpen, setBriefingOpen] = useState(!started);
+  const [showIdeas, setShowIdeas] = useState(false);
   const [minutesCopyNote, setMinutesCopyNote] = useState<string | null>(null);
   const seenKeys = useRef(new Set<string>());
   const seenEvents = useRef(new WeakSet<KakiEvent>());
@@ -177,6 +184,36 @@ export function MeetingPanel({
   );
 
   useEffect(() => {
+    if (started) setBriefingOpen(false);
+  }, [started]);
+
+  const activeAgendaIndex = record?.payload.agendaIndex ?? 0;
+  useEffect(() => {
+    if (practice) setShowIdeas(false);
+  }, [activeAgendaIndex, practice]);
+
+  const viewerSeatName = scenario.attendees.find((attendee) => attendee.role === role?.id)?.name;
+  const starterChips = useMemo(() => {
+    if (!practice) return [];
+    const openQuestions =
+      record?.payload.openQuestions.filter((question) => question.agendaIndex === activeAgendaIndex) ?? [];
+    return starterChipsFromAgendaItem(
+      scenario.agenda[activeAgendaIndex],
+      viewerSeatName,
+      openQuestions,
+      facilitatorName,
+    );
+  }, [practice, record, scenario.agenda, activeAgendaIndex, viewerSeatName, facilitatorName]);
+  const hasVisitorSpokenOnTopic = useMemo(() => {
+    if (!practice || role === undefined) return false;
+    const speech = speechByTopic.get(activeAgendaIndex);
+    if (speech === undefined) return false;
+    if (speech.roles.has(role.id)) return true;
+    const npcNames = new Set((scenario.npcs ?? []).map((npc) => npc.attendee.toLowerCase()));
+    return [...speech.names].some((name) => !npcNames.has(name));
+  }, [practice, role, speechByTopic, activeAgendaIndex, scenario.npcs]);
+
+  useEffect(() => {
     const added: TimelineEntry[] = [];
     for (const task of tasks.values()) {
       const entry = entryForTask(task, taskStatus.current.get(task.id));
@@ -207,6 +244,8 @@ export function MeetingPanel({
   useEffect(() => {
     // Do not yank the dock scroll away from the visitor's active task card at the top when new transcript lines arrive.
     if (hasActiveVisitorTask) return;
+    // A closed transcript has nothing to follow: new lines must not pull the panel away from the clock and Wingman.
+    if (!transcriptOpen) return;
     const scrollContainer = end.current?.closest('.kd-dock-body');
     if (scrollContainer instanceof HTMLElement) {
       const distanceFromBottom =
@@ -218,7 +257,7 @@ export function MeetingPanel({
       return;
     }
     end.current?.scrollIntoView?.({ block: 'end' });
-  }, [entries.length, hasActiveVisitorTask]);
+  }, [entries.length, hasActiveVisitorTask, transcriptOpen]);
 
   const peopleBySeat = useMemo(() => {
     const map = new Map<string, { displayName: string; photoUrl: string | null }>();
@@ -241,41 +280,25 @@ export function MeetingPanel({
   const minutesPublished =
     minutesTask?.artifactUrl !== undefined &&
     (minutesTask.status === 'COMPLETED' || minutesTask.status === 'SYNCED');
+  const meetingWrappedUp = useMemo(
+    () => events.some((event) => event.type === 'HOST_SPEECH_TRIGGERED' && event.payload.kind === 'CLOSING'),
+    [events],
+  );
   const meetingEnded = useMemo(
     () =>
       minutesTask !== undefined ||
       record?.payload.ended === true ||
-      events.some((event) => event.type === 'HOST_SPEECH_TRIGGERED' && event.payload.kind === 'CLOSING'),
-    [events, minutesTask, record],
+      meetingWrappedUp,
+    [meetingWrappedUp, minutesTask, record],
   );
   const currentAgendaTitle = record !== undefined ? scenario.agenda[record.payload.agendaIndex]?.title : undefined;
   const boardTasks = useMemo(
     () =>
-      visibleTasks.filter((task) => {
-        if (role === undefined || task.assignee !== role.id) return true;
-        if (
-          task.status === 'DISPATCHED' ||
-          task.status === 'CLAIMED' ||
-          task.status === 'DRAFT_READY' ||
-          task.status === 'RUNNING' ||
-          task.status === 'COMPLETED' ||
-          task.status === 'FAILED'
-        ) {
-          return false;
-        }
-        if (
-          task.status === 'SYNCED' &&
-          task.artifactUrl !== undefined &&
-          !meetingEnded &&
-          (currentAgendaTitle === undefined ||
-            task.agendaItemTitle === undefined ||
-            task.agendaItemTitle === currentAgendaTitle)
-        ) {
-          return false;
-        }
-        return true;
-      }),
-    [visibleTasks, role, meetingEnded, currentAgendaTitle],
+      visibleTasks.filter(
+        (task) =>
+          taskDockSection(task, role?.id, { meetingEnded: meetingWrappedUp, currentAgendaTitle }) === 'action-board',
+      ),
+    [visibleTasks, role, meetingWrappedUp, currentAgendaTitle],
   );
   const publishedDeliverables = useMemo(
     () =>
@@ -306,20 +329,38 @@ export function MeetingPanel({
           {meetingState?.ownerName ? <small>Hosted by {meetingState.ownerName}</small> : null}
         </div>
       )}
-      {isHost && <HostBrief scenario={scenario} practice={practice} />}
       {rejection !== null && rejection.commandType !== 'ASK_WINGMAN' && (
         <p className="connection-banner" role="alert">
           {real ? plainRejection(rejection.reason) : `${rejection.commandType}: ${rejection.reason}`}
         </p>
       )}
-      {role !== undefined && (
-        <WingmanPanel
-          notes={wingmanNotes}
-          onAsk={askWingman}
-          onDismiss={(id) => send({ type: 'DISMISS_WINGMAN_NOTE', id })}
-          askRejection={askRejection}
-          {...(onWingmanBadgeChange === undefined ? {} : { onQuietCountChange: onWingmanBadgeChange })}
-        />
+      <section className="kd-panel-section" aria-label="Host">
+        <SectionHeading icon="clock" tone="host">Host</SectionHeading>
+        {isHost && <HostBrief scenario={scenario} practice={practice} />}
+      {record === undefined ? (
+        <>
+          {isHost && <HostCueCard scenario={scenario} agendaIndex={0} started={false} canAdvance={canControlMeeting} />}
+          {emptyStateText !== '' && <p className="empty-state">{emptyStateText}</p>}
+        </>
+      ) : (
+        <>
+          <MeetingRecordCard
+            record={record}
+            scenario={scenario}
+            ended={meetingEnded}
+            isHost={isHost}
+            showOpenQuestions={meetingEnded}
+            hideWhenEmptyAgenda={real}
+          />
+          {!meetingEnded && isHost && (
+            <HostCueCard scenario={scenario} agendaIndex={record.payload.agendaIndex} started canAdvance={canControlMeeting} />
+          )}
+          {!meetingEnded && hasAiColleagues && !topicBriefingStarted && (
+            <p className="empty-state" style={{ margin: '6px 0', fontSize: 12.5 }}>
+              🎧 Colleagues are sharing their opening stances — the discussion will appear in a moment.
+            </p>
+          )}
+        </>
       )}
       {canControlMeeting && (
         <div className="kd-host-controls">
@@ -348,10 +389,10 @@ export function MeetingPanel({
         <section id="minutes" className="kd-role kd-topic-card" aria-label="End-of-meeting minutes">
           <p className="kd-role-eyebrow">
             {minutesPublished
-              ? '🎉 Kaki Host · Meeting Minutes & Live Artifacts Ready'
+              ? 'Meeting minutes ready'
               : minutesTask === undefined
-                ? '🎉 Kaki Host · Meeting Concluded'
-                : '📝 Kaki Host · Meeting Minutes Draft'}
+                ? 'Meeting concluded'
+                : 'Minutes draft'}
           </p>
           {practice && !signedIn ? (
             <div className="kd-practice-minutes">
@@ -465,44 +506,81 @@ export function MeetingPanel({
           )}
         </section>
       )}
-      {record === undefined ? (
-        <>
-          {isHost && <HostCueCard scenario={scenario} agendaIndex={0} started={false} canAdvance={canControlMeeting} />}
-          {emptyStateText !== '' && <p className="empty-state">{emptyStateText}</p>}
-        </>
-      ) : (
-        <>
-          <MeetingRecordCard
-            record={record}
-            scenario={scenario}
-            ended={meetingEnded}
-            showOpenQuestions={meetingEnded}
-            hideWhenEmptyAgenda={real}
+      </section>
+
+      <section id="wingman" className="kd-panel-section" aria-label="Wingman section">
+        <SectionHeading icon="sparkle" tone="wingman" aside="private to you">Wingman</SectionHeading>
+        {practice && (
+          <details
+            className="kd-briefing"
+            open={briefingOpen}
+            onToggle={(event) => setBriefingOpen(event.currentTarget.open)}
+          >
+            <summary className="kd-briefing-summary">
+              <span>Briefing · {role === undefined ? scenario.meetingTitle : `Your role (${role.label}) & the situation`}</span>
+              <span className="kd-briefing-toggle">{briefingOpen ? 'Hide' : 'Show'}</span>
+            </summary>
+            <RoleCard role={role} viewerName={viewer.name} seatName={viewer.seatName} />
+            <SituationCard scenario={scenario} viewerName={viewer.name} viewerRoleId={role?.id} />
+          </details>
+        )}
+        {role !== undefined && (
+          <WingmanPanel
+            notes={wingmanNotes}
+            history={wingmanHistory}
+            onAsk={askWingman}
+            onDismiss={(id) => send({ type: 'DISMISS_WINGMAN_NOTE', id })}
+            askRejection={askRejection}
+            {...(onWingmanBadgeChange === undefined ? {} : { onQuietCountChange: onWingmanBadgeChange })}
+            {...(practice
+              ? {
+                  belowAsk: (
+                    <div className="kd-wingman-ideas">
+                      <button
+                        type="button"
+                        className="kd-chip"
+                        aria-expanded={showIdeas}
+                        onClick={() => setShowIdeas((previous) => !previous)}
+                      >
+                        {showIdeas ? 'Hide ideas' : '💡 Need an idea?'}
+                      </button>
+                      {showIdeas && (
+                        // Ideas to say out loud: speaking is the only way in, so nothing here sends a line.
+                        <ul className="kd-starter-chips">
+                          {starterChips.map((chip) => (
+                            <li key={chip} className="kd-starter-chip">
+                              💬 {chip}
+                            </li>
+                          ))}
+                          {hasVisitorSpokenOnTopic && (
+                            <li className="kd-starter-chip">
+                              ⏭️ We&apos;re split on this — let&apos;s table it for now and set up a follow-up to settle it later.
+                            </li>
+                          )}
+                        </ul>
+                      )}
+                    </div>
+                  ),
+                }
+              : {})}
           />
-          {!meetingEnded && isHost && (
-            <HostCueCard scenario={scenario} agendaIndex={record.payload.agendaIndex} started canAdvance={canControlMeeting} />
-          )}
-          {!meetingEnded && hasAiColleagues && !topicBriefingStarted && (
-            <p className="empty-state" style={{ margin: '6px 0', fontSize: 12.5 }}>
-              🎧 Colleagues are sharing their opening stances — the discussion will appear in a moment.
-            </p>
-          )}
-          {!meetingEnded && topicBriefingStarted && (
-            <CurrentTopicCard
-              item={scenario.agenda[record.payload.agendaIndex]}
-              scenario={scenario}
-              role={role}
-              viewer={viewer}
-              events={events}
-              agendaIndex={record.payload.agendaIndex}
-            />
-          )}
-        </>
-      )}
+        )}
+        {record !== undefined && !meetingEnded && topicBriefingStarted && (
+          <CurrentTopicCard
+            item={scenario.agenda[record.payload.agendaIndex]}
+            scenario={scenario}
+            role={role}
+            viewer={viewer}
+            events={events}
+            agendaIndex={record.payload.agendaIndex}
+          />
+        )}
+      </section>
 
       {boardTasks.length > 0 && (
-        <div className="kd-tasks">
-          <h3 className="eyebrow">Team Action Board ({boardTasks.length})</h3>
+        <section className="kd-panel-section kd-action-board" id="action-board" aria-label="Action board">
+          <SectionHeading icon="action" tone="action" aside={boardTasks.length}>Action board</SectionHeading>
+          <div className="kd-tasks">
           <ul>
             {boardTasks.map((task) => (
               <li
@@ -563,7 +641,8 @@ export function MeetingPanel({
               </li>
             ))}
           </ul>
-        </div>
+          </div>
+        </section>
       )}
 
       <details

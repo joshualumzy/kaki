@@ -51,6 +51,15 @@ export interface WingmanNotePayload {
   sources?: string[];
   /** The question this note answers or relays, when there is one. */
   questionText?: string;
+  /** Who asked the question this note is about, so the reader is never guessed from a title. */
+  questionFrom?: 'you' | 'person' | 'room';
+  /** The person who asked, when `questionFrom` is `person`. */
+  askedBy?: string;
+  /**
+   * When the server first published this note (ISO). A clear re-sends the same time; a fresh
+   * publication of the same id gets a new one.
+   */
+  at?: string;
   /** True when this note retracts the earlier note with the same id. */
   clears?: boolean;
 }
@@ -341,6 +350,13 @@ const PAYLOAD_CHECKS: Record<KakiEventType, PayloadCheck> = {
     (payload.sources === undefined ||
       (Array.isArray(payload.sources) && payload.sources.every((source) => isString(source)))) &&
     (payload.questionText === undefined || isString(payload.questionText)) &&
+    (payload.questionFrom === undefined ||
+      payload.questionFrom === 'you' ||
+      payload.questionFrom === 'person' ||
+      payload.questionFrom === 'room') &&
+    (payload.askedBy === undefined || isString(payload.askedBy)) &&
+    (payload.at === undefined ||
+      (isString(payload.at) && Number.isFinite(Date.parse(payload.at)))) &&
     (payload.clears === undefined || typeof payload.clears === 'boolean'),
   TASK_UPDATED: (payload, scenario) => isTask(payload.task, scenario),
   MEETING_STARTED: (payload) =>

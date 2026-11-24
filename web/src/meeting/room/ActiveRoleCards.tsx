@@ -199,7 +199,7 @@ export function ActiveRoleCards({
         <RejectionBanner message={`${rejection.commandType}: ${rejection.reason}`} />
       )}
       {currentTasks.length > 0 && (
-        <section className="phone-current" aria-label="Needs you now">
+        <section id="needs-you-now" className="phone-current" aria-label="Needs you now">
           <p className="eyebrow phone-section-eyebrow">
             Needs you now{currentTasks.length > 1 ? ` (${currentTasks.length})` : ''}
           </p>
@@ -390,7 +390,7 @@ function TaskCardBody({
           </span>
           <span className="phone-task-step-sep" aria-hidden="true">→</span>
           <span className="phone-task-step" data-active={stepIndex === 2} data-done={stepIndex > 2}>
-            2. Review Draft
+            2. Review draft
           </span>
           <span className="phone-task-step-sep" aria-hidden="true">→</span>
           <span className="phone-task-step" data-active={stepIndex === 3} data-done={false}>

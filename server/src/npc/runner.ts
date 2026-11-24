@@ -27,6 +27,7 @@ import {
   type NpcStateMessage,
   type RunnerMeetingSnapshot,
   type RunnerSnapshotVersion,
+  type WireFailureCode,
   type Scenario,
   type SpeechState,
   type SpeechStatusEntry,
@@ -359,20 +360,20 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
   // person's transcribing badge, and a failure must be shown on the speaker's own tile.
   const speechStates = new Map<string, SpeechStatusEntry>();
   let consecutiveSpeechFailures = 0;
-  let speechOutage: string | undefined;
+  let speechOutage: { code: WireFailureCode; reason?: string } | undefined;
 
   function publishSpeechStatus(): void {
     const message: SpeechStatusMessage = {
       participants: Object.fromEntries([...speechStates].map(([identity, entry]) => [identity, { ...entry }])),
-      ...(speechOutage === undefined ? {} : { outage: { message: speechOutage } }),
+      ...(speechOutage === undefined ? {} : { outage: { ...speechOutage } }),
     };
     publishData(SPEECH_STATUS_TOPIC, message);
   }
 
-  function setSpeechState(identity: string, state: SpeechState, message?: string): void {
+  function setSpeechState(identity: string, state: SpeechState, code?: WireFailureCode): void {
     const previous = speechStates.get(identity);
-    if (previous !== undefined && previous.state === state && previous.message === message) return;
-    speechStates.set(identity, { state, ...(message === undefined ? {} : { message }) });
+    if (previous !== undefined && previous.state === state && previous.code === code) return;
+    speechStates.set(identity, { state, ...(code === undefined ? {} : { code }) });
     publishSpeechStatus();
   }
 
@@ -381,7 +382,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     const hadOutage = speechOutage !== undefined;
     speechOutage = undefined;
     const previous = speechStates.get(identity);
-    if (!hadOutage && previous?.state === 'listening' && previous.message === undefined) return;
+    if (!hadOutage && previous?.state === 'listening' && previous.code === undefined) return;
     speechStates.set(identity, { state: 'listening' });
     publishSpeechStatus();
   }
@@ -390,12 +391,9 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     const reason = error instanceof Error ? error.message : String(error);
     consecutiveSpeechFailures += 1;
     if (consecutiveSpeechFailures >= 2) {
-      speechOutage = `Speech recognition is not working (${reason}).`;
+      speechOutage = { code: 'speech-outage', reason };
     }
-    speechStates.set(identity, {
-      state: 'failed',
-      message: 'Kaki could not hear that. Please say it again.',
-    });
+    speechStates.set(identity, { state: 'failed', code: 'speech-failed' });
     publishSpeechStatus();
     // A failed stretch still settles its place in speech order, so nobody after it is held forever.
     if (timing !== undefined) speechLines.settle(timing);
@@ -1211,7 +1209,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     listenerReconnect = (async () => {
       listenerRoom = undefined;
       attachedRoom = undefined;
-      speechOutage = 'Kaki lost its connection to the room. Reconnecting so everyone can be heard again.';
+      speechOutage = { code: 'room-reconnecting' };
       publishSpeechStatus();
       log(`lost the connection to LiveKit; reconnecting ${KAKI_LISTENER_IDENTITY} to ${roomName}`);
       let lastError: string | undefined;
@@ -1238,7 +1236,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
           if (attempt < LISTENER_RECONNECT_ATTEMPTS) await waitBeforeRetry(retryIn);
         }
       }
-      speechOutage = `Kaki lost its connection to the room and could not reconnect (${lastError ?? 'no reason given'}). The AI colleagues cannot hear anyone; the runner is still trying.`;
+      speechOutage = { code: 'room-lost', reason: lastError ?? 'no reason given' };
       publishSpeechStatus();
       logError(
         `${KAKI_LISTENER_IDENTITY} could not rejoin ${roomName}; will keep trying every ${LISTENER_RETRY_INTERVAL_MS} ms`,

@@ -11,7 +11,7 @@ export {
   type KakiConnectionValue,
   type KakiFeed,
 } from './connection';
-export { useKaki, type KakiRejection, type UseKakiResult } from './useKaki';
+export { useKaki, type KakiRejection, type UseKakiResult, type WingmanHistoryEntry } from './useKaki';
 export {
   MeetingScopeProvider,
   meetingApiPath,

@@ -242,11 +242,16 @@ export function createWingmanModule(options: WingmanModuleOptions = {}): KakiMod
       };
 
       function publishNote(role: Role, payload: WingmanNotePayload, retainKey: string): void {
+        // The server owns the real time: a clear re-sends the stored copy, so its time never moves.
+        const stamped: WingmanNotePayload = {
+          ...payload,
+          at: payload.at ?? new Date(now()).toISOString(),
+        };
         ctx.hub.publish(
-          { type: 'WINGMAN_NOTE', audience: { kind: 'role', role }, payload },
+          { type: 'WINGMAN_NOTE', audience: { kind: 'role', role }, payload: stamped },
           { retainKey },
         );
-        notes.set(payload.id, { role, retainKey, payload });
+        notes.set(payload.id, { role, retainKey, payload: stamped });
       }
 
       function clearNote(id: string): boolean {
@@ -341,8 +346,10 @@ export function createWingmanModule(options: WingmanModuleOptions = {}): KakiMod
               kind: 'asked_you',
               urgency: 'act_now',
               title: `${speakerName(line.speaker)} asked you`,
-              text: `${speakerName(line.speaker)} asked you: ${verdict.question}`,
+              text: verdict.question,
               questionText: verdict.question,
+              questionFrom: 'person',
+              askedBy: speakerName(line.speaker),
               ...(facts.length === 0 ? {} : { facts }),
               ...(facts.length === 0 ? {} : { sources: facts.map(factSource) }),
             },
@@ -505,6 +512,7 @@ export function createWingmanModule(options: WingmanModuleOptions = {}): KakiMod
             ...(facts.length === 0 ? {} : { facts }),
             ...(sources.length === 0 ? {} : { sources: [...new Set(sources)] }),
             questionText: question,
+            questionFrom: 'you',
           },
           `wingman:${person.role}:answer`,
         );

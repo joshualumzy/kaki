@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
-import { act, cleanup, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { KakiEvent, MeetingStateSnapshot, Scenario, Task, WingmanNotePayload } from '@kaki/shared';
 import type { KakiRejection } from '../../kaki';
@@ -79,9 +79,11 @@ function withSpeech(
   },
   initialAgendaIndex = 0,
 ) {
+  const wingmanNotes = result.wingmanNotes ?? [];
   return {
     ...result,
-    wingmanNotes: result.wingmanNotes ?? [],
+    wingmanNotes,
+    wingmanHistory: wingmanNotes.map((note) => ({ note })),
     rejections: result.rejections ?? (result.rejection === null ? [] : [result.rejection]),
     askWingman: result.askWingman ?? vi.fn(() => true),
     speechByTopic: speechByTopicFromEvents(result.events, initialAgendaIndex),
@@ -157,6 +159,211 @@ describe('MeetingPanel team meetings', () => {
 });
 
 describe('MeetingPanel', () => {
+  it('orders the Host, Wingman and Action board sections', () => {
+    const suggested: Task = {
+      id: 'suggested-1',
+      title: 'Post the opening update',
+      context: '',
+      suggestedAssignee: 'tech_pos_lead',
+      status: 'SUGGESTED',
+      updatedAt: '2026-11-08T10:00:00Z',
+    };
+    mocks.useKaki.mockReturnValue(withSpeech({
+      events,
+      tasks: new Map([[suggested.id, suggested]]),
+      connected: true,
+      rejection: null,
+      send: vi.fn(),
+    }));
+    const { container } = render(
+      <MeetingPanel viewer={{ name: 'Joshua', seatName: 'Wei Ling' }} role={scenario.roles[0]} />,
+    );
+
+    const headings = [...container.querySelectorAll('.kd-section-title')].map((heading) =>
+      heading.textContent?.trim(),
+    );
+    expect(headings.slice(0, 3)).toEqual(['Host', 'Wingman', 'Action board']);
+  });
+
+  it('puts the Need an idea button inside the Wingman section, under the ask box', () => {
+    render(<MeetingPanel viewer={{ name: 'Joshua', seatName: 'Wei Ling' }} role={scenario.roles[0]} practice />);
+
+    const wingman = screen.getByLabelText('Wingman section');
+    const ask = within(wingman).getByLabelText('Ask Kaki about this meeting');
+    const idea = within(wingman).getByRole('button', { name: /Need an idea/ });
+    expect(wingman.contains(ask)).toBe(true);
+    expect(ask.compareDocumentPosition(idea) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  describe('the panel clock', () => {
+    const twoItemScenario: Scenario = {
+      ...scenario,
+      agenda: [
+        { ...scenario.agenda[0]!, minutes: 3 },
+        { ...scenario.agenda[0]!, title: 'Stock for the rush', minutes: 2 },
+      ],
+    };
+    const record: KakiEvent = {
+      type: 'MEETING_RECORD_UPDATED',
+      audience: { kind: 'all' },
+      payload: { agendaIndex: 0, openQuestions: [], elapsedSeconds: 66, speakerTalkSeconds: {} },
+    };
+
+    function renderClock(isHost: boolean): void {
+      mocks.useScenario.mockReturnValue(twoItemScenario);
+      mocks.useKaki.mockReturnValue(withSpeech({
+        events: [record],
+        tasks: new Map(),
+        connected: true,
+        rejection: null,
+        send: vi.fn(),
+      }));
+      render(<MeetingPanel viewer={{ name: 'Joshua', seatName: 'Wei Ling' }} role={scenario.roles[0]} isHost={isHost} />);
+    }
+
+    it('gives a non-host one compact row with the item and time left, no agenda list', () => {
+      vi.useFakeTimers();
+      try {
+        vi.setSystemTime(new Date('2026-11-24T10:00:00Z'));
+        renderClock(false);
+
+        expect(screen.getByText(/Now · 1 of 2/)).toBeTruthy();
+        expect(screen.getByText('Elderly regulars turned away at cashless kiosks')).toBeTruthy();
+        expect(screen.getByText('1:54 left')).toBeTruthy();
+        expect(screen.queryByText('2m')).toBeNull();
+
+        fireEvent.click(screen.getByRole('button', { name: 'Agenda' }));
+        expect(screen.getByText('2m')).toBeTruthy();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('keeps the full clock and agenda for the host', () => {
+      vi.useFakeTimers();
+      try {
+        vi.setSystemTime(new Date('2026-11-24T10:00:00Z'));
+        renderClock(true);
+
+        expect(screen.getByText(/Now · item 1 of 2/)).toBeTruthy();
+        expect(screen.getByText('3m')).toBeTruthy();
+        expect(screen.getByText('2m')).toBeTruthy();
+        expect(screen.queryByRole('button', { name: 'Agenda' })).toBeNull();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
+  it('offers starter ideas in a practice meeting and never in a real one', () => {
+    const { rerender } = render(
+      <MeetingPanel viewer={{ name: 'Joshua', seatName: 'Wei Ling' }} role={scenario.roles[0]} practice />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /Need an idea/ }));
+    expect(screen.getByText(/could you summarize the two main options/i)).toBeTruthy();
+
+    rerender(<MeetingPanel viewer={{ name: 'Joshua', seatName: 'Wei Ling' }} role={scenario.roles[0]} real />);
+    expect(screen.queryByRole('button', { name: /Need an idea/ })).toBeNull();
+  });
+
+  it('counts a renamed seat by its speakerRole even when its name matches an AI attendee', () => {
+    const twoItems: Scenario = {
+      ...scenario,
+      npcs: [{ attendee: 'Renamed Guest', voice: 'v', personality: 'p', agenda: 'a', concerns: [], role: 'host' }],
+      agenda: [
+        scenario.agenda[0]!,
+        { ...scenario.agenda[0]!, title: 'Stock for the rush' },
+      ],
+    };
+    mocks.useScenario.mockReturnValue(twoItems);
+    mocks.useKaki.mockReturnValue(withSpeech({
+      events: [
+        {
+          type: 'MEETING_RECORD_UPDATED',
+          audience: { kind: 'all' },
+          payload: { agendaIndex: 1, openQuestions: [], elapsedSeconds: 5, speakerTalkSeconds: {} },
+        },
+        {
+          type: 'TRANSCRIPT_CHUNK',
+          audience: { kind: 'all' },
+          payload: {
+            speaker: 'Renamed Guest',
+            text: 'We should order more for the morning.',
+            timestamp: '2026-11-07T10:00:00Z',
+            speakerRole: 'operations_director',
+          },
+        },
+      ],
+      tasks: new Map(),
+      connected: true,
+      rejection: null,
+      send: vi.fn(),
+    }));
+    render(<MeetingPanel viewer={{ name: 'Joshua', seatName: 'Wei Ling' }} role={scenario.roles[0]} practice />);
+
+    fireEvent.click(screen.getByRole('button', { name: /Need an idea/ }));
+    expect(screen.getByText(/table it for now/)).toBeTruthy();
+  });
+
+  it("offers only the current agenda item's open questions as quick replies", () => {
+    const twoItems: Scenario = {
+      ...scenario,
+      agenda: [
+        scenario.agenda[0]!,
+        { ...scenario.agenda[0]!, title: 'Stock for the rush' },
+      ],
+    };
+    mocks.useScenario.mockReturnValue(twoItems);
+    mocks.useKaki.mockReturnValue(withSpeech({
+      events: [
+        {
+          type: 'MEETING_RECORD_UPDATED',
+          audience: { kind: 'all' },
+          payload: {
+            agendaIndex: 1,
+            openQuestions: [
+              { id: 'q-old', text: 'What happened to the old regulars?', forRole: 'operations_director', agendaIndex: 0 },
+              { id: 'q-now', text: 'How much stock do we need for the rush?', forRole: 'operations_director', agendaIndex: 1 },
+            ],
+            elapsedSeconds: 5,
+            speakerTalkSeconds: {},
+          },
+        },
+      ],
+      tasks: new Map(),
+      connected: true,
+      rejection: null,
+      send: vi.fn(),
+    }));
+    render(<MeetingPanel viewer={{ name: 'Joshua', seatName: 'Wei Ling' }} role={scenario.roles[0]} practice />);
+
+    fireEvent.click(screen.getByRole('button', { name: /Need an idea/ }));
+    expect(screen.getByText(/How much stock do we need for the rush\?/)).toBeTruthy();
+    expect(screen.queryByText(/What happened to the old regulars\?/)).toBeNull();
+  });
+
+  it('does not pull the panel to the bottom on new lines while the transcript is closed', () => {
+    const line = (n: number): KakiEvent => ({
+      type: 'TRANSCRIPT_CHUNK',
+      audience: { kind: 'all' },
+      payload: { speaker: 'Arjun', text: `Line ${n}`, timestamp: `2026-11-07T10:00:0${n}Z`, lineId: `line-${n}` },
+    });
+    const base = { tasks: new Map(), connected: true, rejection: null, send: vi.fn() };
+    mocks.useKaki.mockReturnValue(withSpeech({ ...base, events: [line(1)] }));
+    const host = document.createElement('div');
+    host.className = 'kd-dock-body';
+    document.body.appendChild(host);
+    const view = render(<MeetingPanel viewer={{ name: 'Joshua', seatName: 'Wei Ling' }} role={scenario.roles[0]} />, { container: host });
+    Object.defineProperty(host, 'scrollHeight', { configurable: true, value: 2000 });
+    Object.defineProperty(host, 'clientHeight', { configurable: true, value: 500 });
+    host.scrollTop = 1450; // near the bottom, where the old code always followed new lines
+    mocks.useKaki.mockReturnValue(withSpeech({ ...base, events: [line(1), line(2)] }));
+    view.rerender(<MeetingPanel viewer={{ name: 'Joshua', seatName: 'Wei Ling' }} role={scenario.roles[0]} />);
+    expect(host.scrollTop).toBe(1450);
+    host.remove();
+  });
+
   it('replaces a cut transcript line in place instead of listing the whole line and then the cut line', () => {
     const full: KakiEvent = {
       type: 'TRANSCRIPT_CHUNK',
@@ -210,6 +417,8 @@ describe('MeetingPanel', () => {
       title: 'Wingman',
       text: 'You asked what we decided: the cash box moves.',
       questionText: 'what did we decide?',
+      questionFrom: 'you',
+      at: '2026-11-06T10:05:00.000Z',
       facts: [{ text: 'The shop still has launch budget left.', source: 'wiki SOP', date: '2026-11-06' }],
       sources: ['wiki SOP (2026-11-06)'],
     },
@@ -225,7 +434,11 @@ describe('MeetingPanel', () => {
       kind: 'asked_you',
       urgency: 'act_now',
       title: 'Ravi asked you',
-      text: 'Ravi asked you: What should the kiosk do at 8?',
+      text: 'What should the kiosk do at 8?',
+      questionText: 'What should the kiosk do at 8?',
+      questionFrom: 'person',
+      askedBy: 'Ravi',
+      at: '2026-11-06T10:05:00.000Z',
     },
     {
       id: 'record:operations_director:1',
@@ -1122,7 +1335,7 @@ describe('MeetingPanel real meeting', () => {
     renderReal(scenario.agenda, true);
     expect(screen.getByRole('button', { name: 'Next agenda item' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'End meeting' })).toBeNull();
-    expect(screen.getByText(/Now · item 1 of 1/)).toBeTruthy();
+    expect(screen.getByText(/Now · 1 of 1/)).toBeTruthy();
   });
 
   it('leaves the practice controls exactly as they were', () => {

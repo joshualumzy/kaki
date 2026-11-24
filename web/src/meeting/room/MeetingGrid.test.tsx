@@ -1,5 +1,5 @@
 /** @vitest-environment jsdom */
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { KAKI_LISTENER_IDENTITY, type KakiEvent, type Scenario, type Task, type WingmanNotePayload } from '@kaki/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MeetingGrid } from './MeetingGrid';
@@ -58,24 +58,6 @@ vi.mock('../../kaki', async () => {
   };
 });
 vi.mock('./Orb', () => ({ Orb: () => null, orbPalette: () => ['--c'] }));
-
-type RecordEvent = Extract<KakiEvent, { type: 'MEETING_RECORD_UPDATED' }>;
-
-function record(
-  agendaIndex: number,
-  openQuestions: RecordEvent['payload']['openQuestions'] = [],
-  extra: Partial<RecordEvent['payload']> = {},
-): KakiEvent {
-  return {
-    type: 'MEETING_RECORD_UPDATED',
-    audience: { kind: 'screen' },
-    payload: {
-      agendaIndex, openQuestions, elapsedSeconds: 0, speakerTalkSeconds: {},
-      notetakerStatus: 'ok', quietRoles: [],
-      ...extra,
-    },
-  };
-}
 
 function line(
   speaker: string,
@@ -138,103 +120,25 @@ describe('scenario-owned copy', () => {
   });
 });
 
-describe('MeetingGrid starter ideas', () => {
-  it('offers tabling the topic without a fixed-time follow-up after the visitor has spoken', () => {
-    render(<MeetingGrid role="chef" />);
-    fireEvent.click(screen.getByRole('button', { name: /Need an idea/ }));
-    expect(screen.getByText(/table it for now/)).toBeTruthy();
-    expect(screen.queryByText(/10 AM/)).toBeNull();
-    expect(screen.getByText(/what's still open on this one\?/i)).toBeTruthy();
-    expect(screen.queryByText(/lock in both parts/i)).toBeNull();
-  });
-
-  it('shows the turn region when a colleague has briefed on a later topic and the AI is idle', () => {
-    mocks.screenEvents.splice(0, mocks.screenEvents.length,
-      record(1),
-      line('Sam', 'What do you think about stock?'),
-      line('Chef', 'We should order more.'),
-    );
-    render(<MeetingGrid role="chef" />);
-    expect(screen.getByRole('region', { name: /Your turn and starter questions/ })).toBeTruthy();
-  });
-
-  it('offers the Table topic chip after the visitor speaks on a later topic', () => {
-    mocks.screenEvents.splice(0, mocks.screenEvents.length,
-      record(1),
-      line('Sam', 'What do you think about stock?'),
-      line('Chef', 'We should order more.'),
-      line('Visitor', 'Let us wait a week.'),
-    );
-    render(<MeetingGrid role="chef" />);
-    fireEvent.click(screen.getByRole('button', { name: /Need an idea/ }));
-    expect(screen.getByText(/table it for now/)).toBeTruthy();
-  });
-
-  it('offers the Table topic chip on topic 2 after the topic record has left the event window', () => {
-    mocks.latestRecord = record(2);
-    mocks.screenEvents.splice(0, mocks.screenEvents.length,
-      ...Array.from({ length: 60 }, (_, index) => line('Sam', `filler ${index}`)),
-      line('Renamed Guest', 'Before I call it, what is the practical catch for the team?', 'chef'),
-    );
-    render(<MeetingGrid role="chef" />);
-    fireEvent.click(screen.getByRole('button', { name: /Need an idea/ }));
-    expect(screen.getByText(/table it for now/)).toBeTruthy();
-  });
-
-  it('does not offer the Table topic chip before the viewer speaks on the current topic', () => {
-    mocks.latestRecord = record(2);
-    mocks.screenEvents.splice(0, mocks.screenEvents.length,
-      line('Sam', 'Here is the stock question.'),
-      line('Other Person', 'We should order more.', 'host'),
-    );
-    render(<MeetingGrid role="chef" />);
-    fireEvent.click(screen.getByRole('button', { name: /Need an idea/ }));
-    expect(screen.queryByText(/table it for now/)).toBeNull();
-  });
-
-  it('counts a renamed seat by its speakerRole even when its name matches an AI attendee', () => {
-    mocks.latestRecord = record(2);
-    mocks.screenEvents.splice(0, mocks.screenEvents.length,
-      line('Sam', 'Before I call it, what is the practical catch for the team?', 'chef'),
-    );
-    render(<MeetingGrid role="chef" />);
-    fireEvent.click(screen.getByRole('button', { name: /Need an idea/ }));
-    expect(screen.getByText(/table it for now/)).toBeTruthy();
-  });
-
-  it('offers only the current agenda item\'s open questions as quick replies', () => {
-    mocks.screenEvents.splice(0, mocks.screenEvents.length,
-      record(1, [
-        { id: 'q-old', text: 'What happened to the old regulars?', forRole: 'chef', agendaIndex: 0 },
-        { id: 'q-now', text: 'How much stock do we need for the rush?', forRole: 'chef', agendaIndex: 1 },
-      ]),
-      line('Sam', 'What do you think about stock?'),
-      line('Chef', 'We should order more.'),
-    );
-    render(<MeetingGrid role="chef" />);
-    fireEvent.click(screen.getByRole('button', { name: /Need an idea/ }));
-
-    expect(screen.getByText(/How much stock do we need for the rush\?/)).toBeTruthy();
-    expect(screen.queryByText(/What happened to the old regulars\?/)).toBeNull();
-  });
-
-  it('shows an asked-you note in the middle of the stage and hides it on Close', () => {
+describe('MeetingGrid stage stays a stage', () => {
+  it('keeps the Wingman ideas and the asked-you card out of the stage', () => {
     mocks.roleNotes.splice(0, mocks.roleNotes.length, {
       id: 'asked:chef',
       kind: 'asked_you',
       urgency: 'act_now',
       title: 'Alex asked you',
       text: 'Alex asked you: What is the plan for the morning rush?',
-      facts: [{ text: 'The rush starts at 8.', source: 'Store records', date: '2026-11-13' }],
-      sources: ['Store records (2026-11-13)'],
     });
     render(<MeetingGrid role="chef" />);
 
-    const card = screen.getByRole('alertdialog', { name: 'Wingman asks you now' });
-    expect(within(card).getByText('Alex asked you: What is the plan for the morning rush?')).toBeTruthy();
-    expect(within(card).getByText('The rush starts at 8.')).toBeTruthy();
-    fireEvent.click(within(card).getByRole('button', { name: 'Close' }));
+    expect(screen.queryByRole('button', { name: /Need an idea/ })).toBeNull();
+    expect(screen.queryByRole('region', { name: /Your turn and starter questions/ })).toBeNull();
     expect(screen.queryByRole('alertdialog', { name: 'Wingman asks you now' })).toBeNull();
+  });
+
+  it('never tells the person to type on the stage', () => {
+    render(<MeetingGrid role="chef" />);
+    expect(document.body.textContent).not.toMatch(/\btype\b/i);
   });
 });
 
@@ -325,19 +229,213 @@ describe('phone stage ordering and settled topic', () => {
     expect(tracksWithSpeakerFirst(tracks, undefined).map((entry) => entry.participant.identity))
       .toEqual(['Sam', 'Arjun', 'Mei']);
   });
+});
 
-  it('hides the Jump in hint once the current topic has a follow-up card to review', () => {
-    mocks.screenEvents.splice(0, mocks.screenEvents.length,
-      record(0),
-      line('Sam', 'What do you think about stock?'),
-      line('Chef', 'We should order more.'),
-    );
-    mocks.screenTasks.set('follow-up', {
-      id: 'follow-up', title: 'Share the decision', context: '', suggestedAssignee: 'chef',
-      agendaItemTitle: 'Prep', status: 'DRAFT_READY', updatedAt: '2026-11-13T10:05:00.000Z',
+describe('stage action pill', () => {
+  function setNarrow(matches: boolean): () => void {
+    const original = window.matchMedia;
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      value: () => ({
+        matches,
+        addEventListener: () => undefined,
+        removeEventListener: () => undefined,
+      }),
+    });
+    return () => {
+      if (original === undefined) Reflect.deleteProperty(window, 'matchMedia');
+      else Object.defineProperty(window, 'matchMedia', { configurable: true, value: original });
+    };
+  }
+
+  it('points a phone at a task that needs this seat, in the panel', () => {
+    const restore = setNarrow(true);
+    try {
+      mocks.screenTasks.set('needs-you', {
+        id: 'needs-you', title: 'Share the stock count', context: '', suggestedAssignee: 'chef',
+        agendaItemTitle: 'Prep', status: 'DISPATCHED', updatedAt: '2026-11-13T10:05:00.000Z',
+      });
+      const onOpenKaki = vi.fn();
+      render(<MeetingGrid role="chef" onOpenKaki={onOpenKaki} />);
+
+      const pill = screen.getByRole('status');
+      expect(pill.textContent).toContain('A task needs you · open in Kaki →');
+      fireEvent.click(pill);
+      expect(onOpenKaki).toHaveBeenCalled();
+    } finally {
+      restore();
+    }
+  });
+
+  it('points a phone at a draft ready for review, in the panel', () => {
+    const restore = setNarrow(true);
+    try {
+      mocks.screenTasks.set('draft', {
+        id: 'draft', title: 'Share the stock count', context: '', suggestedAssignee: 'chef',
+        agendaItemTitle: 'Prep', status: 'DRAFT_READY', updatedAt: '2026-11-13T10:05:00.000Z',
+      });
+      render(<MeetingGrid role="chef" />);
+
+      expect(screen.getByRole('status').textContent).toContain('Draft ready · review in Kaki →');
+    } finally {
+      restore();
+    }
+  });
+
+  it('shows a direct question above a task pill and keeps the same dismiss logic', () => {
+    const restore = setNarrow(true);
+    try {
+      mocks.roleNotes.push({
+        id: 'asked:chef',
+        kind: 'asked_you',
+        urgency: 'act_now',
+        title: 'Alex asked you',
+        text: 'Alex asked you: What is the plan for the morning rush?',
+        questionText: 'What is the plan for the morning rush?',
+        questionFrom: 'person',
+        askedBy: 'Alex',
+      });
+      mocks.screenTasks.set('needs-you', {
+        id: 'needs-you', title: 'Share the stock count', context: '', suggestedAssignee: 'chef',
+        agendaItemTitle: 'Prep', status: 'DISPATCHED', updatedAt: '2026-11-13T10:05:00.000Z',
+      });
+      render(<MeetingGrid role="chef" />);
+
+      const pill = screen.getByRole('status');
+      expect(pill.textContent).toContain('Kaki has a question for you · open in Kaki →');
+      expect(pill.textContent).not.toContain('A task needs you');
+      fireEvent.click(screen.getByRole('button', { name: 'Dismiss notification' }));
+      expect(screen.queryByRole('status')).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it('never puts a private question on a real meeting\'s shared screen', () => {
+    mocks.roleNotes.push({
+      id: 'asked:chef', kind: 'asked_you', urgency: 'act_now', title: 'Alex asked you',
+      text: 'Alex asked you: When?', questionText: 'When?', questionFrom: 'person', askedBy: 'Alex',
+    });
+    render(<MeetingGrid role="chef" real sharedAudience="screen" />);
+
+    expect(screen.queryByRole('status')).toBeNull();
+  });
+
+  it('scrolls to the rendered section after opening the panel', async () => {
+    const restore = setNarrow(true);
+    const target = document.createElement('section');
+    target.id = 'needs-you-now';
+    const scroll = vi.fn();
+    target.scrollIntoView = scroll;
+    document.body.appendChild(target);
+    try {
+      mocks.screenTasks.set('needs-you', {
+        id: 'needs-you', title: 'Share the stock count', context: '', suggestedAssignee: 'chef',
+        agendaItemTitle: 'Prep', status: 'DISPATCHED', updatedAt: '2026-11-13T10:05:00.000Z',
+      });
+      const onOpenKaki = vi.fn();
+      render(<MeetingGrid role="chef" onOpenKaki={onOpenKaki} />);
+
+      fireEvent.click(screen.getByRole('status'));
+      expect(onOpenKaki).toHaveBeenCalled();
+      await waitFor(() => expect(scroll).toHaveBeenCalled());
+    } finally {
+      target.remove();
+      restore();
+    }
+  });
+
+  it('points a question at the Wingman section, not the task section', async () => {
+    const target = document.createElement('section');
+    target.id = 'wingman';
+    const scroll = vi.fn();
+    target.scrollIntoView = scroll;
+    document.body.appendChild(target);
+    try {
+      mocks.roleNotes.push({
+        id: 'asked:chef', kind: 'asked_you', urgency: 'act_now', title: 'Alex asked you',
+        text: 'Alex asked you: When?', questionText: 'When?', questionFrom: 'person', askedBy: 'Alex',
+      });
+      render(<MeetingGrid role="chef" />);
+
+      fireEvent.click(screen.getByRole('status'));
+      await waitFor(() => expect(scroll).toHaveBeenCalled());
+    } finally {
+      target.remove();
+    }
+  });
+
+  it('says Published when the task is live, and can be dismissed', () => {
+    mocks.screenTasks.set('live', {
+      id: 'live', title: 'Share the stock count', context: '', suggestedAssignee: 'chef',
+      status: 'COMPLETED', artifactUrl: 'https://example.test/live', updatedAt: '2026-11-13T10:05:00.000Z',
     });
     render(<MeetingGrid role="chef" />);
-    expect(screen.queryByRole('region', { name: /Your turn and starter questions/ })).toBeNull();
+
+    expect(screen.getByRole('status').textContent).toContain('Published · open in Kaki →');
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss notification' }));
+    expect(screen.queryByRole('status')).toBeNull();
+  });
+
+  it('points the assignee at their own published card, which is not on the action board', async () => {
+    const needsYou = document.createElement('section');
+    needsYou.id = 'needs-you-now';
+    const board = document.createElement('section');
+    board.id = 'action-board';
+    const toNeedsYou = vi.fn();
+    const toBoard = vi.fn();
+    needsYou.scrollIntoView = toNeedsYou;
+    board.scrollIntoView = toBoard;
+    document.body.append(needsYou, board);
+    try {
+      mocks.screenTasks.set('live', {
+        id: 'live', title: 'Share the stock count', context: '', suggestedAssignee: 'host',
+        assignee: 'chef', agendaItemTitle: 'Prep', status: 'SYNCED',
+        artifactUrl: 'https://example.test/live', updatedAt: '2026-11-13T10:05:00.000Z',
+      });
+      render(<MeetingGrid role="chef" />);
+
+      fireEvent.click(screen.getByRole('status'));
+      await waitFor(() => expect(toNeedsYou).toHaveBeenCalled());
+      expect(toBoard).not.toHaveBeenCalled();
+    } finally {
+      needsYou.remove();
+      board.remove();
+    }
+  });
+
+  it('points everyone else at the action board for a published task', async () => {
+    const needsYou = document.createElement('section');
+    needsYou.id = 'needs-you-now';
+    const board = document.createElement('section');
+    board.id = 'action-board';
+    const toNeedsYou = vi.fn();
+    const toBoard = vi.fn();
+    needsYou.scrollIntoView = toNeedsYou;
+    board.scrollIntoView = toBoard;
+    document.body.append(needsYou, board);
+    try {
+      mocks.screenTasks.set('live', {
+        id: 'live', title: 'Share the stock count', context: '', suggestedAssignee: 'chef',
+        assignee: 'host', agendaItemTitle: 'Prep', status: 'SYNCED',
+        artifactUrl: 'https://example.test/live', updatedAt: '2026-11-13T10:05:00.000Z',
+      });
+      render(<MeetingGrid role="chef" />);
+
+      fireEvent.click(screen.getByRole('status'));
+      await waitFor(() => expect(toBoard).toHaveBeenCalled());
+      expect(toNeedsYou).not.toHaveBeenCalled();
+    } finally {
+      needsYou.remove();
+      board.remove();
+    }
+  });
+});
+
+describe('stage wording', () => {
+  it('calls the AI seats colleagues', () => {
+    render(<MeetingGrid role="chef" />);
+    expect(screen.getByText(/Waiting for the AI colleagues/)).toBeTruthy();
   });
 });
 
@@ -350,15 +448,8 @@ describe('speaking is the only input', () => {
     }
   });
 
-  it('never tells the visitor to type, and the ideas are lines to say, not buttons that send', () => {
+  it('never tells the visitor to type', () => {
     render(<MeetingGrid role="chef" />);
-    const turn = screen.getByRole('region', { name: /Your turn and starter questions/ });
-    expect(turn.textContent).not.toMatch(/\btype\b/i);
-    fireEvent.click(screen.getByRole('button', { name: /Need an idea/ }));
-    expect(turn.textContent).not.toMatch(/\btype\b|click/i);
-    expect(screen.getAllByRole('button').map((button) => button.textContent)).not.toContainEqual(
-      expect.stringMatching(/table it for now/),
-    );
-    expect(screen.getByText(/table it for now/)).toBeTruthy();
+    expect(document.querySelector('.kd-stage-col')?.textContent).not.toMatch(/\btype\b/i);
   });
 });
