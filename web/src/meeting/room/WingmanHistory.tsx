@@ -11,8 +11,12 @@ const KIND_LABELS: Record<WingmanNotePayload['kind'], string> = {
 
 /** The facts and sources behind one private note, each with where it came from. */
 function NoteEvidence({ note }: { note: WingmanNotePayload }) {
-  const facts = note.facts ?? [];
-  const sources = note.sources ?? [];
+  // A fact already written out in the note's text is not repeated; its source still shows below.
+  const allFacts = note.facts ?? [];
+  const facts = allFacts.filter((fact) => !note.text.includes(fact.text.trim()));
+  const sources = [
+    ...new Set([...allFacts.map((fact) => `${fact.source} (${fact.date})`), ...(note.sources ?? [])]),
+  ];
   if (facts.length === 0 && sources.length === 0) return null;
   return (
     <div className="kd-wingman-evidence">

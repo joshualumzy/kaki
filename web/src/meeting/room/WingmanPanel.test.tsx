@@ -29,6 +29,25 @@ const quietNotes: WingmanNotePayload[] = [
 
 
 describe('WingmanPanel', () => {
+  it('does not repeat a fact already written in the answer, but keeps its source once', () => {
+    const note: WingmanNotePayload = {
+      id: 'answer:dup', kind: 'answer', urgency: 'quiet', title: 'Wingman',
+      text: 'Kopi is $2.40 a cup. The till can add a button.',
+      facts: [
+        { text: 'Kopi is $2.40 a cup.', source: 'Wiki: Pricing', date: '2026-11-11' },
+        { text: 'Regulars come before 8.', source: 'Wiki: Floor', date: '2026-11-10' },
+      ],
+      sources: ['Wiki: Pricing (2026-11-11)'],
+    };
+    render(<WingmanPanel notes={[note]} onAsk={vi.fn(() => true)} onDismiss={vi.fn()} />);
+    const facts = screen.getByLabelText('Facts in this note');
+    expect(facts.textContent).not.toContain('Kopi is $2.40 a cup.');
+    expect(facts.textContent).toContain('Regulars come before 8.');
+    expect(screen.getByText(/Sources:/).parentElement?.textContent).toBe(
+      'Sources: Wiki: Pricing (2026-11-11) · Wiki: Floor (2026-11-10)',
+    );
+  });
+
   it('shows the quiet note count as a badge with no reminder motion', () => {
     const { container } = render(
       <WingmanPanel notes={quietNotes} onAsk={vi.fn(() => true)} onDismiss={vi.fn()} />,
