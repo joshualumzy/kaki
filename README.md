@@ -11,7 +11,7 @@ Kaki (Singlish for "buddy" or "one of us") helps a small team run a meeting and 
 
 ## Highlights
 
-- Sign in with Google to get a personal workspace; a read-only sample workspace, Nanyang Kopi, shows how the tools fit together.
+- Sign in with Google to get a personal workspace; Nanyang Kopi, a ready-made read-only workspace for a fictional café chain with its tools already connected, lets anyone try Kaki without connecting their own.
 - A workspace connects Mattermost, Gitea, a wiki, email and a calendar, stores their logins encrypted, and tests each connection with one button.
 - A meeting can start now or be scheduled, with an agenda that is typed, drafted by Tell Kaki or taken from the calendar.
 - Guests join by link or QR code under their own name, without an account.
@@ -34,7 +34,7 @@ Kaki (Singlish for "buddy" or "one of us") helps a small team run a meeting and 
     <td align="center"><img src="docs/images/minutes.png" alt="Kaki meeting minutes in the workspace" width="420"><br><sub>The minutes and to-dos stay in the workspace after the meeting.</sub></td>
   </tr>
   <tr>
-    <td align="center" colspan="2"><img src="docs/images/waking.png" alt="Kaki start page waking the cloud server" width="420"><br><sub>The always-on start page wakes the cloud server when it is off.</sub></td>
+    <td align="center" colspan="2"><img src="docs/images/waking.png" alt="Kaki start page waking the cloud server" width="420"><br><sub>The always-on start page wakes the cloud server on demand.</sub></td>
   </tr>
 </table>
 
@@ -65,7 +65,7 @@ Kaki (Singlish for "buddy" or "one of us") helps a small team run a meeting and 
 
 ## Try it
 
-Start at **[green-sky-0c9a41800.4.azurestaticapps.net](https://green-sky-0c9a41800.4.azurestaticapps.net)**. This start page is always on. Kaki itself runs on an Azure virtual machine (VM) that switches itself off when nobody is using it, so choosing an option on the start page may first wake it, which takes a minute or two.
+Start at **[green-sky-0c9a41800.4.azurestaticapps.net](https://green-sky-0c9a41800.4.azurestaticapps.net)**. This start page is always on. Kaki itself runs on an Azure virtual machine (VM) that switches itself off when idle, so it costs nothing between meetings. If the VM is off, choosing an option on the start page wakes it, which takes a minute or two.
 
 <img src="docs/images/diagrams/cloud-wake.svg" alt="How the start page wakes the VM and how the VM switches itself off when idle" width="100%">
 
@@ -79,8 +79,8 @@ Start at **[green-sky-0c9a41800.4.azurestaticapps.net](https://green-sky-0c9a418
 
 ### A team meeting
 
-1. Sign in with Google. The account menu lists your personal workspace and the read-only Nanyang Kopi sample workspace.
-2. In a workspace, connect the tools you want (Mattermost, Gitea, wiki, email, calendar), or use the sample's built-in ones.
+1. Sign in with Google. The account menu lists your personal workspace and the read-only Nanyang Kopi workspace.
+2. In a workspace, connect the tools you want (Mattermost, Gitea, wiki, email, calendar), or use the ones already connected in Nanyang Kopi.
 3. Open New meeting, describe the meeting to Tell Kaki or take the agenda from your calendar, then start it now or schedule it.
 4. Share the invite link or QR code. Guests join from any browser, including a phone, under their own name.
 
@@ -88,7 +88,7 @@ Each person has their own seat under their own name (two people called Sam show 
 
 ### A practice meeting
 
-Open [/practice](https://kaki.southeastasia.cloudapp.azure.com/practice). Each visitor gets their own room, the AI colleagues take the other seats, and the visitor takes part by speaking. A signed-in visitor keeps the minutes and to-dos in their own sample history; a signed-out visitor reads the minutes on the sample wiki and is invited to sign in to keep future meetings.
+Open [/practice](https://kaki.southeastasia.cloudapp.azure.com/practice). Each visitor gets their own room, the AI colleagues take the other seats, and the visitor takes part by speaking. A signed-in visitor keeps the minutes and to-dos in their own Nanyang Kopi history; a signed-out visitor reads the minutes on the Nanyang Kopi wiki and is invited to sign in to keep future meetings.
 
 ### Links and logins
 
@@ -102,7 +102,9 @@ Open [/practice](https://kaki.southeastasia.cloudapp.azure.com/practice). Each v
 | Mailpit inbox | [Port 8084](http://kaki.southeastasia.cloudapp.azure.com:8084) | None |
 | Radicale calendar | [Port 5232](http://kaki.southeastasia.cloudapp.azure.com:5232) | `demo` / `demo` |
 
-The sample colleague Wei Ling is `wei-ling` in Gitea and `weiling` in Mattermost, because the seed creates each tool's admin account under the name that tool accepts (`docker/seed/env.ts`). To run Kaki on your own machine, see [Setup automation](#setup-automation).
+These are shared accounts on the hosted stack, and they hold only the fictional company's data.
+
+The fictional colleague Wei Ling is `wei-ling` in Gitea and `weiling` in Mattermost, because the seed creates each tool's admin account under the name that tool accepts (`docker/seed/env.ts`). To run Kaki on your own machine, see [Setup automation](#setup-automation).
 
 ## Problem statement
 
@@ -110,9 +112,9 @@ A meeting host has to present, watch the clock, keep the agenda and record who a
 
 Zoom AI Companion 3.0 drafts tasks and emails inside Zoom, and Otter.ai Live Assist gives private coaching tips while the call runs. The harder problems are deciding when to stay silent, who needs which fact, and how to write into another system without surprising anyone. Kaki splits those jobs between a neutral host, a private wingman for each participant and an action agent that writes into the team's own tools.
 
-Several parts were hard to get right. Several people can talk at once, and each microphone is transcribed separately, so the transcript has to keep their lines apart. A follow-up should not be sent until its agenda item is settled, and a private card must reach only one seat. In a practice meeting the AI colleagues have to take turns and stop when someone interrupts. A real meeting adds many people at once, guests with no account, and a room that can go off the record.
+The hard problems are overlapping speech, timing and privacy. Several people can talk at once, and each microphone is transcribed separately, so the transcript has to keep their lines apart. A follow-up should not be sent until its agenda item is settled, and a private card must reach only one seat. In a practice meeting the AI colleagues have to take turns and stop when someone interrupts. A real meeting adds many people at once, guests with no account, and a room that can go off the record.
 
-We expect private help during a live meeting to become as ordinary as the automatic recap is today, and teams to expect a meeting to leave finished work behind.
+We think private help during a live meeting will become as ordinary as the automatic recap is today, and that teams will expect a meeting to leave finished work behind.
 
 ## Architecture
 
@@ -133,11 +135,11 @@ One server process runs many meetings. The meeting registry loads each meeting o
 
 ### The path of one follow-up
 
-When someone says "I'll email the supplier", the notetaker turns the line into a follow-up, the owner sends it to that person's seat, and the email is written only after a person approves the draft.
+When someone says "I'll email the supplier", the notetaker turns the line into a follow-up, the owner sends it to that person's seat, and the email goes to the team's mail server only after a person approves the draft. In the hosted stack that mail server is Mailpit; each workspace sets its own SMTP host when it connects email.
 
 <img src="docs/images/diagrams/follow-up-path.svg" alt="The path of one follow-up, from a spoken line to an email in Mailpit" width="100%">
 
-*From a spoken line to a sent email, with a person in charge at every step that changes something.*
+*From a spoken line to an email in the team's mail server, with a person in charge at every step that changes something.*
 
 | Step | Code |
 | --- | --- |
@@ -145,11 +147,11 @@ When someone says "I'll email the supplier", the notetaker turns the line into a
 | Owner dispatches it to a seat | `server/src/host/autoDispatch.ts` |
 | Card is published to that seat only | `server/src/meeting/tasks.ts`, `web/src/meeting/room/ActiveRoleCards.tsx` |
 | Draft is checked against its source and run | `server/src/action/runner.ts`, `server/src/action/draftGrounding.ts` |
-| Email reaches Mailpit | `server/src/action/email.ts` |
+| Email reaches the team's mail server (Mailpit in the hosted stack) | `server/src/action/email.ts` |
 
 ## Front-end features
 
-The web app is one React and Vite application. Shared colour and type tokens and a small set of components (`Button`, `Card`, `StatusPill`) keep the pages consistent. In the meeting room the stage takes most of the space and private cards sit in a dock beside it; on a phone the stage stacks above the dock and the controls stay at the bottom.
+The web app is one React and Vite application. Shared colour and type tokens and a shared component set (`Button`, `Card`, `StatusPill`, `Avatar`, `RejectionBanner`) keep the pages consistent. In the meeting room the stage takes most of the space and private cards sit in a dock beside it; on a phone the stage stacks above the dock and the controls stay at the bottom.
 
 | Route | Who | What |
 | --- | --- | --- |
@@ -282,7 +284,7 @@ Code: `server/src/meeting/tasks.ts`, `server/src/action/runner.ts`, `server/src/
 - Sign-in uses Google OAuth, and Kaki keeps its own accounts, workspaces and sessions in Postgres. A first sign-in creates the account and a personal workspace, and a session cookie keeps the person signed in for 12 hours.
 - A guest joins one meeting through its link with a name and no account, and the guest session is bound to that meeting.
 - Each workspace stores its tool logins encrypted with AES-256-GCM under `KAKI_SECRET_KEY`. The API returns only the non-secret settings, and an admin checks a connection with the Test button.
-- The Nanyang Kopi sample workspace is built in, read-only and never stored as a row; it uses the hosted services.
+- The Nanyang Kopi workspace is built in, read-only and never stored as a row; it uses the hosted services.
 - Deleting an account (`DELETE /api/account`, confirmed by typing DELETE) ends the person's meetings, then removes meetings, saved state, tool logins, knowledge chunks, memberships, workspaces, sessions and the user in one database transaction, closes their open sockets and clears the cookie. If anything fails, nothing is removed and the person can retry.
 
 Code: `server/src/auth/module.ts`, `server/src/auth/google.ts`, `server/src/auth/store.ts`, `server/src/http/access.ts`, `server/src/workspace/secrets.ts`, `server/src/workspace/tools.ts`, `server/src/workspace/sample.ts`, `server/src/http/routes/account.ts`, `server/src/account/deleteAccountData.ts`
@@ -400,9 +402,11 @@ Playwright drives the real app in installed Google Chrome:
 
 - `npm run playtest:live` runs one visitor through the practice meeting with the AI colleagues.
 - `npm run playtest:ai` has a language model play the visitor in one of nine styles, then a second model judges the meeting.
-- Twelve click-through journeys (`scripts/clickthrough/journey-a.ts` to `journey-l.ts`) drive the signed-in product: sign-in, a workspace tool test, a meeting with a guest, off the record, ending and the minutes, a scheduled meeting, the sample workspace, the practice page, a phone layout, every in-app link and meeting code, and recovery from a dropped network or a denied microphone. Each run writes screenshots and a findings report to `.live-logs/clickthrough/`.
+- Twelve click-through journeys (`scripts/clickthrough/journey-a.ts` to `journey-l.ts`) drive the signed-in product: sign-in, a workspace tool test, a meeting with a guest, off the record, ending and the minutes, a scheduled meeting, the Nanyang Kopi workspace, the practice page, a phone layout, every in-app link and meeting code, and recovery from a dropped network or a denied microphone. Each run writes screenshots and a findings report to `.live-logs/clickthrough/`.
 
-`npm run eval:notetaker -- --ami` measures the notetaker on real, unscripted meetings from the AMI (Augmented Multi-party Interaction) Meeting Corpus. It replays each transcript, and a model judge pairs what the notetaker found with the corpus's own summary of follow-up actions and open problems. Two of the six meetings (`--holdout`) are kept out of all tuning, to check that changes hold for meetings the notetaker was not adjusted on. The table compares the open-question handling before and after it was made general (two runs per meeting under the same conditions):
+`npm run eval:notetaker -- --ami` measures the notetaker on real, unscripted meetings from the AMI (Augmented Multi-party Interaction) Meeting Corpus. It replays each transcript, and a model judge pairs what the notetaker found with the corpus's own summary of follow-up actions and open problems. Two of the six meetings (`--holdout`) are kept out of all tuning, to check that changes hold for meetings the notetaker was not adjusted on. Six meetings is a small sample, and each was run twice under the same conditions.
+
+Making the open-question handling general raised open problems caught from 41% to 78% on the working meetings and cut extra questions from 11.5 to 2.6 per meeting. On the hold-out meetings it raised open problems caught from 28% to 50% and cut extra questions from 9.5 to 3.3.
 
 | Meetings | Open problems caught | Extra questions per meeting | Follow-ups caught | Extra follow-ups per meeting |
 | --- | --- | --- | --- | --- |
@@ -411,7 +415,7 @@ Playwright drives the real app in installed Google Chrome:
 | 2 hold-out meetings, before | 28% | 9.5 | 21% | 0 |
 | 2 hold-out meetings, after | 50% | 3.3 | 14% | 0 |
 
-"Extra" items are ones the corpus summary does not list. Many extra follow-ups are real work the summary leaves out, such as checking whether a feature is technically possible. Follow-up detection on the hold-out meetings is lower, because those follow-ups are mostly informal work splits ("you take the interface design") that the notetaker rarely turns into cards.
+Follow-up capture held at 59% on the working meetings and dipped from 21% to 14% on the hold-out meetings. Those follow-ups are mostly informal work splits ("you take the interface design"), which the notetaker does not yet turn into cards. "Extra" items are ones the corpus summary does not list, and many extra follow-ups are real work the summary leaves out, such as checking whether a feature is technically possible.
 
 The full test map, including sessions with real people, is in [How we tested Kaki](docs/testing.md).
 
@@ -435,15 +439,15 @@ The Docker services run as unmodified images beside the code:
 
 Each service runs as a separate process and talks to Kaki over HTTP or its own protocol, so their copyleft terms do not reach Kaki's own code. A change made inside one of those projects would fall under that project's licence. This is our reading, not legal advice.
 
-Meeting audio and transcripts are personal data. A real deployment would need every attendee's consent, a retention limit and a decision on where transcripts are kept. Live audio travels through LiveKit and speech goes to Azure Speech for recognition; transcript text goes to the LLM gateway set in `.env`. With `KAKI_REPLAY=1` the host reads a scripted transcript instead of live audio. Debug audio capture is off unless `NPC_DEBUG_AUDIO_DIR` is set, and that folder is git-ignored.
+Meeting audio and transcripts are personal data. A team deploying Kaki should tell every attendee and get their consent, set a retention limit and decide where transcripts are kept. Any meeting can go off the record, and a user can delete their account and its data (`server/src/account/deleteAccountData.ts`). Live audio travels through LiveKit and speech goes to Azure Speech for recognition; transcript text goes to the LLM gateway set in `.env`. With `KAKI_REPLAY=1` the host reads a scripted transcript instead of live audio. Debug audio capture is off unless `NPC_DEBUG_AUDIO_DIR` is set, and that folder is git-ignored.
 
-Nanyang Kopi & Toast, its people, records, email addresses and credentials are fictional. The `demo` / `demo` logins are local development values.
+Nanyang Kopi & Toast, its people, records, email addresses and credentials are fictional. The `demo` / `demo` logins are shared accounts on the hosted stack and on a local stack, and they reach only that fictional data.
 
 No keys are committed. `.env` is git-ignored, `.env.example` lists the key names with empty values, and the seed writes the generated Gitea and Mattermost tokens to the git-ignored `docker/.env`. The browser never receives an LLM, Azure or service token.
 
 ## Borrowed code and credits
 
-No code was copied from other projects, tutorials or repositories. The team wrote the code with the help of AI coding assistants (Claude Code and others), and all design decisions and final code are our own responsibility. Kaki uses the open-source libraries and services listed in [Open source and licensing](#open-source-and-licensing) under their licences.
+We wrote Kaki with AI coding assistants (Claude Code and others) and reviewed and own every design decision and line of code. No code was copied from other projects. Kaki uses the open-source libraries and services listed in [Open source and licensing](#open-source-and-licensing) under their licences.
 
 | External service or data | Used for |
 | --- | --- |
@@ -474,32 +478,32 @@ Zoom's retrieval works across Zoom and connected apps, and Read.ai can also send
 Kaki's advantage is that it treats a meeting as several people with different jobs, where competitors treat it as one recording:
 
 - **Help that belongs to one seat.** Each person's wingman sees their own role and to-dos and answers from the meeting first, then from workspace records with sources and dates. Other seats never see it, and guests get answers from the meeting only, so a visitor cannot pull company records.
-- **Follow-ups that reach the right person.** The host turns a spoken commitment into a card with the line that proves it, the owner hands it to a seat, and only that seat sees it. Competitors list action items for everyone to read.
-- **Nothing is written without its owner.** Every issue, post, email, page and calendar event is drafted, checked against its source, and written only after the person responsible approves it. The minutes need approval too.
-- **Practice before the real thing.** A newcomer can rehearse a meeting with AI colleagues at `/practice`, with no account. None of the products above offers this.
+- **Follow-ups that reach the right person.** The host turns a spoken commitment into a card with the line that proves it, the owner hands it to a seat, and only that seat sees it. In the sources reviewed, competitors list action items for the whole meeting.
+- **Nothing is written without its owner's approval.** In Kaki, every issue, post, email, page and calendar event is drafted, checked against its source, and written only after the person responsible approves it. The minutes need approval too.
+- **Practice before the real thing.** A newcomer can rehearse a meeting with AI colleagues at `/practice`, with no account. None of the products reviewed here offers a practice meeting.
 - **Open and self-hostable.** Kaki is AGPL-3.0 and runs next to a team's own Gitea, Mattermost and Wiki.js, so meeting data stays on the team's servers.
 
-Competitors are ahead on scale: support for Zoom, Teams and Meet calls, transcription in many languages, a large catalogue of integrations, and enterprise security certification. Kaki is aimed at small teams that want private, accountable help in their own meetings and keep their tools in-house.
+Kaki does not yet run inside Zoom, Teams or Meet calls, transcribe many languages, offer a large catalogue of integrations or hold enterprise security certification. It is built for small teams that keep their tools in-house and want private, accountable help in their own meetings.
 
 ## Business model
 
-The recommended model is open core.
+The planned model is open core.
 
 - Publish the meeting protocol, host, wingman and web client under AGPL-3.0, and keep the hosted service, support and enterprise connectors commercial. AGPL requires anyone who offers a modified Kaki over a network to publish its source, so a closed hosted fork would need the commercial licence. Apache-2.0 would ease adoption but allow a closed fork.
 - Customers are small teams that already self-host or pay for Gitea, Mattermost or similar tools and lose follow-ups after meetings.
 - Charge a monthly subscription per host, with a free tier of a few meetings a month. Self-hosting is free; the managed service, support and team features are paid.
 - The main costs are speech recognition and synthesis minutes, LLM calls for the notetaker, verifier, search and conversation, and hosting for the meeting server and NPC runner.
-- Register the Kaki name and logo as trademarks, require a contributor licence agreement so all code can be relicensed commercially, and keep proprietary features such as SSO, audit logs and an admin console out of the open repository.
+- Register the Kaki name and logo as trademarks, require a contributor licence agreement so all code can be relicensed commercially, and keep planned paid features such as SSO, audit logs and an admin console out of the open repository.
 
 ## Project management
 
 Work is tracked in GitHub issues for `IT5007-2610/it5007-courseproject-group-14`, read and updated with the `gh` CLI. Labels follow five triage roles: `ready-for-agent`, `needs-triage`, `needs-info`, `ready-for-human` and `wontfix`. Commit messages carry the issue number.
 
-The plan ran in phases: the core stack and protocol, then the three agents, then the live meeting. Each phase closed with review rounds on architecture, security and how real people use the product. Findings became issues and fixes, and notes from testers became issues and then automated playtests, as described in [How we tested Kaki](docs/testing.md).
+The plan ran in phases: the core stack and protocol, then the three agents, then the live meeting. Each phase closed with review rounds on architecture, security and how real people use the product. Findings became issues and fixes, and notes from testers became issues and then automated playtests, as described in [How we tested Kaki](docs/testing.md). The table summarises the main issues in our own words.
 
-| Issue | Title |
+| Issue | Summary |
 | --- | --- |
-| [#2](https://github.com/IT5007-2610/it5007-courseproject-group-14/issues/2) | [Core] Docker Compose Stack & Mock Multi-Source Knowledge Bases |
+| [#2](https://github.com/IT5007-2610/it5007-courseproject-group-14/issues/2) | Docker Compose stack and seeded company knowledge |
 | [#6](https://github.com/IT5007-2610/it5007-courseproject-group-14/issues/6) | [Wingman] Multi-Role Participant Client & Role-Based Private Nudge Engine |
 | [#8](https://github.com/IT5007-2610/it5007-courseproject-group-14/issues/8) | [Action] Background Worker Runtime & Gitea Issue Creation Tool |
 | [#10](https://github.com/IT5007-2610/it5007-courseproject-group-14/issues/10) | [Integration] Human-in-the-Loop Task Dispatch to Sync-Back Flow |

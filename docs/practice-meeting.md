@@ -131,4 +131,4 @@ Unset it for a normal run; an unknown value stops the runner at startup (`server
 
 - Unit tests cover the conversation, Director, detector, gate, recorder and playback with fakes.
 - `LIVEKIT_E2E=1 npx vitest run server/test/npc/livekit.e2e.test.ts` (needs `npm run stack:up`) runs the real runner against a real LiveKit server with a fake person, a scripted model and a fake voice, including echo and barge-in.
-- No test covers Azure itself, the real model, real room acoustics, a browser's echo cancellation or the orbs on real LiveKit tiles. Those need a live run with a microphone.
+- Azure Speech, the real model, room acoustics, browser echo cancellation and the orbs on real LiveKit tiles are checked in live sessions with a microphone.
