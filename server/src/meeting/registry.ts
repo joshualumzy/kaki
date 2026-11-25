@@ -7,12 +7,27 @@ import type { MeetingInstance } from './instance';
 import { removeCalendarEventForCancelledMeeting } from './calendarEvent';
 import { agendaFromStored } from './agenda';
 import { SAMPLE_WORKSPACE_ID } from '../workspace/constants';
-import type { AgendaItem, ArchivedMeetingTodo, MeetingMinutesArchive, MeetingRow, MeetingStatus } from './types';
+import {
+  meetingStatusNow,
+  type AgendaItem,
+  type ArchivedMeetingTodo,
+  type MeetingMinutesArchive,
+  type MeetingRow,
+  type MeetingStatus,
+} from './types';
 
 /** A registry refusal the HTTP layer turns into a 503 with this exact message. */
 export class MeetingBusyError extends Error {
   readonly code = 'busy';
   constructor(message = 'Kaki is running as many meetings as it can right now. Try again in a few minutes.') {
+    super(message);
+  }
+}
+
+/** A scheduled-plan change refused because the meeting has already started (or is starting). */
+export class MeetingOpenError extends Error {
+  readonly code = 'open';
+  constructor(message = 'This meeting is open now. End it from the list instead.') {
     super(message);
   }
 }
@@ -43,7 +58,7 @@ export interface MeetingStore {
   }): Promise<MeetingRow>;
   get(id: string): Promise<MeetingRow | undefined>;
   list(workspaceId: string): Promise<MeetingRow[]>;
-  /** Change a scheduled meeting's plan; undefined when the row is gone. */
+  /** Change a meeting's plan; undefined when the row is gone or `onlyIfScheduled` no longer holds. */
   update?(
     id: string,
     patch: {
@@ -52,12 +67,19 @@ export interface MeetingStore {
       scheduledFor?: string;
       pace?: MeetingPace;
     },
+    options?: { onlyIfScheduled?: boolean },
   ): Promise<MeetingRow | undefined>;
   /**
    * Delete one meeting and everything tied to it: its saved state, seat claims and its knowledge
-   * chunk. Returns false when the row was already gone.
+   * chunk. Returns false when the row was already gone or `onlyIfScheduled` no longer holds.
    */
-  delete?(id: string): Promise<boolean>;
+  delete?(id: string, options?: { onlyIfScheduled?: boolean }): Promise<boolean>;
+  /**
+   * Persist a meeting's transition from scheduled to open the moment it starts (even early), so a
+   * live room can never still be edited or cancelled as if it had not begun. Returns true when the
+   * row is (now) open, false when it is gone or already ended.
+   */
+  markOpen?(id: string): Promise<boolean>;
   /** Every meeting row this account owns, whatever its status. */
   listByOwner?(ownerUserId: string): Promise<MeetingRow[]>;
   /**
@@ -107,6 +129,7 @@ export interface MeetingRegistry {
     title: string;
     scheduledFor?: string;
     agenda?: AgendaItem[];
+    pace?: MeetingPace;
   }): Promise<MeetingRow>;
   /** The loaded instance, or one rebuilt from its row; undefined when no such meeting exists. */
   get(id: string): Promise<MeetingInstance | undefined>;
@@ -132,8 +155,20 @@ export interface MeetingRegistry {
   /** Delete a cancelled meeting and everything it left behind. */
   cancel(id: string): Promise<void>;
   /**
+   * Persist that a real meeting has started. Serialized with edit, cancel and load, so a meeting
+   * can never be edited or deleted in the same instant its first Start moves it to open.
+   * Returns false when the row is gone or already ended.
+   */
+  markStarted(id: string): Promise<boolean>;
+  /**
+   * Run one operation under a meeting's lifecycle lock. The instance uses it to serialize its
+   * own Start transition with the registry's edit, cancel and load paths.
+   */
+  serialize<T>(id: string, task: () => Promise<T>): Promise<T>;
+  /**
    * End an open meeting now, from outside its room: a running meeting ends normally with its
-   * minutes, a lobby that never started is torn down, and an unloaded row is simply marked ended.
+   * minutes, a lobby that never started is torn down, and an unloaded row is restored and ended
+   * through that same lifecycle so its minutes are finalized.
    */
   endMeeting(id: string): Promise<'ended' | 'not-found' | 'starting'>;
   /**
@@ -262,6 +297,8 @@ export function createMeetingRegistry(deps: MeetingRegistryDeps): MeetingRegistr
   const creating = new Map<string, Promise<unknown>>();
   const persistences = new Map<string, MeetingPersistence>();
   const loading = new Map<string, Promise<MeetingInstance | undefined>>();
+  /** One lifecycle operation at a time per meeting: load, edit, cancel, end and Start. */
+  const meetingLocks = new Map<string, Promise<unknown>>();
   /** Practice instances being built right now, so two simultaneous opens cannot both slip under the cap. */
   let practiceCreating = 0;
   let closed = false;
@@ -312,6 +349,20 @@ export function createMeetingRegistry(deps: MeetingRegistryDeps): MeetingRegistr
   }
 
   /**
+   * Run one meeting's lifecycle operations in turn. A load, an edit, a cancel, an end and the
+   * Start transition all take this lock, so none can inspect the room and then act on a meeting
+   * another of them changed underneath it.
+   */
+  function withMeetingLock<T>(id: string, task: () => Promise<T>): Promise<T> {
+    const previous = meetingLocks.get(id) ?? Promise.resolve();
+    const run = previous.catch(() => undefined).then(task);
+    meetingLocks.set(id, run);
+    return run.finally(() => {
+      if (meetingLocks.get(id) === run) meetingLocks.delete(id);
+    });
+  }
+
+  /**
    * A signed-in practice's row is kept for its minutes, so once the practice ends or is unloaded
    * mark it ended; otherwise abandoned practices pile up as open rows in the sample workspace.
    */
@@ -342,12 +393,43 @@ export function createMeetingRegistry(deps: MeetingRegistryDeps): MeetingRegistr
     deps.onWorkspaceClosed?.(instance.workspaceId);
   }
 
-  async function load(id: string): Promise<MeetingInstance | undefined> {
+  /** Let go of a meeting that was built but must never reach the registry. */
+  async function discardBuilt(
+    id: string,
+    instance: MeetingInstance,
+    persistence: MeetingPersistence | undefined,
+  ): Promise<void> {
+    persistences.delete(id);
+    try {
+      await instance.dispose();
+    } catch (error) {
+      log(`kaki meetings: disposing the unregistered meeting ${id} failed: ${String(error)}`);
+    }
+    await persistence?.close().catch((error: unknown) =>
+      log(`kaki meetings: closing the saved meeting ${id} failed: ${String(error)}`),
+    );
+  }
+
+  /** Save and dispose a loaded meeting. Callers hold this meeting's lifecycle lock. */
+  async function unloadLocked(id: string): Promise<void> {
+    const instance = loaded.get(id);
+    if (instance === undefined) return;
+    await closeInstance(instance);
+  }
+
+  /**
+   * Build and register one meeting. Callers hold this meeting's lifecycle lock, so an edit or a
+   * cancel cannot slip between reading the row and registering the instance.
+   */
+  async function loadUnlocked(
+    id: string,
+    options: { skipQuota?: boolean } = {},
+  ): Promise<MeetingInstance | undefined> {
     if (closed) throw new Error('the meeting registry is closed');
     const row = await deps.store.get(id);
     if (row === undefined) return undefined;
     // An ended meeting is served for its room and minutes; it never takes a server-wide slot.
-    if (row.status !== 'ended' && openCount() >= maxOpen) {
+    if (options.skipQuota !== true && row.status !== 'ended' && openCount() >= maxOpen) {
       log(`kaki meetings: refusing to open ${id}: ${openCount()} meetings are already open`);
       throw new MeetingBusyError();
     }
@@ -358,7 +440,7 @@ export function createMeetingRegistry(deps: MeetingRegistryDeps): MeetingRegistr
     if (slotOwner !== undefined) {
       const alreadyOpen =
         openForOwner(slotOwner) + (loadingOwners.get(slotOwner) ?? 0);
-      if (alreadyOpen >= maxOpenPerUser) {
+      if (options.skipQuota !== true && alreadyOpen >= maxOpenPerUser) {
         log(
           `kaki meetings: refusing to open ${id}: its owner already has ${alreadyOpen} meetings open`,
         );
@@ -372,8 +454,24 @@ export function createMeetingRegistry(deps: MeetingRegistryDeps): MeetingRegistr
       const persistence = await deps.persistenceFor?.(id);
       if (persistence !== undefined) persistences.set(id, persistence);
       const instance = await deps.buildInstance(row, persistence);
+      // The build may have taken long enough for the meeting to end or be cancelled. Recheck the
+      // row before registering, so a terminal meeting never appears as an open instance.
+      const current = await deps.store.get(id);
+      // Discard a load whose meeting ended (or was cancelled) while it was building, unless the
+      // instance itself came back ended: that is the minutes review an ended meeting is kept for.
+      const instanceEnded = instance.session.phase() === 'ended';
+      if (
+        current === undefined ||
+        (row.status !== 'ended' && current.status === 'ended' && !instanceEnded)
+      ) {
+        await discardBuilt(id, instance, persistence);
+        return undefined;
+      }
       loaded.set(id, instance);
-      if (slotOwner !== undefined) owners.set(id, slotOwner);
+      // An instance that came back ended is serving its minutes review, not holding an open slot.
+      if (slotOwner !== undefined && current.status !== 'ended' && !instanceEnded) {
+        owners.set(id, slotOwner);
+      }
       deps.onOpened?.(openMeeting(instance));
       deps.onWorkspaceOpened?.(instance.workspaceId);
       return instance;
@@ -387,7 +485,7 @@ export function createMeetingRegistry(deps: MeetingRegistryDeps): MeetingRegistr
   }
 
   const registry: MeetingRegistry = {
-    async create({ workspaceId, ownerUserId, title, scheduledFor, agenda }) {
+    async create({ workspaceId, ownerUserId, title, scheduledFor, agenda, pace }) {
       const cleanTitle = title.trim();
       if (cleanTitle === '') throw new Error('a meeting needs a title');
       const scheduledAt = scheduledFor === undefined ? undefined : Date.parse(scheduledFor);
@@ -412,6 +510,7 @@ export function createMeetingRegistry(deps: MeetingRegistryDeps): MeetingRegistr
           status,
           ...(scheduledFor === undefined ? {} : { scheduledFor }),
           ...(agenda === undefined ? {} : { agenda }),
+          ...(pace === undefined ? {} : { pace }),
         });
       });
     },
@@ -421,9 +520,13 @@ export function createMeetingRegistry(deps: MeetingRegistryDeps): MeetingRegistr
       if (open !== undefined) return open;
       const pending = loading.get(id);
       if (pending !== undefined) return pending;
-      const loadPromise = load(id).finally(() => loading.delete(id));
+      const loadPromise = withMeetingLock(id, () => loadUnlocked(id));
       loading.set(id, loadPromise);
-      return loadPromise;
+      try {
+        return await loadPromise;
+      } finally {
+        if (loading.get(id) === loadPromise) loading.delete(id);
+      }
     },
 
     async findByCode(code) {
@@ -500,57 +603,125 @@ export function createMeetingRegistry(deps: MeetingRegistryDeps): MeetingRegistr
     list: (workspaceId) => deps.store.list(workspaceId),
 
     async updateScheduled(id, patch) {
-      if (deps.store.update === undefined) {
+      const update = deps.store.update;
+      if (update === undefined) {
         throw new Error('the meetings store cannot update a meeting');
       }
-      const row = await deps.store.update(id, patch);
-      // A lobby may already be loaded (someone opened the link early). Dropping it means the next
-      // opening is built from the edited row rather than a stale plan.
-      if (row !== undefined && loaded.has(id)) await registry.unload(id);
-      return row;
+      return withMeetingLock(id, async () => {
+        const existing = await deps.store.get(id);
+        if (existing === undefined) return undefined;
+        const instance = loaded.get(id);
+        // A loaded room that has begun starting or running is open now, whatever the row's schedule
+        // says; changing its plan would unload the very room people are in.
+        if (instance !== undefined && instance.session.phase() !== 'lobby') {
+          throw new MeetingOpenError();
+        }
+        if (meetingStatusNow(existing, now()) !== 'scheduled') throw new MeetingOpenError();
+        const row = await update(id, patch, { onlyIfScheduled: true });
+        if (row === undefined) {
+          const current = await deps.store.get(id);
+          if (current === undefined) return undefined;
+          throw new MeetingOpenError();
+        }
+        // A lobby may already be loaded (someone opened the link early). Rebase its saved draft and
+        // agenda onto the edited row, then drop it, so the next opening validates against the new
+        // plan instead of a stale snapshot that still names the old topics or pace.
+        if (instance !== undefined) {
+          instance.rebaseScheduledPlan?.(row);
+          await unloadLocked(id);
+        }
+        return row;
+      });
+    },
+
+    async markStarted(id) {
+      const markOpen = deps.store.markOpen;
+      if (markOpen === undefined) {
+        throw new Error('the meetings store cannot mark a meeting open');
+      }
+      return withMeetingLock(id, async () => {
+        const row = await deps.store.get(id);
+        if (row === undefined || row.status === 'ended') return false;
+        await markOpen(id);
+        return true;
+      });
+    },
+
+    serialize<T>(id: string, task: () => Promise<T>): Promise<T> {
+      return withMeetingLock(id, task);
     },
 
     async cancel(id) {
-      if (deps.store.delete === undefined) {
+      const remove = deps.store.delete;
+      if (remove === undefined) {
         throw new Error('the meetings store cannot delete a meeting');
       }
-      const row = await deps.store.get(id);
-      if (row === undefined) return;
-      const instance = loaded.get(id);
-      if (instance !== undefined) await registry.unload(id);
-      // Round 3 removes the calendar event here; the hook is named now so cancellation owns it.
-      await removeCalendarEventForCancelledMeeting({
-        meetingId: row.id,
-        workspaceId: row.workspaceId,
-        ownerUserId: row.ownerUserId,
-        title: row.title,
-        scheduledFor: row.scheduledFor,
+      await withMeetingLock(id, async () => {
+        const row = await deps.store.get(id);
+        if (row === undefined) return;
+        const instance = loaded.get(id);
+        if (instance !== undefined && instance.session.phase() !== 'lobby') {
+          throw new MeetingOpenError('This meeting is open now. End it instead of cancelling it.');
+        }
+        if (meetingStatusNow(row, now()) !== 'scheduled') {
+          throw new MeetingOpenError('This meeting is open now. End it instead of cancelling it.');
+        }
+        if (instance !== undefined) await unloadLocked(id);
+        // Round 3 removes the calendar event here; the hook is named now so cancellation owns it.
+        await removeCalendarEventForCancelledMeeting({
+          meetingId: row.id,
+          workspaceId: row.workspaceId,
+          ownerUserId: row.ownerUserId,
+          title: row.title,
+          scheduledFor: row.scheduledFor,
+        });
+        await deps.releaseMeeting?.(id);
+        const deleted = await remove(id, { onlyIfScheduled: true });
+        if (!deleted && (await deps.store.get(id)) !== undefined) {
+          throw new MeetingOpenError('This meeting is open now. End it instead of cancelling it.');
+        }
       });
-      await deps.releaseMeeting?.(id);
-      await deps.store.delete(id);
     },
 
     async endMeeting(id) {
-      const row = await deps.store.get(id);
-      if (row === undefined) return 'not-found';
-      const instance = loaded.get(id);
-      if (instance !== undefined) {
-        if (instance.session.phase() === 'starting') return 'starting';
-        if (instance.session.phase() === 'running' && !instance.session.abandoned()) {
+      return withMeetingLock(id, async () => {
+        const row = await deps.store.get(id);
+        if (row === undefined) return 'not-found';
+        let instance = loaded.get(id);
+        // No instance here, but a saved session may still be running (for example after a restart).
+        // Restore it and end it through the normal lifecycle, so its minutes are finalized exactly
+        // as a room end would, rather than merely marking the row ended.
+        if (instance === undefined && row.status !== 'ended') {
+          instance = await loadUnlocked(id, { skipQuota: true });
+        }
+        if (instance === undefined) {
+          const endedAt = new Date(now()).toISOString();
+          await deps.store.markEnded?.(id, endedAt);
+          owners.delete(id);
+          return 'ended';
+        }
+        const phase = instance.session.phase();
+        if (phase === 'starting') return 'starting';
+        if (phase === 'running' && !instance.session.abandoned()) {
           if (instance.hub.handleServerCommand === undefined) {
             throw new Error('this meeting cannot be ended from the list');
           }
           // The shared screen is the host's channel; ending this way writes the minutes like any end.
           await instance.hub.handleServerCommand({ type: 'END_MEETING' }, { kind: 'screen' });
-        } else {
+          // Keep the ended snapshot, then let the minutes the end scheduled finish writing.
+          await instance.persistence?.flush();
+        } else if (phase !== 'ended') {
           // A lobby that never started has no clock or minutes, so tearing the room down is its end.
-          await registry.unload(id);
+          await unloadLocked(id);
         }
-      }
-      const endedAt = new Date(now()).toISOString();
-      await deps.store.markEnded?.(id, endedAt);
-      owners.delete(id);
-      return 'ended';
+        const endedAt = new Date(now()).toISOString();
+        const current = await deps.store.get(id);
+        if (current !== undefined && current.status !== 'ended') {
+          await deps.store.markEnded?.(id, endedAt);
+        }
+        owners.delete(id);
+        return 'ended';
+      });
     },
 
     async endOwnedBy(userId, workspaceIds) {
@@ -620,9 +791,7 @@ export function createMeetingRegistry(deps: MeetingRegistryDeps): MeetingRegistr
     },
 
     async unload(id) {
-      const instance = loaded.get(id);
-      if (instance === undefined) return;
-      await closeInstance(instance);
+      await withMeetingLock(id, () => unloadLocked(id));
     },
 
     noteEnded(id) {
@@ -841,7 +1010,7 @@ export function createPostgresMeetingStore(pool: Pool): MeetingStore {
       );
       return result.rows[0] === undefined ? undefined : row(result.rows[0]);
     },
-    async update(id, patch) {
+    async update(id, patch, options = {}) {
       await ensureMeetingsSchema(pool);
       const columns: string[] = [];
       const values: unknown[] = [id];
@@ -863,19 +1032,26 @@ export function createPostgresMeetingStore(pool: Pool): MeetingStore {
       }
       if (columns.length === 0) return this.get?.(id);
       const result = await pool.query(
-        `update meetings set ${columns.join(', ')} where id = $1
+        `update meetings set ${columns.join(', ')} where id = $1${
+          options.onlyIfScheduled === true ? " and status = 'scheduled'" : ''
+        }
          returning id, workspace_id, owner_user_id, title, kind, status, scheduled_for, agenda, pace, created_at, ended_at,
                    minutes_text, minutes_todos, minutes_archived_at`,
         values,
       );
       return result.rows[0] === undefined ? undefined : row(result.rows[0]);
     },
-    async delete(id) {
+    async delete(id, options = {}) {
       await ensureMeetingsSchema(pool);
       const client = await pool.connect();
       try {
         await client.query('begin');
-        const deleted = await client.query('delete from meetings where id = $1 returning id', [id]);
+        const deleted = await client.query(
+          `delete from meetings where id = $1${
+            options.onlyIfScheduled === true ? " and status = 'scheduled'" : ''
+          } returning id`,
+          [id],
+        );
         if ((deleted.rowCount ?? 0) === 0) {
           await client.query('rollback');
           return false;
@@ -920,6 +1096,19 @@ export function createPostgresMeetingStore(pool: Pool): MeetingStore {
         "update meetings set status = 'ended', ended_at = $2 where id = $1 and status <> 'ended'",
         [id, endedAt],
       );
+    },
+    async markOpen(id) {
+      await ensureMeetingsSchema(pool);
+      const result = await pool.query(
+        "update meetings set status = 'open' where id = $1 and status = 'scheduled' returning id",
+        [id],
+      );
+      if ((result.rowCount ?? 0) > 0) return true;
+      const current = await pool.query<{ status: string }>(
+        'select status from meetings where id = $1',
+        [id],
+      );
+      return current.rows[0]?.status !== undefined && current.rows[0].status !== 'ended';
     },
     async transferScheduledOwnership({ workspaceId, fromUserId, toUserId }) {
       await ensureMeetingsSchema(pool);
@@ -1047,9 +1236,10 @@ export function createMemoryMeetingStore(): MeetingStore & { rows: Map<string, M
     async get(id) {
       return rows.get(id);
     },
-    async update(id, patch) {
+    async update(id, patch, options = {}) {
       const meeting = rows.get(id);
       if (meeting === undefined) return undefined;
+      if (options.onlyIfScheduled === true && meeting.status !== 'scheduled') return undefined;
       const next: MeetingRow = {
         ...meeting,
         ...(patch.title === undefined ? {} : { title: patch.title }),
@@ -1060,13 +1250,23 @@ export function createMemoryMeetingStore(): MeetingStore & { rows: Map<string, M
       rows.set(id, next);
       return next;
     },
-    async delete(id) {
+    async delete(id, options = {}) {
+      const meeting = rows.get(id);
+      if (meeting === undefined) return false;
+      if (options.onlyIfScheduled === true && meeting.status !== 'scheduled') return false;
       return rows.delete(id);
     },
     async markEnded(id, endedAt) {
       const meeting = rows.get(id);
       if (meeting === undefined) return;
+      if (meeting.status === 'ended') return;
       rows.set(id, { ...meeting, status: 'ended', endedAt });
+    },
+    async markOpen(id) {
+      const meeting = rows.get(id);
+      if (meeting === undefined || meeting.status === 'ended') return false;
+      if (meeting.status === 'scheduled') rows.set(id, { ...meeting, status: 'open' });
+      return true;
     },
     async transferScheduledOwnership({ workspaceId, fromUserId, toUserId }) {
       for (const [id, meeting] of rows) {

@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { defaultMeetingSetup } from '@kaki/shared';
-import { realBaseScenario, realMeetingScenario, realMeetingSetup, userRoomIdentity } from '../../src/meeting/realMeeting';
+import { defaultMeetingSetup, parseScenario } from '@kaki/shared';
+import {
+  realBaseScenario,
+  realMeetingScenario,
+  realMeetingSetup,
+  realScenarioWithPeople,
+  userRoomIdentity,
+} from '../../src/meeting/realMeeting';
 
 const base = realBaseScenario({
   id: 'owner-test', title: 'Planning', ownerUserId: null,
@@ -12,6 +18,28 @@ const holders = [
 ];
 
 describe('real agenda owner identity', () => {
+  it('registers every selected owner’s stable seat even before they join', () => {
+    const row = realBaseScenario({
+      id: 'owner-test',
+      title: 'Planning',
+      ownerUserId: 'owner-1',
+      agenda: [{ title: 'Budget', minutes: 5, ownerUserId: 'member-1' }],
+    });
+    expect(row.roles.map((role) => role.id)).toContain(userRoomIdentity('member-1'));
+
+    // The room builds its scenario through this path; an unknown owner role used to fail here.
+    const scenario = realScenarioWithPeople(row, [
+      { name: 'owner', displayName: 'Owner', seat: userRoomIdentity('owner-1') },
+    ]);
+    expect(() =>
+      parseScenario(scenario, {
+        requireOrganisation: false,
+        allowEmptyAgenda: true,
+        allowEmptyRoles: true,
+      }),
+    ).not.toThrow();
+  });
+
   it('turns a member id into their stable seat, not their name', () => {
     const row = realBaseScenario({
       id: 'owner-test',

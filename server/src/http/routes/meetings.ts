@@ -4,7 +4,7 @@ import { readJsonBody, sendJson } from '../http';
 import type { RouteCall } from '../routeCall';
 import type { AuthStore } from '../../auth/store';
 import { parseAgendaInput } from '../../meeting/agenda';
-import { MeetingBusyError } from '../../meeting/registry';
+import { MeetingBusyError, MeetingOpenError } from '../../meeting/registry';
 import { meetingStatusNow, type AgendaItem, type MeetingRow } from '../../meeting/types';
 import { SAMPLE_WORKSPACE_ID } from '../../workspace/constants';
 import { SAMPLE_WORKSPACE } from '../../workspace/sample';
@@ -426,10 +426,18 @@ export async function handleUpdateMeeting(call: RouteCall): Promise<void> {
     sendJson(response, 500, { error: 'Meeting storage is unavailable.' });
     return;
   }
-  const updated = await registry.updateScheduled(id, patch);
-  if (updated === undefined) {
-    sendJson(response, 404, { error: 'Meeting not found.' });
-    return;
+  try {
+    const updated = await registry.updateScheduled(id, patch);
+    if (updated === undefined) {
+      sendJson(response, 404, { error: 'Meeting not found.' });
+      return;
+    }
+  } catch (error) {
+    if (error instanceof MeetingOpenError) {
+      sendJson(response, 409, { error: error.message });
+      return;
+    }
+    throw error;
   }
   sendJson(response, 200, { ok: true });
 }
@@ -460,7 +468,15 @@ export async function handleCancelMeeting(call: RouteCall): Promise<void> {
     sendJson(response, 500, { error: 'Meeting storage is unavailable.' });
     return;
   }
-  await registry.cancel(id);
+  try {
+    await registry.cancel(id);
+  } catch (error) {
+    if (error instanceof MeetingOpenError) {
+      sendJson(response, 409, { error: error.message });
+      return;
+    }
+    throw error;
+  }
   sendJson(response, 200, { ok: true });
 }
 

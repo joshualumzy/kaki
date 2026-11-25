@@ -545,6 +545,14 @@ export async function createApp({
         registry.noteEnded(row.id);
         await meetings.markEnded?.(row.id, endedAt);
       },
+      onStarted: async () => {
+        // The row becomes open in the same serialized step as the Start transition, so an early
+        // Start can never leave a scheduled row that is still editable or cancellable.
+        if (!(await registry.markStarted(row.id))) {
+          throw new Error('the meeting is no longer open to start');
+        }
+      },
+      serializeLifecycle: (task) => registry.serialize(row.id, task),
       onMinutes: async (archive) => {
         await meetings.saveMinutes?.(row.id, archive);
       },

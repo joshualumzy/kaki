@@ -34,10 +34,26 @@ export function realBaseScenario(
     row.ownerUserId === null
       ? []
       : [{ id: identitySeat(`user:${row.ownerUserId}`), label: 'Owner', facilitator: true }];
+  // Every selected agenda owner needs their stable seat registered, whether or not they have joined.
+  // The agenda names their seat as its owner role, and a role the scenario does not know fails
+  // validation, so registering only the meeting owner would stop the room loading.
+  const agendaOwnerRoles: ScenarioRole[] = [
+    ...new Set(
+      row.agenda.flatMap((item) =>
+        item.ownerUserId === undefined || item.ownerUserId === row.ownerUserId
+          ? []
+          : [item.ownerUserId],
+      ),
+    ),
+  ].map((userId) => ({ id: userRoomIdentity(userId), label: 'Agenda owner' }));
   return {
     id: `real-${row.id}`,
     meetingTitle: row.title,
-    roles: [{ id: REAL_BASE_ROLE, label: REAL_BASE_LABEL }, ...ownerRole],
+    roles: [
+      { id: REAL_BASE_ROLE, label: REAL_BASE_LABEL },
+      ...ownerRole,
+      ...agendaOwnerRoles,
+    ],
     attendees: [],
     agenda,
     joinSeats: [],

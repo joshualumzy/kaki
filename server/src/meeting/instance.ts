@@ -100,6 +100,11 @@ export interface MeetingInstance {
   connectedPeople(): number;
   /** The code people type to join this meeting right now. */
   meetingCode(): string;
+  /**
+   * Rebase an unstarted lobby onto an edited row, so its saved draft, agenda and pace match the
+   * plan the next opening will use. A room that has begun starting or running is left untouched.
+   */
+  rebaseScheduledPlan(row: MeetingRow): void;
   /** Stop modules, close the hub and room poll, and save the meeting. */
   dispose(): Promise<void>;
 }
@@ -149,6 +154,16 @@ export interface MeetingInstanceDeps {
   runnerPresence?: RunnerPresence;
   /** Record that this meeting's row is over. */
   onEnded?: (endedAt: string) => Promise<void>;
+  /**
+   * Record that the meeting has really started, before Start commits. Throws when the row is gone
+   * or already ended, so a Start can never run a meeting that was cancelled in the same instant.
+   */
+  onStarted?: () => Promise<void>;
+  /**
+   * Run this meeting's Start transition under its registry lifecycle lock, so an edit, cancel or
+   * load cannot interleave between the phase checks and the transition itself.
+   */
+  serializeLifecycle?: <T>(task: () => Promise<T>) => Promise<T>;
   /** Keep Kaki's own copy of the minutes with the meeting row; absent for the sample practice meeting. */
   onMinutes?: (archive: { minutes: string; todos: ArchivedMeetingTodo[] }) => Promise<void>;
 }
@@ -189,6 +204,8 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
     ownerName,
     runnerPresence,
     onEnded,
+    onStarted,
+    serializeLifecycle,
     onMinutes,
   } = deps;
   const runnerKind: 'real' | 'practice' = kind;
@@ -1558,6 +1575,28 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
           console.warn(`[start] refused to start meeting ${meetingId}: the meeting changed while it was starting`);
           return resetDuringStart();
         }
+        // Persist that the meeting is open before it commits to running. An early Start must turn a
+        // scheduled row open at once, so it can never be edited or cancelled as if it had not begun.
+        if (runnerKind === 'real' && onStarted !== undefined) {
+          try {
+            await onStarted();
+          } catch (error) {
+            console.warn(`[start] meeting ${meetingId} could not be marked open: ${String(error)}`);
+            return failed(
+              {
+                status: 409,
+                body: {
+                  error: 'This meeting was ended or cancelled while it was starting. Open it again from the list.',
+                  retryable: false,
+                },
+              },
+              'the meeting row is no longer open',
+            );
+          }
+          if (meeting.id !== meetingId || session.generation() !== generation || session.phase() !== 'starting') {
+            return resetDuringStart();
+          }
+        }
         // Start commits here: the candidate becomes the active scenario and the draft becomes the seal.
         session.commitStart(startedAt);
         hub.publish(
@@ -1642,7 +1681,10 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
     // The phase flip shares the admission queue with joins: a Start waits for an admission already in
     // flight, and an admission waits for beginStart. Only that atomic step is serialized; the runner
     // acknowledgement runs after the queue is released so joins are not held for its whole window.
-    const queued = admit(
+    // The registry's lifecycle lock encloses the same step, so an edit or cancel cannot check the
+    // row and then act across the moment the meeting becomes starting.
+    const runAtomicStart = () =>
+      admit(
       async (): Promise<StartOutcome | (() => Promise<StartOutcome>)> => {
         if (cancelled) return startTimeoutOutcome();
         // A practice Start is valid only for the exact practice meeting it was granted for. The
@@ -1777,7 +1819,12 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
         session.beginStart(candidate, sealed);
         return () => runStart({ attempt, meetingId, generation, activeAi, deadline });
       },
-    ).then((result) => (typeof result === 'function' ? result() : result));
+    );
+    const atomicStart =
+      serializeLifecycle === undefined ? runAtomicStart() : serializeLifecycle(runAtomicStart);
+    const queued = atomicStart.then((result) =>
+      typeof result === 'function' ? result() : result,
+    );
     return Promise.race([queued, timedOut]).finally(() => {
       if (timeout !== undefined) clearTimeout(timeout);
     });
@@ -2005,6 +2052,23 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
     lastActivityAt: () => lastActivity,
     connectedPeople: () => people,
     meetingCode: () => meetingCode.value,
+    rebaseScheduledPlan(row) {
+      // Only an unstarted lobby can take a new plan; a starting or running room keeps the one it has.
+      if (runnerKind !== 'real' || session.phase() !== 'lobby') return;
+      const base = realBaseScenario(row);
+      const basePlan = defaultMeetingSetup(base);
+      const plan =
+        row.pace === null || row.pace === undefined
+          ? basePlan
+          : { ...basePlan, pace: { ...row.pace } };
+      // Mark it as the owner's edit, so the saved snapshot never keeps a stale shaped lobbyAgenda,
+      // and show the new plan to anyone still in the old lobby until it is unloaded.
+      session.setDraft(plan);
+      session.refreshRealScenario(realScenarioWithPeople(base, session.holders()));
+      // Queue the rebased snapshot now; the registry unloads this lobby straight after, and that
+      // close flushes the queue. Without it the old saved plan would be the one still on record.
+      persistence?.scheduleSave();
+    },
     async dispose() {
       if (disposed) return;
       disposed = true;

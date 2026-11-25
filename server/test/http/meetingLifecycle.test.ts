@@ -200,6 +200,48 @@ describe('meeting lifecycle API', () => {
     expect(openResponse.status).toBe(409);
   });
 
+  it('turns an early-started scheduled meeting open, so it can no longer be edited or cancelled', async () => {
+    const { base, store, meetings } = await buildApp();
+    const owner = await signIn(store, 'Owner');
+    const team = await store.createWorkspace({ name: 'Team', createdBy: owner.user.id });
+    const meeting = await meetings.create({
+      workspaceId: team.workspace.id,
+      ownerUserId: owner.user.id,
+      title: 'Planning',
+      status: 'scheduled',
+      scheduledFor: future(),
+      agenda: [{ title: 'Budget', minutes: 10 }],
+    });
+
+    const joined = await request(base, `/api/meetings/${meeting.id}/livekit/token`, {
+      method: 'POST',
+      cookie: owner.cookie,
+      body: { participantName: 'Owner' },
+    });
+    expect(joined.status).toBe(200);
+    // Joining takes the owner's seat and replaces their session cookie with the host seat session.
+    const seatedCookie = joined.headers.get('set-cookie')?.split(';')[0] ?? owner.cookie;
+    const started = await request(base, `/api/meetings/${meeting.id}/meeting/start`, {
+      method: 'POST',
+      cookie: seatedCookie,
+    });
+    expect(started.status).toBe(200);
+    expect((await meetings.get(meeting.id))?.status).toBe('open');
+
+    const edited = await request(base, `/api/meetings/${meeting.id}`, {
+      method: 'PATCH',
+      cookie: seatedCookie,
+      body: { title: 'Not while live' },
+    });
+    expect(edited.status).toBe(409);
+    const cancelled = await request(base, `/api/meetings/${meeting.id}`, {
+      method: 'DELETE',
+      cookie: seatedCookie,
+    });
+    expect(cancelled.status).toBe(409);
+    expect((await meetings.get(meeting.id))?.title).toBe('Planning');
+  });
+
   it('cancels a scheduled meeting and takes its row and seat claim with it', async () => {
     const { base, store, meetings } = await buildApp();
     const owner = await signIn(store, 'Owner');
@@ -296,6 +338,22 @@ describe('meeting lifecycle API', () => {
     expect(((await response.json()) as { error: string }).error).toBe(
       'This meeting is scheduled. Cancel it instead.',
     );
+  });
+
+  it('keeps the pace chosen when the meeting was created', async () => {
+    const { base, store, meetings } = await buildApp();
+    const owner = await signIn(store, 'Owner');
+    const team = await store.createWorkspace({ name: 'Team', createdBy: owner.user.id });
+    const pace = { quietCheckAfter: 90, comingUpBefore: 45 };
+
+    const response = await request(base, '/api/meetings', {
+      method: 'POST',
+      cookie: owner.cookie,
+      body: { workspaceId: team.workspace.id, title: 'Paced', pace },
+    });
+    expect(response.status).toBe(200);
+    const { id } = (await response.json()) as { id: string };
+    expect((await meetings.get(id))?.pace).toEqual(pace);
   });
 
   it('shows a past scheduled meeting as open and counts each meeting’s to-dos', async () => {

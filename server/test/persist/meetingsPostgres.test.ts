@@ -124,6 +124,41 @@ describe.skipIf(connectionString === undefined)('postgres meeting store agenda',
     expect(counts.rows[0]).toEqual({ states: '0', claims: '0', chunks: '0' });
   });
 
+  it('marks a scheduled meeting open once it starts, atomically', async () => {
+    if (postgres === undefined) throw new Error('POSTGRES_URL is missing');
+    const store = createPostgresMeetingStore(postgres.pool);
+    const meeting = await store.create({
+      workspaceId: `workspace-${randomUUID()}`,
+      ownerUserId: 'owner-1',
+      title: 'Starting early',
+      status: 'scheduled',
+      scheduledFor: new Date(Date.now() + 60 * 60_000).toISOString(),
+    });
+
+    expect(await store.markOpen!(meeting.id)).toBe(true);
+    expect((await store.get(meeting.id))?.status).toBe('open');
+    // Starting again is harmless, but the transition is never undone.
+    expect(await store.markOpen!(meeting.id)).toBe(true);
+    expect((await store.get(meeting.id))?.status).toBe('open');
+  });
+
+  it('refuses a scheduled-only edit or delete once the meeting has started', async () => {
+    if (postgres === undefined) throw new Error('POSTGRES_URL is missing');
+    const store = createPostgresMeetingStore(postgres.pool);
+    const meeting = await store.create({
+      workspaceId: `workspace-${randomUUID()}`,
+      ownerUserId: 'owner-1',
+      title: 'Starting early',
+      status: 'scheduled',
+      scheduledFor: new Date(Date.now() + 60 * 60_000).toISOString(),
+    });
+    await store.markOpen!(meeting.id);
+
+    expect(await store.update!(meeting.id, { title: 'Too late' }, { onlyIfScheduled: true })).toBeUndefined();
+    expect(await store.delete!(meeting.id, { onlyIfScheduled: true })).toBe(false);
+    expect((await store.get(meeting.id))?.title).toBe('Starting early');
+  });
+
   it('stores a meeting with no agenda as an empty list', async () => {
     if (postgres === undefined) throw new Error('POSTGRES_URL is missing');
     const store = createPostgresMeetingStore(postgres.pool);

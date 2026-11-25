@@ -114,6 +114,8 @@ interface RealStartOptions {
   reservationMs?: number;
   meetings?: MeetingStore;
   row?: MeetingRow;
+  /** Give every (re)load its own persistence over the same state store, as the real server does. */
+  freshPersistence?: boolean;
 }
 
 interface RealStarted {
@@ -134,6 +136,7 @@ async function startRealApp({
   reservationMs,
   meetings: existingMeetings,
   row: existingRow,
+  freshPersistence = false,
 }: RealStartOptions = {}): Promise<RealStarted> {
   const meetings = existingMeetings ?? createMemoryMeetingStore();
   const row = existingRow ?? await meetings.create({
@@ -144,12 +147,14 @@ async function startRealApp({
   });
   const saved = savedFor?.(row);
   if (saved !== undefined) store.saved = saved;
-  const persistence = createMeetingPersistence({ store, saved: store.saved, log: () => undefined });
+  const makePersistence = (): MeetingPersistence =>
+    createMeetingPersistence({ store, saved: store.saved, log: () => undefined });
+  const persistence = makePersistence();
   const app = (await createTestApp({
     speechRecognition: 'browser',
     scenario,
     meetings,
-    persistenceFor: async () => persistence,
+    persistenceFor: freshPersistence ? async () => makePersistence() : async () => persistence,
     meetingModules: realModulesWith([createMeetingModule({ notetakerIntervalMs: 60_000 })]),
     roomRoster: async () => roster(),
     rejoinGraceMs: graceMs,
@@ -310,5 +315,62 @@ describe('a restored ended team meeting still under review', () => {
       () => (app.session.reviewingEndedTeamMeeting() === false ? true : undefined),
       'the empty-room expiry to finish the review',
     );
+  });
+});
+
+describe('an edited lobby reopens with the plan the owner saved', () => {
+  it('rebases the saved draft and agenda onto the edited row instead of keeping the old topics', async () => {
+    const meetings = createMemoryMeetingStore();
+    const row = await meetings.create({
+      workspaceId: 'workspace-1',
+      ownerUserId: 'test-owner',
+      title: 'Planning',
+      status: 'scheduled',
+      scheduledFor: new Date(Date.now() + 60 * 60_000).toISOString(),
+      agenda: [{ title: 'Budget', minutes: 10 }],
+    });
+    const { app, store } = await startRealApp({ meetings, row, freshPersistence: true });
+    // The loaded lobby's untouched snapshot names the old agenda, which is exactly what used to
+    // make reopening fail after a rename.
+    await waitFor(
+      () => (store.saved?.lobbyAgenda?.[0] === 'Budget' ? true : undefined),
+      'the loaded lobby to save its agenda',
+    );
+
+    const next = new Date(Date.now() + 2 * 60 * 60_000).toISOString();
+    const updated = await app.registry.updateScheduled(row.id, {
+      title: 'Planning v2',
+      agenda: [{ title: 'Budget v2', minutes: 20 }],
+      pace: { quietCheckAfter: 90, comingUpBefore: 45 },
+      scheduledFor: next,
+    });
+    expect(updated).toMatchObject({ title: 'Planning v2', scheduledFor: next });
+
+    const reopened = await app.registry.get(row.id);
+    expect(reopened).toBeDefined();
+    expect(reopened?.session.active().agenda.map((item) => item.title)).toEqual(['Budget v2']);
+    expect(reopened?.session.draft().pace).toEqual({
+      quietCheckAfter: 90,
+      comingUpBefore: 45,
+    });
+  });
+});
+
+describe('ending a meeting nobody has loaded', () => {
+  it('restores and ends it through the normal lifecycle, saving the ended snapshot', async () => {
+    const { app, store, row } = await startRealApp({
+      savedFor: (meeting) => savedRealRunning(meeting),
+      freshPersistence: true,
+    });
+    await app.registry.unload(row.id);
+    expect(store.saved?.phase).toBe('running');
+
+    const outcome = await app.registry.endMeeting(row.id);
+
+    expect(outcome).toBe('ended');
+    expect(store.saved?.phase).toBe('ended');
+    expect(store.saved?.state.clock.ended).toBe(true);
+    const reopened = await app.registry.get(row.id);
+    expect(reopened?.session.phase()).toBe('ended');
   });
 });
