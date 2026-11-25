@@ -77,15 +77,18 @@ describe('JoinForm', () => {
       },
     });
     const link = (name: string) => screen.getByRole('link', { name }).getAttribute('href');
+    expect(screen.getByRole('navigation', { name: "The practice company's records" })).toBeTruthy();
+    expect(screen.getByText("The practice company's records")).toBeTruthy();
+    expect(screen.getByText(/Already signed in for this practice; if a page asks, use/)).toBeTruthy();
     expect(link('Wiki')).toBe('https://kaki.example.com:8081/en/home');
-    expect(link('Gitea')).toBe('https://kaki.example.com:8082/kopitiam/kopitiam-pos/issues');
-    expect(link('Mattermost')).toContain(
+    expect(link('Code issues')).toBe('https://kaki.example.com:8082/kopitiam/kopitiam-pos/issues');
+    expect(link('Team chat')).toContain(
       'https://kaki.example.com/api/meetings/practice-1/mattermost/open?url=',
     );
-    expect(link('Mattermost')).toContain(
+    expect(link('Team chat')).toContain(
       encodeURIComponent('https://kaki.example.com:8443/kopitiam/channels/kopitiam-launch'),
     );
-    expect(link('Mailpit')).toBe('https://kaki.example.com:8084');
+    expect(link('Email')).toBe('https://kaki.example.com:8084');
     expect(link('Calendar')).toBe(
       'https://kaki.example.com/api/meetings/practice-1/calendar/seed-food-agency-inspection',
     );

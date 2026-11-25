@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MeState } from '../auth/useMe';
 import { NewMeetingPage } from './NewMeetingPage';
@@ -79,13 +79,23 @@ function renderPage(): void {
     <MemoryRouter initialEntries={['/new']}>
       <Routes>
         <Route path="/new" element={<NewMeetingPage />} />
-        <Route path="/signin" element={<p>sign in</p>} />
+        <Route path="/signin" element={<SignInProbe />} />
         <Route path="/practice" element={<p>practice</p>} />
         <Route path="/m/:id/room" element={<p>meeting room</p>} />
         <Route path="/m/:id" element={<p>meeting lobby</p>} />
         <Route path="/workspaces/:id" element={<p>workspace</p>} />
       </Routes>
     </MemoryRouter>,
+  );
+}
+
+function SignInProbe() {
+  const location = useLocation();
+  return (
+    <>
+      <p>sign in</p>
+      <p data-testid="location">{`${location.pathname}${location.search}`}</p>
+    </>
   );
 }
 
@@ -137,6 +147,17 @@ describe('NewMeetingPage', () => {
     });
     expect(bodies[0]).not.toHaveProperty('scheduledFor');
     expect(window.localStorage.getItem(DRAFT_KEY)).toBeNull();
+  });
+
+  it('sends a signed-out visitor to sign in without asking for protected data', async () => {
+    mocks.state = { status: 'ready', me: { authEnabled: true, kind: null } };
+    const fetchMock = installFetch({});
+    renderPage();
+
+    await waitFor(() =>
+      expect(screen.getByTestId('location').textContent).toBe('/signin?next=%2Fnew'),
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('explains what a workspace is beside the picker', async () => {

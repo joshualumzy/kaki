@@ -6,7 +6,7 @@ import './product.css';
 export function NotFoundPage() {
   useDocumentTitle('Page not found · Kaki');
   return (
-    <main className="page product-page product-page-narrow">
+    <main className="page product-page product-page-narrow product-not-found">
       <Card title="Page not found">
         <p className="product-hint">
           This page does not exist. Check the address, or go back to the home page.

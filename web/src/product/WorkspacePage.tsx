@@ -1,7 +1,7 @@
 import { ErrorText } from './ErrorText';
 import { useEffect, useState } from 'react';
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
-import { useMe } from '../auth/useMe';
+import { useSignInGuard } from '../auth/useSignInGuard';
 import { SIGN_IN_ENDED } from '../net/plainFailure';
 import {
   Button,
@@ -110,7 +110,12 @@ export function WorkspacePage() {
   const { id = '' } = useParams();
   const navigate = useNavigate();
   const [authKey, setAuthKey] = useState(0);
-  const auth = useMe(authKey);
+  const guard = useSignInGuard({
+    next: `/workspaces/${id}`,
+    reloadKey: authKey,
+    onRetry: () => setAuthKey((key) => key + 1),
+  });
+  const signedIn = guard.status === 'ready';
   const [reloadKey, setReloadKey] = useState(0);
   const [workspaces, setWorkspaces] = useState<WorkspaceSummary[] | null>(null);
   const [detail, setDetail] = useState<WorkspaceDetail | null>(null);
@@ -148,6 +153,7 @@ export function WorkspacePage() {
   useDocumentTitle(detail === null ? 'Workspace · Kaki' : `${detail.name} · Kaki`);
 
   useEffect(() => {
+    if (!signedIn) return undefined;
     let cancelled = false;
     setWorkspaces(null);
     setDetail(null);
@@ -177,12 +183,13 @@ export function WorkspacePage() {
     return () => {
       cancelled = true;
     };
-  }, [id, reloadKey]);
+  }, [id, reloadKey, signedIn]);
 
   useEffect(() => {
     setInvite(null);
     setInviteError(null);
     setInviteNote(null);
+    if (!signedIn) return undefined;
     if (detail === null || detail.readOnly || detail.kind !== 'team') return undefined;
     const role = workspaces?.find((workspace) => workspace.id === detail.id)?.role;
     if (role !== 'admin') return undefined;
@@ -201,38 +208,9 @@ export function WorkspacePage() {
     return () => {
       cancelled = true;
     };
-  }, [detail, workspaces]);
+  }, [detail, workspaces, signedIn]);
 
-  if (auth.status === 'loading') {
-    return (
-      <main className="page product-page">
-        <p className="empty-state" role="status">
-          Checking sign-in…
-        </p>
-      </main>
-    );
-  }
-
-  if (auth.status === 'error') {
-    return (
-      <main className="page product-page">
-        <Card title="Could not check sign-in">
-          <p className="connection-banner" role="alert">
-            {auth.message}
-          </p>
-          <Button variant="ghost" onClick={() => setAuthKey((key) => key + 1)}>
-            Try again
-          </Button>
-        </Card>
-      </main>
-    );
-  }
-
-  if (!auth.me.authEnabled || auth.me.kind !== 'user') {
-    return (
-      <Navigate to={`/signin?next=${encodeURIComponent(`/workspaces/${id}`)}`} replace />
-    );
-  }
+  if (guard.status !== 'ready') return guard.fallback;
 
   if (loadError === SIGN_IN_ENDED) {
     return (
@@ -240,7 +218,7 @@ export function WorkspacePage() {
     );
   }
 
-  const user = auth.me.user;
+  const user = guard.user;
   const role = workspaces?.find((workspace) => workspace.id === id)?.role;
   const canEdit = role === 'admin' && detail !== null && !detail.readOnly;
   const canManageMeeting = (meeting: MeetingSummary): boolean =>

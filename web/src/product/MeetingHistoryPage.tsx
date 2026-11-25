@@ -1,7 +1,7 @@
 import { ErrorText } from './ErrorText';
 import { useEffect, useState } from 'react';
 import { Link, Navigate, useParams } from 'react-router-dom';
-import { useMe } from '../auth/useMe';
+import { useSignInGuard } from '../auth/useSignInGuard';
 import { SIGN_IN_ENDED } from '../net/plainFailure';
 import { Button, Card, formatMeetingTime, useDocumentTitle } from '../ui';
 import {
@@ -36,7 +36,12 @@ function downloadMarkdown(title: string, minutes: string): void {
 export function MeetingHistoryPage() {
   const { id = '', meetingId = '' } = useParams();
   const [authKey, setAuthKey] = useState(0);
-  const auth = useMe(authKey);
+  const guard = useSignInGuard({
+    next: `/workspaces/${id}/meetings/${meetingId}`,
+    reloadKey: authKey,
+    onRetry: () => setAuthKey((key) => key + 1),
+  });
+  const signedIn = guard.status === 'ready';
   const [workspaces, setWorkspaces] = useState<WorkspaceSummary[] | null>(null);
   const [workspace, setWorkspace] = useState<WorkspaceDetail | null>(null);
   const [minutes, setMinutes] = useState<MeetingMinutes | null>(null);
@@ -51,6 +56,7 @@ export function MeetingHistoryPage() {
   );
 
   useEffect(() => {
+    if (!signedIn) return undefined;
     let cancelled = false;
     setMinutes(null);
     setMinutesAttempts(0);
@@ -78,11 +84,12 @@ export function MeetingHistoryPage() {
     return () => {
       cancelled = true;
     };
-  }, [id, meetingId]);
+  }, [id, meetingId, signedIn]);
 
   // Kaki keeps its copy of the minutes a moment after the meeting ends. A page opened in that
   // window would otherwise keep saying "still being prepared" until someone reloaded by hand.
   useEffect(() => {
+    if (!signedIn) return undefined;
     if (minutes === null || minutes.minutes !== null || minutesAttempts >= 15) return;
     const timer = window.setTimeout(() => {
       getMeetingMinutes(id, meetingId)
@@ -93,40 +100,15 @@ export function MeetingHistoryPage() {
         .catch(() => setMinutesAttempts((count) => count + 1));
     }, 2_000);
     return () => window.clearTimeout(timer);
-  }, [id, meetingId, minutes, minutesAttempts]);
+  }, [id, meetingId, minutes, minutesAttempts, signedIn]);
 
-  if (auth.status === 'loading') {
-    return (
-      <main className="page product-page">
-        <p className="empty-state" role="status">
-          Checking sign-in…
-        </p>
-      </main>
-    );
-  }
-
-  if (auth.status === 'error') {
-    return (
-      <main className="page product-page">
-        <Card title="Could not check sign-in">
-          <p className="connection-banner" role="alert">
-            {auth.message}
-          </p>
-          <Button variant="ghost" onClick={() => setAuthKey((key) => key + 1)}>
-            Try again
-          </Button>
-        </Card>
-      </main>
-    );
-  }
-
-  if (!auth.me.authEnabled || auth.me.kind !== 'user') {
-    return <Navigate to={`/signin?next=${encodeURIComponent(`/workspaces/${id}/meetings/${meetingId}`)}`} replace />;
-  }
+  if (guard.status !== 'ready') return guard.fallback;
 
   if (error === SIGN_IN_ENDED) {
     return <Navigate to={`/signin?next=${encodeURIComponent(`/workspaces/${id}/meetings/${meetingId}`)}`} replace />;
   }
+
+  const user = guard.user;
 
   async function copyMinutes(text: string): Promise<void> {
     try {
@@ -155,8 +137,8 @@ export function MeetingHistoryPage() {
 
   return (
     <>
-      <AppBar user={auth.me.user} workspaces={workspaces ?? []} />
-      <main className="page product-page product-page-wide">
+      <AppBar user={user} workspaces={workspaces ?? []} />
+      <main className={`page product-page product-page-wide${notFound ? ' product-not-found' : ''}`}>
         {notFound ? (
           <Card title="Meeting not found">
             <p className="product-hint">This meeting does not exist, has not ended, or is not in this workspace.</p>

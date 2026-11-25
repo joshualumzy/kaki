@@ -1,7 +1,7 @@
 import { ErrorText } from './ErrorText';
 import { useEffect, useState } from 'react';
-import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
-import { useMe } from '../auth/useMe';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useSignInGuard } from '../auth/useSignInGuard';
 import { Button, Card, useDocumentTitle } from '../ui';
 import { joinWorkspace } from './api';
 import './product.css';
@@ -11,15 +11,16 @@ export function JoinWorkspacePage() {
   useDocumentTitle('Join a workspace · Kaki');
   const { token = '' } = useParams();
   const navigate = useNavigate();
-  const auth = useMe();
   const [error, setError] = useState<string | null>(null);
   const [retryKey, setRetryKey] = useState(0);
   const [joined, setJoined] = useState(false);
+  const guard = useSignInGuard({
+    next: `/join-workspace/${encodeURIComponent(token)}`,
+    reloadKey: retryKey,
+    onRetry: () => setRetryKey((key) => key + 1),
+  });
 
-  const userId =
-    auth.status === 'ready' && auth.me.authEnabled && auth.me.kind === 'user'
-      ? auth.me.user.id
-      : undefined;
+  const userId = guard.status === 'ready' ? guard.user.id : undefined;
 
   useEffect(() => {
     if (userId === undefined || token === '' || joined) return undefined;
@@ -42,35 +43,7 @@ export function JoinWorkspacePage() {
     };
   }, [token, userId, retryKey, joined, navigate]);
 
-  if (auth.status === 'loading') {
-    return (
-      <main className="page product-page product-page-narrow">
-        <p className="empty-state" role="status">
-          Checking sign-in…
-        </p>
-      </main>
-    );
-  }
-
-  if (auth.status === 'error') {
-    return (
-      <main className="page product-page product-page-narrow">
-        <Card title="Could not check sign-in">
-          <p className="connection-banner" role="alert">
-            {auth.message}
-          </p>
-          <Button variant="ghost" onClick={() => setRetryKey((key) => key + 1)}>
-            Try again
-          </Button>
-        </Card>
-      </main>
-    );
-  }
-
-  if (userId === undefined) {
-    const next = `/join-workspace/${encodeURIComponent(token)}`;
-    return <Navigate to={`/signin?next=${encodeURIComponent(next)}`} replace />;
-  }
+  if (guard.status !== 'ready') return guard.fallback;
 
   return (
     <main className="page product-page product-page-narrow">

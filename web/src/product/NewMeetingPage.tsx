@@ -2,7 +2,7 @@ import { ErrorText } from './ErrorText';
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 import type { MeetingPace } from '@kaki/shared';
-import { useMe } from '../auth/useMe';
+import { useSignInGuard } from '../auth/useSignInGuard';
 import { SIGN_IN_ENDED } from '../net/plainFailure';
 import {
   Button,
@@ -175,7 +175,12 @@ export function NewMeetingPage() {
   useDocumentTitle('New meeting · Kaki');
   const navigate = useNavigate();
   const [reloadKey, setReloadKey] = useState(0);
-  const auth = useMe(reloadKey);
+  const guard = useSignInGuard({
+    next: '/new',
+    reloadKey,
+    onRetry: () => setReloadKey((key) => key + 1),
+  });
+  const signedIn = guard.status === 'ready';
   const [initialDraft] = useState(readDraft);
   const [workspaces, setWorkspaces] = useState<WorkspaceSummary[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -215,6 +220,7 @@ export function NewMeetingPage() {
   const [savingWorkspace, setSavingWorkspace] = useState(false);
 
   useEffect(() => {
+    if (!signedIn) return undefined;
     let cancelled = false;
     setWorkspaces(null);
     setLoadError(null);
@@ -231,7 +237,7 @@ export function NewMeetingPage() {
     return () => {
       cancelled = true;
     };
-  }, [reloadKey]);
+  }, [reloadKey, signedIn]);
 
   useEffect(() => {
     if (workspaces === null) return;
@@ -249,6 +255,7 @@ export function NewMeetingPage() {
     let cancelled = false;
     setPeople([]);
     setPeopleError(null);
+    if (!signedIn) return undefined;
     if (selectedId === '') return undefined;
     getWorkspace(selectedId)
       .then((workspace) => {
@@ -276,7 +283,7 @@ export function NewMeetingPage() {
     return () => {
       cancelled = true;
     };
-  }, [selectedId]);
+  }, [selectedId, signedIn]);
 
   useEffect(() => {
     if (method !== 'calendar' || selectedId === '') return undefined;
@@ -318,41 +325,14 @@ export function NewMeetingPage() {
     });
   }, [selectedId, title, agenda, quietCheck, comingUp, created]);
 
-  if (auth.status === 'loading') {
-    return (
-      <main className="page product-page">
-        <p className="empty-state" role="status">
-          Checking sign-in…
-        </p>
-      </main>
-    );
-  }
-
-  if (auth.status === 'error') {
-    return (
-      <main className="page product-page">
-        <Card title="Could not check sign-in">
-          <p className="connection-banner" role="alert">
-            {auth.message}
-          </p>
-          <Button variant="ghost" onClick={() => setReloadKey((key) => key + 1)}>
-            Try again
-          </Button>
-        </Card>
-      </main>
-    );
-  }
-
-  if (!auth.me.authEnabled || auth.me.kind !== 'user') {
-    return <Navigate to={`/signin?next=${encodeURIComponent('/new')}`} replace />;
-  }
+  if (guard.status !== 'ready') return guard.fallback;
 
   // A dead error card under a still-working menu is worse than a clear trip to sign-in.
   if (loadError === SIGN_IN_ENDED) {
     return <Navigate to={`/signin?next=${encodeURIComponent('/new')}`} replace />;
   }
 
-  const user = auth.me.user;
+  const user = guard.user;
   const selected = workspaces?.find((workspace) => workspace.id === selectedId);
   const isSample = selected?.kind === 'sample';
   const loadingWorkspaces = workspaces === null && loadError === null;

@@ -122,7 +122,10 @@ export function SignInPage() {
           <GoogleMark />
           <span>Sign in with Google</span>
         </a>
-        <p className="product-hint">New here? Signing in creates your account.</p>
+        <p className="product-hint">
+          Kaki uses your Google account to sign in, and your first sign-in creates your Kaki
+          account.
+        </p>
         <Link className="product-link" to="/practice">
           Try a practice meeting
         </Link>

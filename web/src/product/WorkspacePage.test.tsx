@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { MeState } from '../auth/useMe';
 import { WorkspacePage } from './WorkspacePage';
@@ -50,9 +50,19 @@ function renderPage(id: string): void {
       <Routes>
         <Route path="/workspaces/:id" element={<WorkspacePage />} />
         <Route path="/new" element={<p>new meeting</p>} />
-        <Route path="/signin" element={<p>sign in</p>} />
+        <Route path="/signin" element={<SignInProbe />} />
       </Routes>
     </MemoryRouter>,
+  );
+}
+
+function SignInProbe() {
+  const location = useLocation();
+  return (
+    <>
+      <p>sign in</p>
+      <p data-testid="location">{`${location.pathname}${location.search}`}</p>
+    </>
   );
 }
 
@@ -256,6 +266,19 @@ describe('WorkspacePage', () => {
     renderPage('ws-1');
 
     expect(await screen.findByText('sign in')).toBeTruthy();
+  });
+
+  it('sends a signed-out visitor to sign in without asking for protected data', async () => {
+    mocks.state = { status: 'ready', me: { authEnabled: true, kind: null } };
+    const fetchMock = installFetch({});
+    renderPage('ws-1');
+
+    await waitFor(() =>
+      expect(screen.getByTestId('location').textContent).toBe(
+        '/signin?next=%2Fworkspaces%2Fws-1',
+      ),
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('shows an overdue meeting that never started as Didn\'t start, still editable and cancellable', async () => {

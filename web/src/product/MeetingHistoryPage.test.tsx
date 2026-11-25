@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { MeState } from '../auth/useMe';
 import { MeetingHistoryPage } from './MeetingHistoryPage';
@@ -57,17 +57,65 @@ function renderPage() {
       <Routes>
         <Route path="/workspaces/:id/meetings/:meetingId" element={<MeetingHistoryPage />} />
         <Route path="/workspaces/:id" element={<p>workspace</p>} />
+        <Route path="/signin" element={<SignInProbe />} />
       </Routes>
     </MemoryRouter>,
+  );
+}
+
+function SignInProbe() {
+  const location = useLocation();
+  return (
+    <>
+      <p>sign in</p>
+      <p data-testid="location">{`${location.pathname}${location.search}`}</p>
+    </>
   );
 }
 
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  mocks.state = {
+    status: 'ready',
+    me: {
+      authEnabled: true,
+      kind: 'user',
+      user: { id: 'user-1', name: 'Ada Lovelace', email: 'ada@example.com' },
+    },
+  };
 });
 
 describe('MeetingHistoryPage', () => {
+  it('sends a signed-out visitor to sign in without asking for protected data', async () => {
+    mocks.state = { status: 'ready', me: { authEnabled: true, kind: null } };
+    const fetchMock = installFetch({});
+    renderPage();
+
+    await waitFor(() =>
+      expect(screen.getByTestId('location').textContent).toBe(
+        '/signin?next=%2Fworkspaces%2Fws-1%2Fmeetings%2Fmtg-1',
+      ),
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('centres the meeting not found card with its way back', async () => {
+    installFetch({
+      'GET /api/workspaces': () => reply(workspaces),
+      'GET /api/workspaces/ws-1': () => reply(workspace),
+      'GET /api/workspaces/ws-1/meetings/mtg-1/minutes': () =>
+        reply({ error: 'Not found' }, 404),
+    });
+    renderPage();
+
+    expect(await screen.findByRole('heading', { name: 'Meeting not found' })).toBeTruthy();
+    expect(document.querySelector('main')?.classList.contains('product-not-found')).toBe(true);
+    expect(
+      screen.getByRole('link', { name: 'Back to the workspace' }).getAttribute('href'),
+    ).toBe('/workspaces/ws-1');
+  });
+
   it('shows Kaki’s own minutes and to-dos, and lets the owner tick one done', async () => {
     const toggles: Array<{ url: string; body: unknown }> = [];
     installFetch({

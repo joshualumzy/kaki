@@ -20,5 +20,6 @@ describe('NotFoundPage', () => {
     expect(screen.getByText(/This page does not exist/)).toBeTruthy();
     expect(screen.getByRole('link', { name: 'Go to Kaki' }).getAttribute('href')).toBe('/');
     expect(document.title).toBe('Page not found · Kaki');
+    expect(document.querySelector('main')?.classList.contains('product-not-found')).toBe(true);
   });
 });

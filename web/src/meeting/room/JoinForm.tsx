@@ -219,15 +219,16 @@ export function JoinForm({ meetingTitle, roles, agenda, busy = false, error, ask
       </form>
 
       {toolUrls === undefined ? null : (
-        <nav className="kd-join-systems" aria-label="Company systems">
-          <span className="kd-join-systems-label">Company systems (login: <code>demo</code> / <code>demo</code>):</span>
+        <nav className="kd-join-systems" aria-label="The practice company's records">
+          <span className="kd-join-systems-label">The practice company's records</span>
           <span className="kd-join-systems-note">
-            These tools are already signed in for this practice, so you can open the records Kaki uses.
+            Already signed in for this practice; if a page asks, use <code>demo</code> /{' '}
+            <code>demo</code>.
           </span>
           <a href={toolLink(toolUrls.wiki, '/en/home')} target="_blank" rel="noreferrer">Wiki</a>
-          <a href={toolLink(toolUrls.gitea, '/kopitiam/kopitiam-pos/issues')} target="_blank" rel="noreferrer">Gitea</a>
-          <a href={resolveArtifactUrl(toolLink(toolUrls.mattermost, '/kopitiam/channels/kopitiam-launch'), 'mattermost_post', toolUrls, meetingId)} target="_blank" rel="noreferrer">Mattermost</a>
-          <a href={toolUrls.email} target="_blank" rel="noreferrer">Mailpit</a>
+          <a href={toolLink(toolUrls.gitea, '/kopitiam/kopitiam-pos/issues')} target="_blank" rel="noreferrer">Code issues</a>
+          <a href={resolveArtifactUrl(toolLink(toolUrls.mattermost, '/kopitiam/channels/kopitiam-launch'), 'mattermost_post', toolUrls, meetingId)} target="_blank" rel="noreferrer">Team chat</a>
+          <a href={toolUrls.email} target="_blank" rel="noreferrer">Email</a>
           <a href={toolLink(toolUrls.calendar, calendarEventApiPath(meetingId, PRACTICE_CALENDAR_EVENT_ID))} target="_blank" rel="noreferrer">Calendar</a>
         </nav>
       )}

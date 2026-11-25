@@ -12,6 +12,21 @@
   max-width: 60rem;
 }
 
+/* A plain "not found" card: centred across the page, with room before its way out. */
+.product-not-found {
+  align-items: center;
+  padding-top: calc(var(--space-6) + var(--space-4));
+}
+
+.product-not-found .card {
+  width: 100%;
+  max-width: 30rem;
+}
+
+.product-not-found .product-open {
+  margin-top: var(--space-4);
+}
+
 .product-hint {
   margin: 0;
   color: var(--color-muted);

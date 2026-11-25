@@ -42,6 +42,9 @@ describe('SignInPage', () => {
     expect(screen.getByRole('link', { name: 'Try a practice meeting' }).getAttribute('href')).toBe(
       '/practice',
     );
+    expect(
+      screen.getByText(/Kaki uses your Google account to sign in.*first sign-in creates your Kaki account/),
+    ).toBeTruthy();
   });
 
   it('links to Privacy and Terms', () => {
