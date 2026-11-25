@@ -729,7 +729,7 @@ export function NewMeetingPage() {
                   <input
                     id="new-meeting-title"
                     className="product-input product-title-input"
-                    placeholder="Weekly sync with Lucie"
+                    placeholder="Weekly team sync"
                     value={title}
                     onChange={(event) => setTitle(event.target.value)}
                   />
@@ -848,7 +848,7 @@ export function NewMeetingPage() {
                         id="new-meeting-tell"
                         className="product-textarea"
                         rows={3}
-                        placeholder="Weekly sync with Lucie: demo video, env files, bugs from the last test"
+                        placeholder="Weekly team sync: launch checklist, open bugs, next release date"
                         value={tellText}
                         onChange={(event) => setTellText(event.target.value)}
                       />
