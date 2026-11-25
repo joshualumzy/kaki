@@ -1,0 +1,13 @@
+# Installed on the VM as /etc/systemd/system/kaki-backup.timer (see deploy/backup/README.md).
+[Unit]
+Description=Run the Kaki database backup every night at 02:30, and after a missed run
+
+[Timer]
+OnCalendar=*-*-* 02:30:00
+AccuracySec=1min
+RandomizedDelaySec=5min
+Persistent=true
+Unit=kaki-backup.service
+
+[Install]
+WantedBy=timers.target

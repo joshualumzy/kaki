@@ -305,7 +305,7 @@ The required keys are an OpenAI-compatible LLM gateway (`KAKI_LLM_BASE_URL`, `KA
 
 Open `http://localhost:5173` in Chrome; the practice meeting is at `/practice`. To use the signed-in pages locally, also set `KAKI_AUTH=1`, the Google keys and the other sign-in keys listed in the [Practice meeting guide](docs/practice-meeting.md#sign-in-mode).
 
-The cloud VM is managed from the same repository, and its wake page and idle check are shown under [Try it](#try-it).
+The cloud VM is managed from the same repository, and its wake page and idle check are shown under [Try it](#try-it). Its journald logs are capped at 30 days, and the newest seven nightly Postgres dumps are kept in `/var/backups/kaki`; see [deploy/systemd/README.md](deploy/systemd/README.md) and the [backup restore command](deploy/backup/README.md#restore).
 
 ```bash
 npm start                 # Local stack: checks, Docker, seed, index, server, web app, AI runner, preflight
@@ -324,7 +324,7 @@ npm run typecheck         # Type-check every package
 npm test                  # Run the full Vitest suite
 ```
 
-Code: `scripts/live-up.sh`, `scripts/cloud.sh`, `docker/docker-compose.yml`, `docker/seed/`, `wake/`, `deploy/idle/`, `deploy/systemd/`, `server/src/core/idle.ts`. The project vocabulary is in the [Domain glossary](CONTEXT.md).
+Code: `scripts/live-up.sh`, `scripts/cloud.sh`, `docker/docker-compose.yml`, `docker/seed/`, `wake/`, `deploy/backup/`, `deploy/idle/`, `deploy/journald/`, `deploy/systemd/`, `server/src/core/idle.ts`. The project vocabulary is in the [Domain glossary](CONTEXT.md).
 
 ## Integration with third-party services
 
@@ -544,7 +544,9 @@ The plan ran in phases: the core stack and protocol, then the three agents, then
 ├── docker/                 # Docker Compose stack and idempotent seed scripts
 ├── scripts/                # Local and cloud launchers, preflight, playtests and click-through journeys
 ├── wake/                   # Always-on wake page and its start/status API (Azure Static Web Apps)
+├── deploy/backup/          # Nightly Postgres dump, seven-dump retention and restore notes
 ├── deploy/idle/            # Idle check that switches the cloud VM off when nobody uses it
+├── deploy/journald/        # 30-day cap on the cloud VM's journald logs
 ├── deploy/systemd/         # The cloud VM's server and AI-colleague services, in production mode
 └── docs/                   # Practice meeting guide, testing guide, diagrams, screenshots and the poster for STePS (School of Computing Term Project Showcase)
 ```

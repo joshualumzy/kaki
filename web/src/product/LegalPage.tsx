@@ -132,7 +132,8 @@ export function PrivacyPage() {
         last member, their meetings and everything in them, your practice meetings, your
         memberships, your sessions and your account in one database transaction. A team workspace
         with other members stays, and meetings you opened there stay with the workspace. There is no
-        waiting period and no copy kept to restore it.
+        waiting period in the app. A nightly backup can still hold a copy for up to 7 days, and log
+        lines for up to 30 days.
       </p>
       <p>
         A signed-out practice meeting is not kept: it exists only in the server&apos;s memory and
@@ -147,14 +148,18 @@ export function PrivacyPage() {
 
       <h2>Logs and backups</h2>
       <p>
-        Kaki&apos;s setup does not include automatic database backups, so deleting data removes it
-        from the live database immediately.
+        The server keeps logs so the team can investigate problems. Those logs can contain meeting
+        text, such as recognised speech, Kaki&apos;s replies, notes and task titles. Kaki keeps logs
+        for up to 30 days and then removes them.
       </p>
       <p>
-        The server and meeting logs can include meeting text, such as recognised speech, notes and
-        task titles. Kaki does not set a retention limit for these logs; they are kept according to
-        the server&apos;s own log settings. Deleting a meeting, workspace or account does not remove
-        log lines that were already written.
+        Kaki also backs up its database every night. Each backup is a compressed copy that only the
+        machine&apos;s administrator can read, and Kaki keeps the newest 7 and removes older ones. A
+        backup can therefore hold deleted meeting text for up to 7 days.
+      </p>
+      <p>
+        Deleting a meeting, workspace or account removes it from the app at once. Copies can stay in
+        logs for up to 30 days and in backups for up to 7 days before they are removed.
       </p>
 
       <h2>Your choices</h2>

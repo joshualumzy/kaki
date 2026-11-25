@@ -24,7 +24,11 @@ describe('PrivacyPage', () => {
     expect(screen.getByText(/Google sign-in only/)).toBeTruthy();
     expect(screen.getAllByText(/Azure Speech/).length).toBeGreaterThan(0);
     expect(screen.getByText(/does not record or keep/)).toBeTruthy();
-    expect(screen.getByText(/does not include automatic database backups/)).toBeTruthy();
+    expect(screen.getByText(/can contain meeting text/)).toBeTruthy();
+    expect(screen.getByText(/keeps logs for up to 30 days/)).toBeTruthy();
+    expect(screen.getByText(/backs up its database every night/)).toBeTruthy();
+    expect(screen.getByText(/keeps the newest 7/)).toBeTruthy();
+    expect(screen.getByText(/in backups for up to 7 days/)).toBeTruthy();
   });
 
   it('keeps the contact placeholders and no coursework wording', () => {
