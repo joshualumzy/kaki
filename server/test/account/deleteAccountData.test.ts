@@ -195,9 +195,13 @@ describe.skipIf(connectionString === undefined)('postgres account data deletion'
     expect(await store.findUserById(ada.user.id)).toBeUndefined();
     expect(await store.findUserById(ben.user.id)).toBeDefined();
     expect(await store.getWorkspace(ada.personal.id)).toBeUndefined();
-    expect(await store.getWorkspace(adaTeam.workspace.id)).toBeUndefined();
+    // Ada's team still has Ben, so it survives with its data; only her attribution and membership go.
+    expect(await store.getWorkspace(adaTeam.workspace.id)).toMatchObject({ createdBy: null });
     expect(await store.getWorkspace(ben.personal.id)).toBeDefined();
     expect(await store.getWorkspace(benTeam.workspace.id)).toBeDefined();
+    expect(
+      await store.getMembership({ workspaceId: adaTeam.workspace.id, userId: ben.user.id }),
+    ).toBe('admin');
     expect(
       await store.getMembership({ workspaceId: benTeam.workspace.id, userId: ada.user.id }),
     ).toBeUndefined();
@@ -210,23 +214,36 @@ describe.skipIf(connectionString === undefined)('postgres account data deletion'
     expect(await store.findSession(guestHash)).toBeDefined();
 
     expect(await meetings.get(adaPersonalMeeting.id)).toBeUndefined();
-    expect(await meetings.get(adaTeamMeeting.id)).toBeUndefined();
-    expect(await meetings.get(benInAdaTeam.id)).toBeUndefined();
+    // Ada's team survives, so its meetings stay; the ones she owned are handed to the workspace.
+    expect((await meetings.get(adaTeamMeeting.id))?.ownerUserId).toBeNull();
+    expect((await meetings.get(benInAdaTeam.id))?.ownerUserId).toBe(ben.user.id);
     const kept = await meetings.get(adaInBenTeam.id);
     expect(kept?.ownerUserId).toBeNull();
     expect((await meetings.get(benOwnMeeting.id))?.ownerUserId).toBe(ben.user.id);
 
     const states = await postgres.pool.query<{ id: string }>('select id from meeting_state');
     expect(new Set(states.rows.map((row) => row.id))).toEqual(
-      new Set([adaInBenTeam.id, benOwnMeeting.id, 'practice-visitor-history']),
+      new Set([
+        adaTeamMeeting.id,
+        benInAdaTeam.id,
+        adaInBenTeam.id,
+        benOwnMeeting.id,
+        'practice-visitor-history',
+      ]),
     );
     const claims = await postgres.pool.query<{ meeting_id: string; holder: string }>(
-      'select meeting_id, holder from seat_claims',
+      'select meeting_id, holder from seat_claims order by meeting_id',
     );
-    expect(claims.rows).toEqual([{ meeting_id: benOwnMeeting.id, holder: ben.sessionHashes[1]! }]);
+    expect(claims.rows).toEqual(
+      expect.arrayContaining([
+        { meeting_id: benInAdaTeam.id, holder: ben.sessionHashes[1]! },
+        { meeting_id: benOwnMeeting.id, holder: ben.sessionHashes[1]! },
+      ]),
+    );
+    expect(claims.rows).toHaveLength(2);
 
     expect(await tools.list(ada.personal.id)).toEqual([]);
-    expect(await tools.list(adaTeam.workspace.id)).toEqual([]);
+    expect(await tools.list(adaTeam.workspace.id)).toHaveLength(1);
     expect(await tools.list(ben.personal.id)).toHaveLength(1);
     expect(await tools.list(benTeam.workspace.id)).toHaveLength(1);
 
@@ -234,7 +251,13 @@ describe.skipIf(connectionString === undefined)('postgres account data deletion'
       'select workspace_id from knowledge_chunks',
     );
     expect(new Set(chunks.rows.map((row) => row.workspace_id))).toEqual(
-      new Set([SAMPLE_WORKSPACE_ID, 'practice-visitor-workspace', ben.personal.id, benTeam.workspace.id]),
+      new Set([
+        SAMPLE_WORKSPACE_ID,
+        'practice-visitor-workspace',
+        adaTeam.workspace.id,
+        ben.personal.id,
+        benTeam.workspace.id,
+      ]),
     );
   });
 

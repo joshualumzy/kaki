@@ -39,7 +39,7 @@ export async function handleDeleteAccount(call: RouteCall): Promise<void> {
   }
 
   try {
-    const ownedIds = (await store.listWorkspacesOwnedBy(userId)).map((workspace) => workspace.id);
+    const ownedIds = (await store.listWorkspacesToDelete(userId)).map((workspace) => workspace.id);
     // End the account's meetings first, including members' meetings in the workspaces about to go,
     // before their rows and saved state are deleted, so nobody is left in a room whose meeting no
     // longer exists. A meeting that could not end stops the deletion before anything is removed.
@@ -47,6 +47,8 @@ export async function handleDeleteAccount(call: RouteCall): Promise<void> {
     // One step for every remaining row: the Postgres stores commit it as one transaction.
     const hashes = await deleteAccountData(userId);
     for (const hash of hashes) context.auth?.closeSockets(hash);
+    // Sessions replaced earlier left sockets keyed by the account, not a current session row.
+    context.auth?.closeUserSockets(userId);
     response.setHeader('set-cookie', clearSessionCookie(context.auth?.secureCookies ?? false));
     sendJson(response, 200, { ok: true });
   } catch (error) {

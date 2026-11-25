@@ -80,7 +80,7 @@ export async function ensureAuthSchema(pool: Pool): Promise<void> {
       id text primary key,
       name text not null,
       kind text not null check (kind in ('personal', 'team')),
-      created_by text references users(id),
+      created_by text references users(id) on delete set null,
       created_at timestamptz not null default now()
     )
   `);
@@ -100,10 +100,50 @@ export async function ensureAuthSchema(pool: Pool): Promise<void> {
     create table if not exists workspace_invites (
       workspace_id text primary key references workspaces(id) on delete cascade,
       token text not null unique,
-      created_by text references users(id),
+      created_by text references users(id) on delete set null,
       created_at timestamptz not null default now(),
       updated_at timestamptz not null default now()
     )
+  `);
+
+  // A creator who is removed from a team, or whose account is deleted, must not keep the team's
+  // invite or workspace alive through a restrictive foreign key. Attribution may go null; the row
+  // and its data stay while any member remains.
+  await pool.query(`
+    do $$
+    declare
+      found record;
+    begin
+      for found in
+        select conname
+          from pg_constraint
+         where conrelid = 'workspaces'::regclass
+           and contype = 'f'
+           and confrelid = 'users'::regclass
+      loop
+        execute format('alter table workspaces drop constraint %I', found.conname);
+      end loop;
+      alter table workspaces add constraint workspaces_created_by_fkey
+        foreign key (created_by) references users(id) on delete set null;
+    end $$;
+  `);
+  await pool.query(`
+    do $$
+    declare
+      found record;
+    begin
+      for found in
+        select conname
+          from pg_constraint
+         where conrelid = 'workspace_invites'::regclass
+           and contype = 'f'
+           and confrelid = 'users'::regclass
+      loop
+        execute format('alter table workspace_invites drop constraint %I', found.conname);
+      end loop;
+      alter table workspace_invites add constraint workspace_invites_created_by_fkey
+        foreign key (created_by) references users(id) on delete set null;
+    end $$;
   `);
 
   await ensureWorkspaceToolsSchema(pool);

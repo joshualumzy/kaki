@@ -74,6 +74,8 @@ export interface MeetingInstance {
   id: string;
   /** The workspace this meeting belongs to. */
   workspaceId: string;
+  /** The account that owns this real meeting; null for a practice or ownerless meeting. */
+  ownerUserId: string | null;
   /** The kind this instance runs at the AI runner. */
   runnerKind: 'real' | 'practice';
   /** True for a practice meeting that belongs to one visitor. */
@@ -191,6 +193,7 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
   } = deps;
   const runnerKind: 'real' | 'practice' = kind;
   const perVisitorPractice = kind === 'practice';
+  const ownerUserId = meetingRow?.ownerUserId ?? null;
   let lastActivity = Date.now();
   let people = 0;
   const touch = (): void => {
@@ -563,21 +566,30 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
           // someone whose membership is not proven.
           const userId = principal.userId;
           let guest = true;
+          let workspaceMissing = false;
           if (userId !== undefined && auth !== undefined) {
             try {
-              guest =
-                (await auth.store.getMembership({ workspaceId, userId })) ===
-                undefined;
+              workspaceMissing = (await auth.store.getWorkspace(workspaceId)) === undefined;
+              if (!workspaceMissing) {
+                guest =
+                  (await auth.store.getMembership({ workspaceId, userId })) ===
+                  undefined;
+              }
             } catch (error) {
               console.warn(`kaki meetings: could not read a seat holder's workspace membership`, error);
+              // A lookup that fails is not a missing workspace: keep the host failed closed.
               guest = true;
+              workspaceMissing = false;
             }
           }
           seatGuests.set(seat, guest);
-          // A host is the meeting's owner or a workspace admin, so they may always decide about the
-          // meeting's tool actions even when a workspace record cannot be read. A plain seat holder
-          // only may when their membership is proven.
-          seatToolGuests.set(seat, principal?.kind === 'host' ? false : guest);
+          // Tool authority follows current workspace membership. A real workspace may only act when
+          // its host or seat is still a member; the sample workspace and a databaseless fixture have
+          // no membership records, so their host keeps the built-in tools it was given.
+          seatToolGuests.set(
+            seat,
+            principal?.kind === 'host' && workspaceMissing ? false : guest,
+          );
         } else if (decision.runner === true || principal?.kind === 'practice') {
           // The AI runner and a practice visitor are not workspace guests: the runner acts for an
           // AI colleague inside the pack, and a practice visitor never reaches real workspace data.
@@ -1959,6 +1971,7 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
   const instance: MeetingInstance = {
     id,
     workspaceId,
+    ownerUserId,
     runnerKind,
     perVisitorPractice,
     session,

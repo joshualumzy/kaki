@@ -21,7 +21,7 @@ import { createAttemptLimiter } from './http/attemptLimiter';
 import { createIdleTracker, type IdleTracker } from './core/idle';
 import type { MeetingPersistence } from './persist/persistence';
 import { createMeetingCodeSource, MEETING_CODE_FAILURE_LIMIT, MEETING_CODE_WINDOW_MS } from './meeting/meetingCode';
-import { ADMISSION_RESERVATION_MS, livekitRoster, type RoomRoster } from './services/livekit';
+import { ADMISSION_RESERVATION_MS, livekitRoster, removeRoomUser, type RoomRoster } from './services/livekit';
 import { buildMeetingRouteTable } from './http/meetingRoutes';
 import { handleRoutedRequest } from './http/dispatch';
 import type { RequestContext, RoutedRoute } from './http/routeCall';
@@ -100,6 +100,8 @@ export interface CreateAppOptions {
   workspaceIndexIntervalMs?: number;
   /** Who is in a LiveKit room, to refuse a join when the meeting is full; defaults to asking LiveKit. */
   roomRoster?: RoomRoster;
+  /** Disconnect one revoked account's LiveKit participant; defaults to the LiveKit server API. */
+  disconnectLivekitUser?: (roomName: string, userId: string) => Promise<void>;
   /** When true, modules may draft and review actions but must never send them to external services. */
   draftOnly?: boolean;
   /** The saved state of a meeting, loaded when that meeting first opens; absent means memory only. */
@@ -369,6 +371,7 @@ export async function createApp({
   accountDeletion: accountDeletionOption,
   workspaceIndexIntervalMs,
   roomRoster = livekitRoster(),
+  disconnectLivekitUser = removeRoomUser,
   draftOnly = false,
   persistenceFor,
   findSavedIdByCode,
@@ -460,9 +463,14 @@ export async function createApp({
     auth.bindMeetingHost(async (meetingId, userId) => {
       const row = await meetings.get(meetingId);
       if (row === undefined) return false;
-      if (row.ownerUserId === userId) return true;
+      // The built-in sample workspace, and a databaseless fixture workspace, have no membership
+      // rows; there the meeting's owner still hosts it.
+      const workspace = await auth.store.getWorkspace(row.workspaceId);
+      if (workspace === undefined) return row.ownerUserId === userId;
+      // Host authority always follows current membership: a removed owner or admin loses it at once.
       const role = await auth.store.getMembership({ workspaceId: row.workspaceId, userId });
-      return role === 'admin';
+      if (role === undefined) return false;
+      return row.ownerUserId === userId || role === 'admin';
     });
   }
 
@@ -600,10 +608,19 @@ export async function createApp({
     ...(auth === undefined
       ? {}
       : { releaseMeeting: (meetingId: string) => auth.releaseMeeting(meetingId) }),
+    disconnectUser: disconnectLivekitUser,
     onOpened: (meeting) => runnerControl.opened(meeting),
     onClosed: (meetingId) => runnerControl.closed(meetingId),
     onWorkspaceOpened: (workspaceId) => workspaceIndexScheduler.opened(workspaceId),
     onWorkspaceClosed: (workspaceId) => workspaceIndexScheduler.closed(workspaceId),
+  });
+
+  // Signing out everywhere, or deleting the account, revokes by account identity. That reaches a
+  // screen socket kept open through a replaced session and cuts LiveKit audio too.
+  const stopUserEnded = auth?.onUserEnded((userId) => {
+    void registry.endUser(userId).catch((error: unknown) =>
+      console.error(`kaki server: revoking account ${userId} everywhere failed`, error),
+    );
   });
 
   /** Server-wide routes have no meeting of their own; their handlers read only auth and idle. */
@@ -745,6 +762,7 @@ export async function createApp({
     close: async () => {
       if (closed) return;
       closed = true;
+      stopUserEnded?.();
       workspaceIndexScheduler.close();
       await registry.close();
       await meetings.close?.().catch((error: unknown) =>

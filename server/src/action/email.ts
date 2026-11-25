@@ -109,16 +109,45 @@ function baseUrl({ mailpitUrl }: EmailSettings): string {
   return mailpitUrl.replace(/\/+$/, '');
 }
 
-/** The SMTP options both the send path and the probe use, so a probe proves the real path works. */
-function smtpOptions(settings: EmailSettings, timeoutMs: number): SMTPTransport.Options {
+/** The local Mailpit mock and loopback addresses, where a plain SMTP connection is the norm. */
+const LOCAL_SMTP_HOSTS = new Set([
+  'localhost',
+  '127.0.0.1',
+  '::1',
+  '[::1]',
+  '0.0.0.0',
+  'mailpit',
+  'host.docker.internal',
+]);
+
+function isLocalSmtpHost(host: string): boolean {
+  return LOCAL_SMTP_HOSTS.has(host.trim().toLowerCase());
+}
+
+/**
+ * The SMTP options both the send path and the probe use, so a probe proves the real path works.
+ * Authentication is only offered over TLS: port 465 uses implicit TLS, any other non-local port
+ * requires STARTTLS before the credentials are sent. The local mock mail server keeps plain SMTP.
+ */
+export function smtpOptions(settings: EmailSettings, timeoutMs: number): SMTPTransport.Options {
+  const local = isLocalSmtpHost(settings.smtpHost);
+  const authenticates =
+    settings.user !== undefined && settings.user !== '' && settings.password !== undefined;
+  const implicitTls = settings.smtpPort === 465;
   return {
     host: settings.smtpHost,
     port: settings.smtpPort,
-    secure: false,
-    ignoreTLS: true,
     connectionTimeout: timeoutMs,
     greetingTimeout: timeoutMs,
     socketTimeout: timeoutMs,
+    ...(local
+      ? { secure: false, ignoreTLS: true }
+      : {
+          secure: implicitTls,
+          ignoreTLS: false,
+          // A server that offers no STARTTLS fails here, before any password leaves the process.
+          ...(authenticates && !implicitTls ? { requireTLS: true } : {}),
+        }),
     ...(settings.user === undefined || settings.user === '' || settings.password === undefined
       ? {}
       : { auth: { user: settings.user, pass: settings.password } }),

@@ -26,6 +26,8 @@ export function createTestApp(
     speechRecognition: 'browser',
     meetingModules: realModulesWith([]),
     practiceModules: practiceModulesWith([]),
+    // Tests never reach a real LiveKit server for revocation; a test that cares injects its own.
+    disconnectLivekitUser: async () => undefined,
     ...options,
     scenario: options.scenario ?? testScenario,
   });

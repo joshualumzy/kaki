@@ -65,7 +65,7 @@ export interface WorkspaceInvite {
 }
 
 /** Why a workspace membership change was refused. */
-export type WorkspaceMemberProblem = 'last-admin';
+export type WorkspaceMemberProblem = 'last-admin' | 'not-admin' | 'open-meeting';
 
 /** A workspace change that cannot be made; the route turns this into a clear refusal. */
 export class WorkspaceMemberError extends Error {
@@ -133,8 +133,13 @@ export interface AuthStore {
   deleteSession(tokenHash: string): Promise<void>;
 
   listWorkspacesForUser(userId: string): Promise<WorkspaceMembership[]>;
-  /** The workspaces this account created, to delete when the account goes. */
+  /**
+   * The workspaces this account created. Creation is attribution only: it never decides whether
+   * a workspace is deleted when the account goes.
+   */
   listWorkspacesOwnedBy(userId: string): Promise<WorkspaceRecord[]>;
+  /** The workspaces this account is the only remaining member of, so they go with the account. */
+  listWorkspacesToDelete(userId: string): Promise<WorkspaceRecord[]>;
   createWorkspace(input: { name: string; createdBy: string }): Promise<WorkspaceMembership>;
   getWorkspace(id: string): Promise<WorkspaceRecord | undefined>;
   getMembership(input: { workspaceId: string; userId: string }): Promise<WorkspaceRole | undefined>;
@@ -169,20 +174,26 @@ export interface AuthStore {
   }): Promise<WorkspaceMembership | undefined>;
   /**
    * Remove one member. Returns their old role; undefined when they were not a member. Refuses to
-   * remove the workspace's last admin.
+   * remove the workspace's last admin. When the actor is someone other than the target, the actor's
+   * admin role is rechecked inside the same locked transaction. `assertRemovable` runs after that
+   * lock too, so an open meeting created concurrently cannot slip in between the check and delete.
    */
   removeWorkspaceMember(input: {
     workspaceId: string;
     userId: string;
+    actorUserId?: string;
+    assertRemovable?: () => Promise<void>;
   }): Promise<WorkspaceRole | undefined>;
   /**
    * Change one member's role. Returns the new role; undefined when they were not a member. Refuses
-   * to demote the workspace's last admin.
+   * to demote the workspace's last admin. When `actorUserId` is given, its admin role is rechecked
+   * inside the same locked transaction, so a request held across a demotion cannot act.
    */
   setWorkspaceMemberRole(input: {
     workspaceId: string;
     userId: string;
     role: WorkspaceRole;
+    actorUserId?: string;
   }): Promise<WorkspaceRole | undefined>;
   /** Delete every session this account holds; returns the token hashes so their sockets can close. */
   deleteSessionsForUser(userId: string): Promise<string[]>;
@@ -402,6 +413,14 @@ export function createMemoryAuthStore(now: () => number = Date.now): AuthStore {
         .filter((workspace) => workspace.createdBy === userId)
         .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
     },
+    async listWorkspacesToDelete(userId) {
+      return [...workspaces.values()]
+        .filter((workspace) => {
+          const roles = members.get(workspace.id);
+          return roles?.has(userId) === true && roles.size === 1;
+        })
+        .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+    },
     async createWorkspace({ name, createdBy }) {
       return insertWorkspace(randomUUID(), name, 'team', createdBy, 'admin');
     },
@@ -471,10 +490,19 @@ export function createMemoryAuthStore(now: () => number = Date.now): AuthStore {
       }
       return undefined;
     },
-    async removeWorkspaceMember({ workspaceId, userId }) {
+    async removeWorkspaceMember({ workspaceId, userId, actorUserId, assertRemovable }) {
+      // Await the caller's guard first; every membership check below then runs with no await until
+      // the mutation, so a concurrent demotion cannot slip past the actor check.
+      if (assertRemovable !== undefined) await assertRemovable();
       const roles = members.get(workspaceId);
       const role = roles?.get(userId);
       if (roles === undefined || role === undefined) return undefined;
+      if (actorUserId !== undefined && actorUserId !== userId && roles.get(actorUserId) !== 'admin') {
+        throw new WorkspaceMemberError(
+          'not-admin',
+          'Only a workspace admin can change members.',
+        );
+      }
       if (role === 'admin' && countAdmins(roles) <= 1) {
         throw new WorkspaceMemberError(
           'last-admin',
@@ -484,10 +512,16 @@ export function createMemoryAuthStore(now: () => number = Date.now): AuthStore {
       roles.delete(userId);
       return role;
     },
-    async setWorkspaceMemberRole({ workspaceId, userId, role }) {
+    async setWorkspaceMemberRole({ workspaceId, userId, role, actorUserId }) {
       const roles = members.get(workspaceId);
       const current = roles?.get(userId);
       if (roles === undefined || current === undefined) return undefined;
+      if (actorUserId !== undefined && roles.get(actorUserId) !== 'admin') {
+        throw new WorkspaceMemberError(
+          'not-admin',
+          'Only a workspace admin can change members.',
+        );
+      }
       if (current === 'admin' && role === 'member' && countAdmins(roles) <= 1) {
         throw new WorkspaceMemberError(
           'last-admin',
@@ -521,20 +555,42 @@ export function createMemoryAuthStore(now: () => number = Date.now): AuthStore {
       for (const [tokenHash, session] of sessions) {
         if (session.userId === userId) hashes.push(tokenHash);
       }
-      const ownedIds = [...workspaces.values()]
-        .filter((workspace) => workspace.createdBy === userId)
-        .map((workspace) => workspace.id);
+      // A workspace goes only when this account is its last member. A team that still has someone
+      // else in it survives, and keeps everything it holds; creation attribution is not ownership.
+      const doomedIds = new Set(
+        [...workspaces.values()]
+          .filter((workspace) => {
+            const roles = members.get(workspace.id);
+            return roles?.has(userId) === true && roles.size === 1;
+          })
+          .map((workspace) => workspace.id),
+      );
       // No awaits below: the account and everything it owns disappear in one synchronous step.
       for (const tokenHash of hashes) sessions.delete(tokenHash);
       for (const [key, seat] of seats) {
         if (hashes.includes(seat.holder)) seats.delete(key);
       }
-      for (const workspaceId of ownedIds) {
+      for (const workspaceId of doomedIds) {
         members.delete(workspaceId);
         workspaces.delete(workspaceId);
         invites.delete(workspaceId);
       }
-      for (const roles of members.values()) roles.delete(userId);
+      for (const [workspaceId, roles] of members) {
+        // A surviving team never loses its only admin: pass the role to a remaining member.
+        if (roles.get(userId) === 'admin' && countAdmins(roles) === 1) {
+          const successor = [...roles.keys()].find((memberId) => memberId !== userId);
+          if (successor !== undefined) roles.set(successor, 'admin');
+        }
+        roles.delete(userId);
+        const workspace = workspaces.get(workspaceId);
+        if (workspace?.createdBy === userId) {
+          workspaces.set(workspaceId, { ...workspace, createdBy: null });
+        }
+        const invite = invites.get(workspaceId);
+        if (invite?.createdBy === userId) {
+          invites.set(workspaceId, { ...invite, createdBy: null });
+        }
+      }
       const user = usersById.get(userId);
       if (user !== undefined) {
         userIdByEmail.delete(user.email);

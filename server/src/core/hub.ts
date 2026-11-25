@@ -166,6 +166,13 @@ export function createHub(
   let revocationGeneration = 0;
   /** Sessions retired while a socket was still authorizing, so its upgrade cannot register afterwards. */
   const revokedSessions = new Set<string>();
+  /**
+   * Every revocation takes the next sequence number, and an account remembers the last one. An
+   * upgrade carries the sequence it began at, so an authorization that finishes after its account
+   * was revoked can never register with stale membership.
+   */
+  let revocationSequence = 0;
+  const userRevokedAt = new Map<string, number>();
   /** How each pending upgrade was authorized, kept until its socket registers. */
   const pendingAuthorizations = new WeakMap<
     IncomingMessage,
@@ -177,6 +184,8 @@ export function createHub(
       practice: boolean;
       seat?: string;
       userId?: string;
+      /** The revocation sequence when this upgrade's authorization began. */
+      authorizationStartedAt?: number;
     }
   >();
   const verifyClient = (info: { req: IncomingMessage }, done: (ok: boolean, code?: number, message?: string) => void): void => {
@@ -192,6 +201,7 @@ export function createHub(
       return;
     }
     const generation = revocationGeneration;
+    const authorizationStartedAt = revocationSequence;
     void authorize(info.req, audience)
       .then((decision) => {
         if (decision.ok) {
@@ -213,7 +223,7 @@ export function createHub(
             runner: decision.runner === true,
             practice: principal?.kind === 'practice',
             ...(seat === undefined ? {} : { seat }),
-            ...(userId === undefined ? {} : { userId }),
+            ...(userId === undefined ? {} : { userId, authorizationStartedAt }),
             ...(decision.sessionTokenHash === undefined
               ? {}
               : { sessionTokenHash: decision.sessionTokenHash }),
@@ -550,6 +560,15 @@ export function createHub(
       socket.close(4001);
       return;
     }
+    if (
+      authorization?.userId !== undefined &&
+      (userRevokedAt.get(authorization.userId) ?? 0) > (authorization.authorizationStartedAt ?? 0)
+    ) {
+      // The account was revoked while this upgrade was authorizing. Its membership is stale, so it
+      // must never register and replay workspace facts.
+      socket.close(4001);
+      return;
+    }
 
     clients.set(socket, audience);
     if (authorization?.seat !== undefined) socketSeats.set(socket, authorization.seat);
@@ -715,6 +734,10 @@ export function createHub(
       }
     },
     endUser(userId) {
+      // Record the revocation before closing: an upgrade authorized before now carries an older
+      // sequence and is refused when it tries to register after this sweep.
+      revocationSequence += 1;
+      userRevokedAt.set(userId, revocationSequence);
       for (const [socket, owner] of [...socketUsers]) {
         if (owner === userId) revokeSocket(socket, 4001, 'You are no longer a member of this workspace');
       }
@@ -739,6 +762,7 @@ export function createHub(
       socketUsers.clear();
       socketSeats.clear();
       revokedSessions.clear();
+      userRevokedAt.clear();
       serviceHandlers.clear();
       servicePresenceHandlers.clear();
       retained.clear();

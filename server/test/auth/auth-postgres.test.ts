@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createPostgresAuthStore } from '../../src/auth/postgres';
 import { ensureAuthSchema } from '../../src/auth/schema';
-import type { AuthStore } from '../../src/auth/store';
+import { WorkspaceMemberError, type AuthStore } from '../../src/auth/store';
 import { createPostgresAccountDataDeletion } from '../../src/account/deleteAccountData';
 import { createPostgresMeetingStore } from '../../src/meeting/registry';
 import { createPostgresWorkspaceToolStore } from '../../src/workspace/tools';
@@ -342,5 +342,133 @@ describe.skipIf(connectionString === undefined)('postgres auth store', () => {
       'select workspace_id from knowledge_chunks',
     );
     expect(chunks.rows.map((row) => row.workspace_id)).toEqual([secondWorkspace]);
+  });
+
+  it('keeps a surviving team and clears invite attribution when a creator account goes', async () => {
+    if (postgres === undefined) throw new Error('POSTGRES_URL is missing');
+    const owner = await store.createGoogleUser({
+      googleSub: `google-${randomUUID()}`,
+      name: 'Owner',
+      email: `owner-${randomUUID()}@example.test`,
+    });
+    const member = await store.createGoogleUser({
+      googleSub: `google-${randomUUID()}`,
+      name: 'Member',
+      email: `member-${randomUUID()}@example.test`,
+    });
+    const team = await store.createWorkspace({ name: 'Kitchen', createdBy: owner.id });
+    await store.addWorkspaceMember({
+      workspaceId: team.workspace.id,
+      userId: member.id,
+      role: 'member',
+    });
+    const invite = await store.saveWorkspaceInvite({
+      workspaceId: team.workspace.id,
+      token: `invite-${randomUUID()}`,
+      createdBy: owner.id,
+    });
+
+    // The invite and the surviving workspace both point at the creator through a restrictive FK;
+    // deleting the account must null that attribution rather than fail or carry the team away.
+    await store.deleteUser(owner.id);
+
+    expect(await store.getWorkspace(team.workspace.id)).toMatchObject({ createdBy: null });
+    expect(await store.getWorkspaceInvite(team.workspace.id)).toMatchObject({
+      token: invite.token,
+      createdBy: null,
+    });
+    expect(
+      await store.getMembership({ workspaceId: team.workspace.id, userId: member.id }),
+    ).toBe('admin');
+  });
+
+  it('serializes a meeting insert with member removal and refuses a non-member owner', async () => {
+    if (postgres === undefined) throw new Error('POSTGRES_URL is missing');
+    const owner = await store.createGoogleUser({
+      googleSub: `google-${randomUUID()}`,
+      name: 'Owner',
+      email: `owner-${randomUUID()}@example.test`,
+    });
+    const member = await store.createGoogleUser({
+      googleSub: `google-${randomUUID()}`,
+      name: 'Member',
+      email: `member-${randomUUID()}@example.test`,
+    });
+    const team = await store.createWorkspace({ name: 'Kitchen', createdBy: owner.id });
+    await store.addWorkspaceMember({
+      workspaceId: team.workspace.id,
+      userId: member.id,
+      role: 'member',
+    });
+    const meetings = createPostgresMeetingStore(postgres.pool);
+
+    // A concurrent create has passed its membership check and holds the workspace's shared lock
+    // while its meeting insert is not yet committed.
+    const insert = await postgres.pool.connect();
+    const racedId = randomUUID();
+    try {
+      await insert.query('begin');
+      await insert.query('select id from workspaces where id = $1 for key share', [
+        team.workspace.id,
+      ]);
+      await insert.query(
+        `insert into meetings (id, workspace_id, owner_user_id, title, kind, status)
+         values ($1, $2, $3, 'Raced in', 'real', 'open')`,
+        [racedId, team.workspace.id, member.id],
+      );
+
+      const removal = store.removeWorkspaceMember({
+        workspaceId: team.workspace.id,
+        userId: member.id,
+        actorUserId: owner.id,
+        assertRemovable: async () => {
+          const rows = await meetings.list(team.workspace.id);
+          if (rows.some((row) => row.status === 'open' && row.ownerUserId === member.id)) {
+            throw new WorkspaceMemberError('open-meeting', 'This person owns an open meeting.');
+          }
+        },
+      });
+      const outcome = await Promise.race([
+        removal.then(
+          () => 'done' as const,
+          () => 'refused' as const,
+        ),
+        new Promise<'blocked'>((resolve) => setTimeout(() => resolve('blocked'), 200)),
+      ]);
+      // Removal waits for the in-flight insert, because both lock the workspace row.
+      expect(outcome).toBe('blocked');
+      await insert.query('commit');
+      await expect(removal).rejects.toMatchObject({ problem: 'open-meeting' });
+      expect(
+        await store.getMembership({ workspaceId: team.workspace.id, userId: member.id }),
+      ).toBe('member');
+    } finally {
+      await insert.query('rollback').catch(() => undefined);
+      insert.release();
+    }
+
+    await meetings.markEnded!(racedId, new Date().toISOString());
+    expect(
+      await store.removeWorkspaceMember({
+        workspaceId: team.workspace.id,
+        userId: member.id,
+        actorUserId: owner.id,
+        assertRemovable: async () => {
+          const rows = await meetings.list(team.workspace.id);
+          if (rows.some((row) => row.status === 'open' && row.ownerUserId === member.id)) {
+            throw new WorkspaceMemberError('open-meeting', 'This person owns an open meeting.');
+          }
+        },
+      }),
+    ).toBe('member');
+
+    // Membership is checked inside the insert's transaction, so the removed owner cannot create.
+    await expect(
+      meetings.create({
+        workspaceId: team.workspace.id,
+        ownerUserId: member.id,
+        title: 'After removal',
+      }),
+    ).rejects.toThrow(/not a member/);
   });
 });

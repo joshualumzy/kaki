@@ -1,4 +1,5 @@
 import { AccessToken, RoomServiceClient } from 'livekit-server-sdk';
+import { userRoomIdentity } from '../meeting/realMeeting';
 
 /**
  * `livekit-server --dev` accepts this key pair; set LIVEKIT_API_KEY / LIVEKIT_API_SECRET to override.
@@ -63,10 +64,17 @@ export async function createRoomToken(join: RoomJoin, reservedNames: readonly st
     identity,
     name,
     metadata: join.participantRole,
+    // A room token only opens the door. Keeping it short bounds how long a revoked account could
+    // replay an old grant before LiveKit rejects it; an already-joined participant is disconnected
+    // by identity at revocation.
+    ttl: ROOM_TOKEN_TTL_SECONDS,
   });
   token.addGrant({ roomJoin: true, room: join.roomName, canPublish: true, canSubscribe: true });
   return token.toJwt();
 }
+
+/** How long a freshly issued room token may be used to join. */
+export const ROOM_TOKEN_TTL_SECONDS = 15 * 60;
 
 /** Where the browser reaches LiveKit; `undefined` lets the page use its own host on port 7880. */
 export function livekitPublicUrl(): string | undefined {
@@ -110,6 +118,24 @@ export async function removeRoomHumans(roomName: string, keepNames: readonly str
       .filter((participant) => !keep.has(participant.identity.trim().toLowerCase()))
       .map((participant) => client.removeParticipant(roomName, participant.identity)),
   );
+}
+
+/**
+ * Disconnect one signed-in account's participant from a room. A real meeting's token uses the
+ * account's stable seat identity, so the identity can be rebuilt from the user id alone. A person
+ * who is not in the room is a no-op.
+ */
+export async function removeRoomUser(roomName: string, userId: string): Promise<void> {
+  const { key, secret } = livekitCredentials();
+  const url = (process.env.LIVEKIT_URL || 'ws://127.0.0.1:7880').replace(/^ws/, 'http');
+  const client = new RoomServiceClient(url, key, secret);
+  const identity = userRoomIdentity(userId).toLowerCase();
+  const participants = await client.listParticipants(roomName);
+  const match = participants.find(
+    (participant) => participant.identity.trim().toLowerCase() === identity,
+  );
+  if (match === undefined) return;
+  await client.removeParticipant(roomName, match.identity);
 }
 
 /** How long a seat stays reserved after a token is issued, before LiveKit is expected to show the person. */

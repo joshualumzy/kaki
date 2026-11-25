@@ -141,6 +141,11 @@ function identitySeat(label: string): string {
   return `person_${createHash('sha256').update(label).digest('hex').slice(0, 20)}`;
 }
 
+/** The stable LiveKit identity a signed-in account takes in a real meeting. */
+export function userRoomIdentity(userId: string): string {
+  return identitySeat(`user:${userId}`);
+}
+
 /**
  * The stable seat a person owns in a real meeting. It follows who they are, never their display
  * name: a signed-in user keeps it across sessions, a guest keeps it with the guest cookie they
@@ -156,10 +161,10 @@ export function realSeatId(
       return principal.role;
     case 'host':
       if (principal.seat !== undefined && principal.seat.trim() !== '') return principal.seat;
-      if (principal.userId !== undefined) return identitySeat(`user:${principal.userId}`);
+      if (principal.userId !== undefined) return userRoomIdentity(principal.userId);
       break;
     case 'user':
-      return identitySeat(`user:${principal.userId}`);
+      return userRoomIdentity(principal.userId);
     case 'guest':
       if (principal.guestId !== undefined && principal.guestId !== '') {
         return identitySeat(`guest:${principal.guestId}`);

@@ -276,7 +276,7 @@ describe('real meeting seats', () => {
     ).toHaveLength(1);
   });
 
-  it('withholds retained workspace facts when the meeting owner reconnects after losing membership', async () => {
+  it('refuses the meeting owner’s reconnect after losing membership, while a member keeps the fact', async () => {
     const { app, base, store } = await build();
     const owner = await signIn(store, 'Ada');
     const workspace = await store.createWorkspace({ name: 'Owner workspace', createdBy: owner.userId });
@@ -319,30 +319,14 @@ describe('real meeting seats', () => {
     await settle();
     expect(received(ownerView)).toEqual([{ ...note, replayed: true }]);
 
-    // The owner loses its workspace membership: the same host principal must fail closed too.
+    // The owner loses its workspace membership: host authority needs a current membership, so the
+    // reconnect is refused outright rather than downgraded to a guest who can still hear the room.
     const membership = vi.spyOn(store, 'getMembership').mockResolvedValue(undefined);
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    const revoked = await connect(base, meeting.id, 'participant', ownerSeat.cookie);
-    sockets.push(revoked);
-    await waitFor(() => received(revoked).length === 1 ? true : undefined);
-    await settle();
-    const [replayed] = received(revoked);
-    if (replayed?.type !== 'WINGMAN_NOTE') throw new Error('expected a Wingman note');
-    expect(replayed.payload.text).toBe('Now: "Budget".');
-    expect(replayed.payload.facts).toBeUndefined();
-    expect(replayed.payload.sources).toBeUndefined();
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('withheld workspace facts'));
+    await expect(connect(base, meeting.id, 'participant', ownerSeat.cookie)).rejects.toThrow(/401/);
 
     // A membership check the server cannot make also fails closed.
     membership.mockRejectedValue(new Error('membership store down'));
-    const unreadable = await connect(base, meeting.id, 'participant', ownerSeat.cookie);
-    sockets.push(unreadable);
-    await waitFor(() => received(unreadable).length === 1 ? true : undefined);
-    await settle();
-    const [unchecked] = received(unreadable);
-    if (unchecked?.type !== 'WINGMAN_NOTE') throw new Error('expected a Wingman note');
-    expect(unchecked.payload.facts).toBeUndefined();
-    expect(unchecked.payload.sources).toBeUndefined();
+    await expect(connect(base, meeting.id, 'participant', ownerSeat.cookie)).rejects.toThrow(/500/);
   });
 
   it('withholds workspace facts from a live clear after a seat loses membership', async () => {

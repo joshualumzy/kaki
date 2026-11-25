@@ -74,7 +74,13 @@ export interface RequestContext {
   /** The meeting registry, for the server-wide lookup and creation of meetings and practices. */
   registry?: Pick<
     MeetingRegistry,
-    'findByCode' | 'create' | 'createPractice' | 'findPractice' | 'endOwnedBy' | 'endWorkspaceMember'
+    | 'findByCode'
+    | 'create'
+    | 'createPractice'
+    | 'findPractice'
+    | 'endOwnedBy'
+    | 'endWorkspaceMember'
+    | 'endUser'
   >;
   /** The meeting a session must belong to: a seat for meeting A resolves to nobody on B's routes. */
   authMeetingId?: string;

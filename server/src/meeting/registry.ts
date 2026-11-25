@@ -58,6 +58,15 @@ export interface MeetingStore {
   countCreatedByOwnerSince(ownerUserId: string, since: Date): Promise<number>;
   /** Mark the row ended once the meeting finishes, so workspace pages show it as over. */
   markEnded?(id: string, endedAt: string): Promise<void>;
+  /**
+   * Hand every scheduled (not open or ended) meeting one member owns in a workspace to another
+   * member. Removal never ends a scheduled meeting, so its host authority must move with it.
+   */
+  transferScheduledOwnership?(input: {
+    workspaceId: string;
+    fromUserId: string;
+    toUserId: string;
+  }): Promise<void>;
   /** Keep Kaki's own copy of the minutes and to-dos with the meeting row. */
   saveMinutes?(id: string, archive: { minutes: string; todos: ArchivedMeetingTodo[] }): Promise<void>;
   /** Tick one archived to-do done or not; returns the updated list, or undefined when there is no archive. */
@@ -113,8 +122,18 @@ export interface MeetingRegistry {
   noteEnded(id: string): void;
   /** Every open meeting, for a runner connecting (or reconnecting) to the control channel. */
   openMeetings(): OpenMeeting[];
-  /** Close one removed member's sockets in every loaded meeting of that workspace. */
-  endWorkspaceMember(workspaceId: string, userId: string): void;
+  /**
+   * Close one member's sockets in every loaded meeting of that workspace, and disconnect their
+   * LiveKit audio. `keepOwner` keeps the meetings they still own, for a demotion that leaves owner
+   * authority intact.
+   */
+  endWorkspaceMember(
+    workspaceId: string,
+    userId: string,
+    options?: { keepOwner?: boolean },
+  ): Promise<void>;
+  /** Close one account's sockets and LiveKit audio in every loaded meeting, whatever its workspace. */
+  endUser(userId: string): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -146,6 +165,8 @@ interface MeetingRegistryDeps {
   log?: (message: string) => void;
   /** Release a meeting's seat claims, so no stale claim outlives a deleted meeting. */
   releaseMeeting?: (meetingId: string) => Promise<void>;
+  /** Disconnect one account's LiveKit participant from a room after its access ended. */
+  disconnectUser?(roomName: string, userId: string): Promise<void>;
   /** A meeting was opened (loaded) or closed (unloaded), for the runner control channel. */
   onOpened?(meeting: OpenMeeting): void;
   onClosed?(meetingId: string): void;
@@ -524,10 +545,36 @@ export function createMeetingRegistry(deps: MeetingRegistryDeps): MeetingRegistr
       return [...loaded.values()].map(openMeeting);
     },
 
-    endWorkspaceMember(workspaceId, userId) {
+    async endWorkspaceMember(workspaceId, userId, options = {}) {
       for (const instance of loaded.values()) {
         if (instance.workspaceId !== workspaceId) continue;
+        // A demoted admin keeps host authority only on meetings they still own.
+        if (options.keepOwner === true && instance.ownerUserId === userId) continue;
         instance.hub.endUser?.(userId);
+        if (deps.disconnectUser !== undefined) {
+          try {
+            await deps.disconnectUser(instance.roomName, userId);
+          } catch (error) {
+            log(
+              `kaki meetings: disconnecting ${userId} from the LiveKit room ${instance.roomName} failed: ${String(error)}`,
+            );
+          }
+        }
+      }
+    },
+
+    async endUser(userId) {
+      for (const instance of loaded.values()) {
+        instance.hub.endUser?.(userId);
+        if (deps.disconnectUser !== undefined) {
+          try {
+            await deps.disconnectUser(instance.roomName, userId);
+          } catch (error) {
+            log(
+              `kaki meetings: disconnecting ${userId} from the LiveKit room ${instance.roomName} failed: ${String(error)}`,
+            );
+          }
+        }
       }
     },
 
@@ -638,6 +685,28 @@ export function createPostgresMeetingStore(pool: Pool): MeetingStore {
         if ((owner.rowCount ?? 0) === 0) {
           throw new Error(`meeting owner ${ownerUserId} no longer exists`);
         }
+        // A real workspace is locked in share mode while the owner's membership is checked. Removal
+        // takes an exclusive workspace lock and checks for open meetings, so the two serialize:
+        // either this insert commits before removal's check, or it waits and then finds no membership.
+        if (workspaceId !== SAMPLE_WORKSPACE_ID) {
+          const workspace = await client.query(
+            'select id from workspaces where id = $1 for key share',
+            [workspaceId],
+          );
+          // A real workspace locks and checks membership here. A plain id with no workspace row is
+          // a databaseless fixture or an old direct caller; the API route already refused it.
+          if ((workspace.rowCount ?? 0) > 0) {
+            const member = await client.query(
+              'select 1 from workspace_members where workspace_id = $1 and user_id = $2',
+              [workspaceId, ownerUserId],
+            );
+            if ((member.rowCount ?? 0) === 0) {
+              throw new Error(
+                `meeting owner ${ownerUserId} is not a member of workspace ${workspaceId}`,
+              );
+            }
+          }
+        }
         const result = await client.query(
           `insert into meetings (id, workspace_id, owner_user_id, title, kind, status, scheduled_for, agenda)
            values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
@@ -669,6 +738,14 @@ export function createPostgresMeetingStore(pool: Pool): MeetingStore {
       await pool.query(
         "update meetings set status = 'ended', ended_at = $2 where id = $1 and status <> 'ended'",
         [id, endedAt],
+      );
+    },
+    async transferScheduledOwnership({ workspaceId, fromUserId, toUserId }) {
+      await ensureMeetingsSchema(pool);
+      await pool.query(
+        `update meetings set owner_user_id = $3
+          where workspace_id = $1 and owner_user_id = $2 and status = 'scheduled'`,
+        [workspaceId, fromUserId, toUserId],
       );
     },
     async saveMinutes(id, archive) {
@@ -792,6 +869,17 @@ export function createMemoryMeetingStore(): MeetingStore & { rows: Map<string, M
       const meeting = rows.get(id);
       if (meeting === undefined) return;
       rows.set(id, { ...meeting, status: 'ended', endedAt });
+    },
+    async transferScheduledOwnership({ workspaceId, fromUserId, toUserId }) {
+      for (const [id, meeting] of rows) {
+        if (
+          meeting.workspaceId === workspaceId &&
+          meeting.ownerUserId === fromUserId &&
+          meeting.status === 'scheduled'
+        ) {
+          rows.set(id, { ...meeting, ownerUserId: toUserId });
+        }
+      }
     },
     async saveMinutes(id, archive) {
       const meeting = rows.get(id);

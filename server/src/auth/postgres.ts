@@ -431,6 +431,21 @@ export function createPostgresAuthStore(pool: Pool): AuthStore {
       return result.rows.map(toWorkspace);
     },
 
+    async listWorkspacesToDelete(userId) {
+      const result = await pool.query<WorkspaceRow>(
+        `select w.id, w.name, w.kind, w.created_by, w.created_at
+           from workspaces w
+           join workspace_members m on m.workspace_id = w.id and m.user_id = $1
+          where not exists (
+                  select 1 from workspace_members other
+                   where other.workspace_id = w.id and other.user_id <> $1
+                )
+          order by w.created_at asc`,
+        [userId],
+      );
+      return result.rows.map(toWorkspace);
+    },
+
     async createWorkspace({ name, createdBy }) {
       const client = await pool.connect();
       try {
@@ -585,18 +600,32 @@ export function createPostgresAuthStore(pool: Pool): AuthStore {
       }
     },
 
-    async removeWorkspaceMember({ workspaceId, userId }) {
+    async removeWorkspaceMember({ workspaceId, userId, actorUserId, assertRemovable }) {
       const client = await pool.connect();
       try {
         await client.query('begin');
         // Lock the workspace itself, so two admins changing members at once take turns and the
-        // last-admin count cannot be read by both before either removes the other.
+        // last-admin count cannot be read by both before either removes the other. A meeting insert
+        // takes a shared lock on this same row, so it either commits before this lock is granted or
+        // waits and sees the membership gone.
         const workspace = await client.query('select id from workspaces where id = $1 for update', [
           workspaceId,
         ]);
         if ((workspace.rowCount ?? 0) === 0) {
           await client.query('rollback');
           return undefined;
+        }
+        if (actorUserId !== undefined && actorUserId !== userId) {
+          const actor = await client.query<{ role: string }>(
+            'select role from workspace_members where workspace_id = $1 and user_id = $2',
+            [workspaceId, actorUserId],
+          );
+          if (workspaceRole(actor.rows[0]?.role ?? '') !== 'admin') {
+            throw new WorkspaceMemberError(
+              'not-admin',
+              'Only a workspace admin can change members.',
+            );
+          }
         }
         const current = await client.query<{ role: string }>(
           'select role from workspace_members where workspace_id = $1 and user_id = $2',
@@ -621,6 +650,9 @@ export function createPostgresAuthStore(pool: Pool): AuthStore {
             );
           }
         }
+        // Runs while the workspace is locked. A meeting insert cannot commit between this check and
+        // the delete, because it needs a shared lock on the same workspace row.
+        if (assertRemovable !== undefined) await assertRemovable();
         await client.query(
           'delete from workspace_members where workspace_id = $1 and user_id = $2',
           [workspaceId, userId],
@@ -635,7 +667,7 @@ export function createPostgresAuthStore(pool: Pool): AuthStore {
       }
     },
 
-    async setWorkspaceMemberRole({ workspaceId, userId, role }) {
+    async setWorkspaceMemberRole({ workspaceId, userId, role, actorUserId }) {
       const client = await pool.connect();
       try {
         await client.query('begin');
@@ -645,6 +677,18 @@ export function createPostgresAuthStore(pool: Pool): AuthStore {
         if ((workspace.rowCount ?? 0) === 0) {
           await client.query('rollback');
           return undefined;
+        }
+        if (actorUserId !== undefined) {
+          const actor = await client.query<{ role: string }>(
+            'select role from workspace_members where workspace_id = $1 and user_id = $2',
+            [workspaceId, actorUserId],
+          );
+          if (workspaceRole(actor.rows[0]?.role ?? '') !== 'admin') {
+            throw new WorkspaceMemberError(
+              'not-admin',
+              'Only a workspace admin can change members.',
+            );
+          }
         }
         const current = await client.query<{ role: string }>(
           'select role from workspace_members where workspace_id = $1 and user_id = $2',
@@ -731,16 +775,62 @@ export function createPostgresAuthStore(pool: Pool): AuthStore {
           await client.query('delete from seat_claims where holder = any($1::text[])', [hashes]);
         }
         await client.query('delete from sessions where user_id = $1', [userId]);
-        const ownedRows = await client.query<{ id: string }>(
-          'select id from workspaces where created_by = $1',
+        // A workspace goes only when this account is its last member. A team with other members
+        // survives and keeps its meetings, tools and knowledge; creation attribution is not ownership.
+        const doomedRows = await client.query<{ id: string }>(
+          `select w.id
+             from workspaces w
+             join workspace_members m on m.workspace_id = w.id and m.user_id = $1
+            where not exists (
+                    select 1 from workspace_members other
+                     where other.workspace_id = w.id and other.user_id <> $1
+                  )
+            for update of w`,
           [userId],
         );
-        const ownedIds = ownedRows.rows.map((row) => row.id);
+        const doomedIds = doomedRows.rows.map((row) => row.id);
+        // A surviving team never loses its only admin: pass the role to a remaining member.
+        await client.query(
+          `with last_admin as (
+             select w.id
+               from workspaces w
+               join workspace_members me
+                 on me.workspace_id = w.id and me.user_id = $1 and me.role = 'admin'
+              where not exists (
+                      select 1 from workspace_members other_admin
+                       where other_admin.workspace_id = w.id
+                         and other_admin.role = 'admin'
+                         and other_admin.user_id <> $1
+                    )
+                and exists (
+                      select 1 from workspace_members other
+                       where other.workspace_id = w.id and other.user_id <> $1
+                    )
+           )
+           update workspace_members m
+              set role = 'admin'
+             from last_admin l
+            where m.workspace_id = l.id
+              and m.user_id = (
+                select successor.user_id
+                  from workspace_members successor
+                 where successor.workspace_id = l.id and successor.user_id <> $1
+                 order by successor.user_id
+                 limit 1
+              )`,
+          [userId],
+        );
         await client.query(
           'delete from workspace_members where user_id = $1 or workspace_id = any($2::text[])',
-          [userId, ownedIds],
+          [userId, doomedIds],
         );
-        await client.query('delete from workspaces where created_by = $1', [userId]);
+        await client.query('delete from workspaces where id = any($1::text[])', [doomedIds]);
+        // The account's name stays as creation attribution only until it goes; these two columns
+        // also carry ON DELETE SET NULL, so the cleanup is explicit here as well.
+        await client.query('update workspaces set created_by = null where created_by = $1', [userId]);
+        await client.query('update workspace_invites set created_by = null where created_by = $1', [
+          userId,
+        ]);
         await client.query('delete from users where id = $1', [userId]);
         if (ownsTransaction) await client.query('commit');
         return hashes;

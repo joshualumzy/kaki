@@ -212,7 +212,43 @@ describe('delete account', () => {
     );
   });
 
-  it("ends and removes a member's meeting in a deleted workspace but keeps the member", async () => {
+  it("keeps a team's data when a removed creator deletes their account", async () => {
+    const ada = await signIn('Ada Lovelace', 'ada@example.test');
+    const ben = await signIn('Ben Bitdiddle', 'ben@example.test');
+    const team = await store.createWorkspace({ name: 'Kitchen', createdBy: ada.user.id });
+    await store.addWorkspaceMember({
+      workspaceId: team.workspace.id,
+      userId: ben.user.id,
+      role: 'admin',
+    });
+    const benMeeting = await createMeeting(ben.cookie, team.workspace.id, 'Kitchen planning');
+    await workspaceTools.save(toolRecord(team.workspace.id));
+    await store.saveWorkspaceInvite({
+      workspaceId: team.workspace.id,
+      token: 'team-invite',
+      createdBy: ada.user.id,
+    });
+
+    // Another admin removes the creator; their account must not carry the team away afterwards.
+    expect(
+      (
+        await request('DELETE', `/api/workspaces/${team.workspace.id}/members/${ada.user.id}`, {
+          cookie: ben.cookie,
+        })
+      ).status,
+    ).toBe(200);
+    expect((await deleteAccount(ada.cookie, { confirm: 'DELETE' })).status).toBe(200);
+
+    expect(await store.getWorkspace(team.workspace.id)).toBeDefined();
+    expect(
+      await store.getMembership({ workspaceId: team.workspace.id, userId: ben.user.id }),
+    ).toBe('admin');
+    expect(await meetings.get(benMeeting)).toBeDefined();
+    expect(await workspaceTools.list(team.workspace.id)).toHaveLength(1);
+    expect((await store.getWorkspaceInvite(team.workspace.id))?.createdBy).toBeNull();
+  });
+
+  it("keeps a team and its meetings when the creator was not its last member", async () => {
     const ada = await signIn('Ada Lovelace', 'ada@example.test');
     const ben = await signIn('Ben Bitdiddle', 'ben@example.test');
     const team = await store.createWorkspace({ name: 'Ada team', createdBy: ada.user.id });
@@ -230,11 +266,16 @@ describe('delete account', () => {
 
     expect((await deleteAccount(ada.cookie, { confirm: 'DELETE' })).status).toBe(200);
 
-    // The workspace went with Ada, so the meeting row went with it, and no ghost stays loaded.
-    expect(await store.getWorkspace(team.workspace.id)).toBeUndefined();
-    expect(await meetings.get(benMeeting)).toBeUndefined();
+    // Another member remains, so the team and everything it holds stay; only attribution went null.
+    const kept = await store.getWorkspace(team.workspace.id);
+    expect(kept).toBeDefined();
+    expect(kept?.createdBy).toBeNull();
+    expect(await store.getMembership({ workspaceId: team.workspace.id, userId: ben.user.id })).toBe(
+      'admin',
+    );
+    expect((await meetings.get(benMeeting))?.status).toBe('open');
     expect(app.registry.openMeetings().some((meeting) => meeting.meetingId === benMeeting)).toBe(
-      false,
+      true,
     );
 
     // Ben's account, session and own workspace are untouched.

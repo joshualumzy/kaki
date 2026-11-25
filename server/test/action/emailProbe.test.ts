@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   probeEmail,
+  smtpOptions,
   type EmailSettings,
   type EmailTransport,
   type EmailTransportFactory,
@@ -106,6 +107,28 @@ describe('email probe', () => {
     if (result.ok) throw new Error('expected a failure');
     expect(result.message).toMatch(/credentials|auth/i);
     expect(sendMail).not.toHaveBeenCalled();
+  });
+
+  it('only sends SMTP credentials over TLS, except to the local mock server', () => {
+    const remote = {
+      ...settings,
+      smtpHost: 'smtp.example.com',
+      smtpPort: 587,
+      user: 'postmaster',
+      password: 'mail-secret',
+    };
+    const starttls = smtpOptions(remote, 1_000);
+    expect(starttls.secure).toBe(false);
+    expect(starttls.requireTLS).toBe(true);
+    expect(starttls.ignoreTLS).not.toBe(true);
+
+    const implicit = smtpOptions({ ...remote, smtpPort: 465 }, 1_000);
+    expect(implicit.secure).toBe(true);
+
+    const local = smtpOptions({ ...settings, user: 'postmaster', password: 'mail-secret' }, 1_000);
+    expect(local.secure).toBe(false);
+    expect(local.ignoreTLS).toBe(true);
+    expect(local.requireTLS).toBeUndefined();
   });
 
   it('still reports a mailbox failure when the inbox cannot be read', async () => {

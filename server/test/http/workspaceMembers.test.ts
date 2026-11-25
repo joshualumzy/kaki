@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { request as httpRequest } from 'node:http';
 import WebSocket from 'ws';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createApp, type KakiApp } from '../../src/app';
@@ -40,7 +41,10 @@ async function signIn(store: AuthStore, name: string): Promise<SignedIn> {
   return { user, cookie: `kaki_session=${token}` };
 }
 
-async function buildApp(): Promise<{
+async function buildApp(
+  disconnectLivekitUser: (roomName: string, userId: string) => Promise<void> = async () =>
+    undefined,
+): Promise<{
   base: string;
   store: AuthStore;
   meetings: MeetingStore;
@@ -53,6 +57,7 @@ async function buildApp(): Promise<{
     speechRecognition: 'browser',
     auth,
     meetings,
+    disconnectLivekitUser,
   });
   apps.push(app);
   return { base: `http://127.0.0.1:${portOf(app)}`, store, meetings };
@@ -314,6 +319,190 @@ describe('workspace membership API', () => {
     });
     expect(removed.status).toBe(200);
     expect(await store.getMembership({ workspaceId, userId: ben.user.id })).toBeUndefined();
+  });
+
+  it('refuses a membership change whose admin was demoted while the request was held', async () => {
+    const { base, store } = await buildApp();
+    const ada = await signIn(store, 'Ada');
+    const ben = await signIn(store, 'Ben');
+    const workspaceId = await createTeam(base, ada.cookie);
+    await store.addWorkspaceMember({ workspaceId, userId: ben.user.id, role: 'admin' });
+
+    const target = new URL(
+      `${base}/api/workspaces/${workspaceId}/members/${ben.user.id}`,
+    );
+    let finish: (() => void) | undefined;
+    const held = new Promise<{ status: number; body: string }>((resolve, reject) => {
+      const heldRequest = httpRequest(
+        target,
+        {
+          method: 'PATCH',
+          headers: { cookie: ben.cookie, 'content-type': 'application/json' },
+        },
+        (response) => {
+          const chunks: Buffer[] = [];
+          response.on('data', (chunk: Buffer) => chunks.push(chunk));
+          response.on('end', () =>
+            resolve({ status: response.statusCode ?? 0, body: Buffer.concat(chunks).toString() }),
+          );
+        },
+      );
+      heldRequest.once('error', reject);
+      heldRequest.write('{"role":');
+      finish = () => heldRequest.end('"admin"}');
+    });
+    // Ben's earlier authorization (admin) has been read; the request is now waiting for its body.
+    await settle(100);
+    expect(
+      (
+        await request(base, `/api/workspaces/${workspaceId}/members/${ben.user.id}`, {
+          method: 'PATCH',
+          cookie: ada.cookie,
+          body: { role: 'member' },
+        })
+      ).status,
+    ).toBe(200);
+
+    // The held request now completes. Its actor is no longer an admin, so it must change nothing.
+    if (finish === undefined) throw new Error('The held request did not start');
+    finish();
+    const response = await held;
+    expect(response.status).toBe(403);
+    expect(await store.getMembership({ workspaceId, userId: ben.user.id })).toBe('member');
+  });
+
+  it('transfers a removed member’s scheduled meeting and refuses them host authority', async () => {
+    const { base, store, meetings } = await buildApp();
+    const ada = await signIn(store, 'Ada');
+    const ben = await signIn(store, 'Ben');
+    const workspaceId = await createTeam(base, ada.cookie);
+    await store.addWorkspaceMember({ workspaceId, userId: ben.user.id, role: 'member' });
+    const scheduled = await meetings.create({
+      workspaceId,
+      ownerUserId: ben.user.id,
+      title: 'Later planning',
+      status: 'scheduled',
+      scheduledFor: new Date(Date.now() + 60 * 60_000).toISOString(),
+    });
+
+    expect(
+      (
+        await request(base, `/api/workspaces/${workspaceId}/members/${ben.user.id}`, {
+          method: 'DELETE',
+          cookie: ada.cookie,
+        })
+      ).status,
+    ).toBe(200);
+    expect((await meetings.get(scheduled.id))?.ownerUserId).toBe(ada.user.id);
+
+    // Even a meeting still naming the removed person as owner grants them no host power.
+    const stale = await meetings.create({
+      workspaceId,
+      ownerUserId: ben.user.id,
+      title: 'Stale owner',
+    });
+    const hostOnly = await request(base, `/api/meetings/${stale.id}/api/meeting-code`, {
+      cookie: ben.cookie,
+    });
+    expect(hostOnly.status).not.toBe(200);
+  });
+
+  it('signs out everywhere closes a screen socket kept through a replaced session', async () => {
+    const { base, store, meetings } = await buildApp();
+    const ada = await signIn(store, 'Ada');
+    const workspaceId = await createTeam(base, ada.cookie);
+    const live = await meetings.create({
+      workspaceId,
+      ownerUserId: ada.user.id,
+      title: 'Planning',
+    });
+
+    const screen = await connect(base, live.id, 'screen', ada.cookie);
+    await settle();
+    // Taking a seat replaces Ada's session while deliberately keeping her owner screen open.
+    const seated = await seat(base, live.id, ada.cookie, 'Ada');
+    expect(seated.cookie).not.toBe(ada.cookie);
+
+    expect(
+      (await request(base, '/api/auth/logout-all', { method: 'POST', cookie: seated.cookie })).status,
+    ).toBe(200);
+
+    // The kept screen was authorized by the retired session, so revoking by session row misses it;
+    // revoking by account closes it.
+    expect(await closed(screen)).toBe(4001);
+  });
+
+  it('closes a demoted admin’s screen socket while leaving an owner’s own meeting alone', async () => {
+    const { base, store, meetings } = await buildApp();
+    const ada = await signIn(store, 'Ada');
+    const ben = await signIn(store, 'Ben');
+    const workspaceId = await createTeam(base, ada.cookie);
+    await store.addWorkspaceMember({ workspaceId, userId: ben.user.id, role: 'admin' });
+    const live = await meetings.create({
+      workspaceId,
+      ownerUserId: ada.user.id,
+      title: 'Planning',
+    });
+
+    const benScreen = await connect(base, live.id, 'screen', ben.cookie);
+    await settle();
+
+    expect(
+      (
+        await request(base, `/api/workspaces/${workspaceId}/members/${ben.user.id}`, {
+          method: 'PATCH',
+          cookie: ada.cookie,
+          body: { role: 'member' },
+        })
+      ).status,
+    ).toBe(200);
+
+    // Ben is not this meeting's owner, so his admin screen authority ends with the demotion.
+    expect(await closed(benScreen)).toBe(4001);
+  });
+
+  it('cuts LiveKit audio on removal and sign-out, and refuses fresh room tokens', async () => {
+    const disconnects: Array<{ roomName: string; userId: string }> = [];
+    const { base, store, meetings } = await buildApp(async (roomName, userId) => {
+      disconnects.push({ roomName, userId });
+    });
+    const ada = await signIn(store, 'Ada');
+    const ben = await signIn(store, 'Ben');
+    const workspaceId = await createTeam(base, ada.cookie);
+    await store.addWorkspaceMember({ workspaceId, userId: ben.user.id, role: 'member' });
+    const live = await meetings.create({
+      workspaceId,
+      ownerUserId: ada.user.id,
+      title: 'Planning',
+    });
+    const seated = await seat(base, live.id, ben.cookie, 'Ben');
+    await settle();
+
+    expect(
+      (
+        await request(base, `/api/workspaces/${workspaceId}/members/${ben.user.id}`, {
+          method: 'DELETE',
+          cookie: ada.cookie,
+        })
+      ).status,
+    ).toBe(200);
+    expect(disconnects).toContainEqual({ roomName: `kaki-${live.id}`, userId: ben.user.id });
+
+    // A removed account cannot be handed a new room grant.
+    const fresh = await request(base, `/api/meetings/${live.id}/livekit/token`, {
+      method: 'POST',
+      cookie: seated.cookie,
+      body: { participantName: 'Ben' },
+    });
+    expect(fresh.status).toBe(403);
+
+    // Sign out everywhere also insulates the room, not only the Kaki sockets.
+    disconnects.splice(0);
+    expect(
+      (await request(base, '/api/auth/logout-all', { method: 'POST', cookie: seated.cookie })).status,
+    ).toBe(200);
+    await settle();
+    expect(disconnects).toContainEqual({ roomName: `kaki-${live.id}`, userId: ben.user.id });
   });
 
   it('takes removed members out of the workspace at once: minutes and live sockets', async () => {

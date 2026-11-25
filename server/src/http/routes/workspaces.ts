@@ -60,6 +60,30 @@ function sendSecretProblem(response: Parameters<typeof sendJson>[0], error: Secr
   sendJson(response, error.problem === 'wrong-key' ? 409 : 503, { error: error.message });
 }
 
+/** Turn a refused membership change into its plain answer; false means it is not one of those. */
+function sendMemberRefusal(
+  response: Parameters<typeof sendJson>[0],
+  error: WorkspaceMemberError,
+  action: 'remove' | 'leave' | 'patch',
+): boolean {
+  switch (error.problem) {
+    case 'not-admin':
+      sendJson(response, 403, { error: 'Only a workspace admin can change members.' });
+      return true;
+    case 'last-admin':
+      sendJson(response, 409, {
+        error:
+          action === 'leave'
+            ? "You are the workspace's last admin. Make someone else an admin first."
+            : "This is the workspace's last admin. Make someone else an admin first.",
+      });
+      return true;
+    case 'open-meeting':
+      sendJson(response, 409, { error: error.message });
+      return true;
+  }
+}
+
 function tokenForKindRequired(kind: WorkspaceToolKind): boolean {
   return kind === 'mattermost' || kind === 'gitea' || kind === 'wiki';
 }
@@ -77,9 +101,12 @@ function savedSecretApplies(
 ): boolean {
   switch (kind) {
     case 'email':
+      // The one saved secret opens both the SMTP sending side and the mailbox read side, so reuse
+      // is bound to every destination that receives it. Moving either address needs the secret again.
       return (
         settingText(next, 'smtpHost') === settingText(saved, 'smtpHost') &&
         Number(next.smtpPort) === Number(saved.smtpPort) &&
+        settingText(next, 'mailpitUrl') === settingText(saved, 'mailpitUrl') &&
         settingText(next, 'user') === settingText(saved, 'user')
       );
     case 'calendar':
@@ -297,26 +324,45 @@ export async function handleWorkspaces(call: RouteCall): Promise<void> {
       return;
     }
     if (method === 'DELETE') {
-      if (await memberHasOpenMeeting(context, memberWorkspaceId, memberId)) {
-        sendJson(response, 409, {
-          error:
-            'This person owns an open meeting in this workspace. End it before removing them.',
-        });
-        return;
-      }
       try {
-        await store.removeWorkspaceMember({ workspaceId: memberWorkspaceId, userId: memberId });
+        await store.removeWorkspaceMember({
+          workspaceId: memberWorkspaceId,
+          userId: memberId,
+          actorUserId: userId,
+          // Re-run inside the store's workspace lock, so a meeting created concurrently cannot slip
+          // between an earlier check and the membership delete.
+          assertRemovable: async () => {
+            if (await memberHasOpenMeeting(context, memberWorkspaceId, memberId)) {
+              throw new WorkspaceMemberError(
+                'open-meeting',
+                'This person owns an open meeting in this workspace. End it before removing them.',
+              );
+            }
+          },
+        });
       } catch (error) {
-        if (error instanceof WorkspaceMemberError && error.problem === 'last-admin') {
-          sendJson(response, 409, {
-            error: "This is the workspace's last admin. Make someone else an admin first.",
-          });
+        if (error instanceof WorkspaceMemberError && sendMemberRefusal(response, error, 'remove')) {
           return;
         }
         throw error;
       }
-      // Their live sockets in this workspace's meetings go now; a reconnect re-checks membership.
-      context.registry?.endWorkspaceMember?.(memberWorkspaceId, memberId);
+      // A scheduled meeting never blocks removal, so hand it to the admin doing the removal before
+      // their membership (and with it every host power) disappears.
+      try {
+        await context.meetings?.transferScheduledOwnership?.({
+          workspaceId: memberWorkspaceId,
+          fromUserId: memberId,
+          toUserId: userId,
+        });
+      } catch (error) {
+        console.error(
+          `kaki workspaces: could not transfer the scheduled meetings of ${memberId} in ${memberWorkspaceId}`,
+          error,
+        );
+      }
+      // Their live sockets and LiveKit audio in this workspace's meetings go now; a reconnect
+      // re-checks membership before any new room token is issued.
+      await context.registry?.endWorkspaceMember?.(memberWorkspaceId, memberId);
       sendJson(response, 200, { ok: true });
       return;
     }
@@ -332,21 +378,28 @@ export async function handleWorkspaces(call: RouteCall): Promise<void> {
         return;
       }
       try {
+        // The store rechecks the actor's admin role inside its locked transaction, so a request
+        // held across the actor's demotion cannot change anyone (including themselves).
         const updated = await store.setWorkspaceMemberRole({
           workspaceId: memberWorkspaceId,
           userId: memberId,
           role,
+          actorUserId: userId,
         });
         if (updated === undefined) {
           sendJson(response, 404, { error: 'That person is not in this workspace.' });
           return;
         }
+        if (targetRole === 'admin' && role === 'member') {
+          // A demoted admin keeps host authority only for meetings they still own; every other
+          // screen, lifecycle and seat socket they opened in this workspace closes now.
+          await context.registry?.endWorkspaceMember?.(memberWorkspaceId, memberId, {
+            keepOwner: true,
+          });
+        }
         sendJson(response, 200, { role: updated });
       } catch (error) {
-        if (error instanceof WorkspaceMemberError && error.problem === 'last-admin') {
-          sendJson(response, 409, {
-            error: "This is the workspace's last admin. Make someone else an admin first.",
-          });
+        if (error instanceof WorkspaceMemberError && sendMemberRefusal(response, error, 'patch')) {
           return;
         }
         throw error;
@@ -373,24 +426,45 @@ export async function handleWorkspaces(call: RouteCall): Promise<void> {
       sendJson(response, 404, { error: 'Workspace not found' });
       return;
     }
-    if (await memberHasOpenMeeting(context, leaveWorkspaceId, userId)) {
-      sendJson(response, 409, {
-        error: 'You own an open meeting in this workspace. End it before leaving.',
-      });
-      return;
-    }
+    // A member leaving still owns scheduled meetings; hand them to an admin who stays behind.
+    const successor = (await store.listWorkspaceMembers(leaveWorkspaceId)).find(
+      (member) => member.role === 'admin' && member.userId !== userId,
+    );
     try {
-      await store.removeWorkspaceMember({ workspaceId: leaveWorkspaceId, userId });
+      await store.removeWorkspaceMember({
+        workspaceId: leaveWorkspaceId,
+        userId,
+        actorUserId: userId,
+        assertRemovable: async () => {
+          if (await memberHasOpenMeeting(context, leaveWorkspaceId, userId)) {
+            throw new WorkspaceMemberError(
+              'open-meeting',
+              'You own an open meeting in this workspace. End it before leaving.',
+            );
+          }
+        },
+      });
     } catch (error) {
-      if (error instanceof WorkspaceMemberError && error.problem === 'last-admin') {
-        sendJson(response, 409, {
-          error: "You are the workspace's last admin. Make someone else an admin first.",
-        });
+      if (error instanceof WorkspaceMemberError && sendMemberRefusal(response, error, 'leave')) {
         return;
       }
       throw error;
     }
-    context.registry?.endWorkspaceMember?.(leaveWorkspaceId, userId);
+    if (successor !== undefined) {
+      try {
+        await context.meetings?.transferScheduledOwnership?.({
+          workspaceId: leaveWorkspaceId,
+          fromUserId: userId,
+          toUserId: successor.userId,
+        });
+      } catch (error) {
+        console.error(
+          `kaki workspaces: could not transfer the scheduled meetings of ${userId} in ${leaveWorkspaceId}`,
+          error,
+        );
+      }
+    }
+    await context.registry?.endWorkspaceMember?.(leaveWorkspaceId, userId);
     sendJson(response, 200, { ok: true });
     return;
   }

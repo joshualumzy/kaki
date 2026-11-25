@@ -62,11 +62,20 @@ export function createPostgresAccountDataDeletion(
             `meeting ${stillOpen.rows[0]?.id ?? 'unknown'} was created while the account was being deleted; try again`,
           );
         }
-        const owned = await client.query<{ id: string }>(
-          'select id from workspaces where created_by = $1',
+        // Only workspaces this account is the last member of go with it. Lock those rows so a member
+        // being added or removed at the same moment cannot change that decision mid-deletion.
+        const doomed = await client.query<{ id: string }>(
+          `select w.id
+             from workspaces w
+             join workspace_members m on m.workspace_id = w.id and m.user_id = $1
+            where not exists (
+                    select 1 from workspace_members other
+                     where other.workspace_id = w.id and other.user_id <> $1
+                  )
+            for update of w`,
           [userId],
         );
-        const workspaceIds = owned.rows.map((row) => row.id);
+        const workspaceIds = doomed.rows.map((row) => row.id);
         await deleteMeetings(userId, workspaceIds, client);
         await deleteTools(workspaceIds, client);
         await deleteWorkspaceKnowledge({ db: client, workspaceIds });
@@ -92,7 +101,7 @@ export function createMemoryAccountDataDeletion(input: AccountStores): AccountDa
     async deleteAccountData(userId) {
       const deleteMeetings = requireMeetingsDelete(input.meetings);
       const deleteTools = requireToolsDelete(input.tools);
-      const workspaceIds = (await input.auth.listWorkspacesOwnedBy(userId)).map(
+      const workspaceIds = (await input.auth.listWorkspacesToDelete(userId)).map(
         (workspace) => workspace.id,
       );
       await deleteMeetings(userId, workspaceIds);

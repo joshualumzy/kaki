@@ -153,6 +153,27 @@ async function handleRealLivekitToken(call: RouteCall): Promise<void> {
       };
       const roomName = context.roomNameFor(meetingId);
       const seatId = realSeatId(principal, name, meetingId);
+      // A new room token follows current membership. A removed account keeps its download name but
+      // may not be handed fresh audio access; guests and the built-in sample workspace are exempt.
+      const joiningUserId =
+        principal.kind === 'user' || principal.kind === 'host' || principal.kind === 'seat'
+          ? principal.userId
+          : undefined;
+      if (context.auth !== undefined && joiningUserId !== undefined) {
+        // The sample workspace and a databaseless fixture have no workspace row; there is no
+        // membership to check. A real workspace must still have this account as a current member.
+        const workspace = await context.auth.store.getWorkspace(context.workspaceId);
+        if (workspace !== undefined) {
+          const membership = await context.auth.store.getMembership({
+            workspaceId: context.workspaceId,
+            userId: joiningUserId,
+          });
+          if (membership === undefined) {
+            sendJson(response, 403, { error: 'You are no longer a member of this workspace.' });
+            return;
+          }
+        }
+      }
       // The person's Google photo, when they have an account; the room shows it beside their name.
       let photoUrl: string | undefined;
       let email: string | undefined;

@@ -8,7 +8,11 @@ import { createMemoryAuthStore, type AuthStore, type UserRecord } from '../../sr
 import { createMemoryMeetingStore } from '../../src/meeting/registry';
 import { SAMPLE_WORKSPACE_ID } from '../../src/workspace/constants';
 import { decryptSecret, parseSecretKey, SECRET_KEY_MISSING_MESSAGE } from '../../src/workspace/secrets';
-import { createMemoryWorkspaceToolStore, type WorkspaceToolStore } from '../../src/workspace/tools';
+import {
+  createMemoryWorkspaceToolStore,
+  encryptToolToken,
+  type WorkspaceToolStore,
+} from '../../src/workspace/tools';
 import { testScenario } from '../fixtures/scenario';
 import { portOf } from '../helpers';
 
@@ -150,6 +154,21 @@ async function calendarServer(): Promise<{ url: string; auth: string[] }> {
   return { url: await listen(server), auth };
 }
 
+async function mailboxServer(): Promise<{ url: string; auth: string[] }> {
+  const auth: string[] = [];
+  const server = createServer((req, res) => {
+    auth.push(String(req.headers.authorization ?? ''));
+    res.setHeader('content-type', 'application/json');
+    if (req.method === 'GET' && req.url?.startsWith('/api/v1/messages')) {
+      res.end(JSON.stringify({ messages: [] }));
+      return;
+    }
+    res.statusCode = 404;
+    res.end(JSON.stringify({ message: 'not found' }));
+  });
+  return { url: await listen(server), auth };
+}
+
 async function createTeam(base: string, cookie: string): Promise<string> {
   const response = await request(base, '/api/workspaces', {
     method: 'POST',
@@ -225,6 +244,44 @@ describe('workspace tools API', () => {
     });
     expect(deleted.status).toBe(200);
     expect(await workspaceTools.get(workspaceId, 'mattermost')).toBeUndefined();
+  });
+
+  it('never reuses a saved email secret for a different mailbox URL', async () => {
+    process.env.KAKI_SECRET_KEY = newKey();
+    const store = createMemoryAuthStore();
+    const workspaceTools = createMemoryWorkspaceToolStore();
+    const { base } = await buildApp(store, workspaceTools);
+    const ada = await signIn(store, 'Ada');
+    const workspaceId = await createTeam(base, ada.cookie);
+    const ownMailbox = await mailboxServer();
+    const attackerMailbox = await mailboxServer();
+    const settings = {
+      smtpHost: '127.0.0.1',
+      smtpPort: 1,
+      from: 'kaki@example.test',
+      mailpitUrl: ownMailbox.url,
+      user: 'postmaster',
+    };
+    await workspaceTools.save({
+      workspaceId,
+      kind: 'email',
+      settings,
+      ...encryptToolToken('saved-mail-secret'),
+      connectedBy: ada.user.id,
+      connectedAt: new Date(),
+      lastOkAt: null,
+    });
+
+    // The SMTP destination is unchanged, but the mailbox URL now points elsewhere. The one saved
+    // secret opens both sides, so moving either destination must demand the secret again.
+    const moved = await request(base, `/api/workspaces/${workspaceId}/tools/email/test`, {
+      method: 'POST',
+      cookie: ada.cookie,
+      body: { settings: { ...settings, mailpitUrl: attackerMailbox.url } },
+    });
+    expect(moved.status).toBe(200);
+    expect(attackerMailbox.auth.every((header) => header === '')).toBe(true);
+    expect(ownMailbox.auth).toEqual([]);
   });
 
   it('never sends the saved token to a different address', async () => {

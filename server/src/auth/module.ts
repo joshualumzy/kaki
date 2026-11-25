@@ -72,8 +72,15 @@ export interface Auth {
    * function that stops listening.
    */
   onSessionEnded(handler: (sessionTokenHash: string, reason: SessionEndReason) => void): () => void;
+  /**
+   * Be told when every session of an account is gone (sign out everywhere, or account deletion).
+   * Sockets are keyed by account too, so this reaches one kept open through a replaced session.
+   */
+  onUserEnded(handler: (userId: string) => void): () => void;
   /** Close every meeting hub's sockets authorized by this session, after its account is deleted. */
   closeSockets(tokenHash: string): void;
+  /** Close every socket and LiveKit participant of this account, whatever session authorized it. */
+  closeUserSockets(userId: string): void;
   /** The auth persistence, also used by the workspace API. */
   readonly store: AuthStore;
   /** Whether this server issues Secure cookies, so other routes can match it. */
@@ -157,6 +164,7 @@ export function createAuth({
   google,
 }: AuthOptions): Auth {
   const sessionEndedHandlers = new Set<(sessionTokenHash: string, reason: SessionEndReason) => void>();
+  const userEndedHandlers = new Set<(userId: string) => void>();
   let offeredRoles: () => readonly string[] = readOfferedRoles ?? (() => []);
   let meetingHost: MeetingHostCheck | undefined;
   /** A real hash to check against when the email is unknown, so both paths cost the same. */
@@ -198,6 +206,16 @@ export function createAuth({
         handler(tokenHash, reason);
       } catch (error) {
         log(`kaki auth: a session-ended handler failed: ${String(error)}`);
+      }
+    }
+  }
+
+  function notifyUserEnded(userId: string): void {
+    for (const handler of userEndedHandlers) {
+      try {
+        handler(userId);
+      } catch (error) {
+        log(`kaki auth: a user-ended handler failed: ${String(error)}`);
       }
     }
   }
@@ -374,6 +392,9 @@ export function createAuth({
       } else {
         const hashes = await store.deleteSessionsForUser(session.userId);
         for (const tokenHash of hashes) notifySessionEnded(tokenHash, 'revoked');
+        // A socket authorized by a session that was replaced (an owner's screen kept through taking
+        // a seat) is no longer in the sessions table; revoking by account reaches it too.
+        notifyUserEnded(session.userId);
       }
     }
     response.setHeader('set-cookie', clearSessionCookie(secureCookies));
@@ -574,8 +595,19 @@ export function createAuth({
       };
     },
 
+    onUserEnded(handler) {
+      userEndedHandlers.add(handler);
+      return () => {
+        userEndedHandlers.delete(handler);
+      };
+    },
+
     closeSockets(tokenHash) {
       notifySessionEnded(tokenHash, 'revoked');
+    },
+
+    closeUserSockets(userId) {
+      notifyUserEnded(userId);
     },
 
     async resolvePrincipal(request, meetingId) {
@@ -677,6 +709,7 @@ export function createAuth({
     async close() {
       loginAttempts.clearAll();
       sessionEndedHandlers.clear();
+      userEndedHandlers.clear();
       await store.close();
     },
   };

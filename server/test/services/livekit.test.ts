@@ -5,6 +5,7 @@ import {
   createRoomToken,
   createSeatReservations,
   JoinError,
+  ROOM_TOKEN_TTL_SECONDS,
 } from '../../src/services/livekit';
 import { createAuth } from '../../src/auth/module';
 import { createMemoryAuthStore, type AuthStore } from '../../src/auth/store';
@@ -32,6 +33,14 @@ describe('createRoomToken', () => {
     expect(body.name).toBe('Josh');
     expect(body.metadata).toBe('Producer');
     expect(body.video).toMatchObject({ roomJoin: true, room: 'room-1', canPublish: true, canSubscribe: true });
+  });
+
+  it('issues only a short-lived door grant, so a revoked token cannot be replayed for long', async () => {
+    const token = await createRoomToken({ roomName: 'room-1', participantName: 'Josh' });
+    const body = claims(token);
+    const expiresIn = Number(body.exp) - Math.floor(Date.now() / 1_000);
+    expect(expiresIn).toBeGreaterThan(0);
+    expect(expiresIn).toBeLessThanOrEqual(ROOM_TOKEN_TTL_SECONDS + 5);
   });
 
   it('refuses an empty name and the name of an AI attendee, whatever its case', async () => {
