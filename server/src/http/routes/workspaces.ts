@@ -784,6 +784,82 @@ export async function handleWorkspaces(call: RouteCall): Promise<void> {
     return;
   }
 
+  if (method === 'DELETE') {
+    if (workspaceId === SAMPLE_WORKSPACE_ID) {
+      sendJson(response, 403, { error: "The sample workspace can't be deleted." });
+      return;
+    }
+    const membership = await store.getMembership({ workspaceId, userId });
+    if (membership === undefined) {
+      sendJson(response, 404, { error: 'Workspace not found' });
+      return;
+    }
+    if (membership !== 'admin') {
+      sendJson(response, 403, { error: 'Only a workspace admin can delete it.' });
+      return;
+    }
+    const workspace = await store.getWorkspace(workspaceId);
+    if (workspace === undefined) {
+      sendJson(response, 404, { error: 'Workspace not found' });
+      return;
+    }
+    if (workspace.kind !== 'team') {
+      sendJson(response, 403, {
+        error: 'A personal workspace is deleted together with your account.',
+      });
+      return;
+    }
+    const parsed = await readJsonBody(request, MAX_BODY_BYTES);
+    if (!parsed.ok) {
+      sendJson(response, 400, { error: parsed.error });
+      return;
+    }
+    if (!isObject(parsed.value) || typeof parsed.value.confirm !== 'string') {
+      sendJson(response, 400, { error: 'Type the workspace name to confirm deleting it.' });
+      return;
+    }
+    if (parsed.value.confirm !== workspace.name) {
+      sendJson(response, 400, { error: 'The name does not match. Type the workspace name exactly.' });
+      return;
+    }
+
+    const deletion = context.workspaceDeletion;
+    if (deletion === undefined) {
+      sendJson(response, 500, { error: 'Workspace deletion is unavailable.' });
+      return;
+    }
+    // Take every upcoming meeting off the workspace calendar first. A calendar that cannot be
+    // reached never blocks the deletion; its plain warning travels back to the admin.
+    const calendarWarnings: string[] = [];
+    for (const row of (await context.meetings?.list(workspaceId)) ?? []) {
+      if (row.status === 'ended') continue;
+      try {
+        const outcome = await context.meetingCalendar?.cancelMeeting(row);
+        if (outcome?.warning !== null && outcome?.warning !== undefined) {
+          calendarWarnings.push(`${row.title}: ${outcome.warning}`);
+        }
+      } catch (error) {
+        calendarWarnings.push(
+          `${row.title}: the calendar event could not be cancelled: ${
+            error instanceof Error ? error.message : 'the calendar could not be reached'
+          }`,
+        );
+      }
+    }
+    try {
+      await context.registry?.unloadWorkspace(workspaceId);
+    } catch (error) {
+      console.error(`kaki workspaces: could not close the rooms of ${workspaceId}`, error);
+    }
+    const deleted = await deletion(workspaceId, userId);
+    if (!deleted) {
+      sendJson(response, 404, { error: 'Workspace not found' });
+      return;
+    }
+    sendJson(response, 200, { ok: true, calendarWarnings });
+    return;
+  }
+
   if (method === 'GET') {
     if (workspaceId === SAMPLE_WORKSPACE_ID) {
       sendJson(response, 200, {
@@ -824,6 +900,11 @@ export async function handleWorkspaces(call: RouteCall): Promise<void> {
       const owner = await store.findUserById(row.ownerUserId);
       if (owner !== undefined) ownerNames.set(owner.id, owner.name ?? owner.email);
     }
+    const calendarByMeeting = new Map<string, unknown>();
+    for (const row of rows) {
+      const calendar = await context.meetings?.calendarEventFor?.(row.id);
+      if (calendar !== undefined) calendarByMeeting.set(row.id, calendar);
+    }
     const meetings = rows.map((row) => ({
       id: row.id,
       title: row.title,
@@ -836,6 +917,7 @@ export async function handleWorkspaces(call: RouteCall): Promise<void> {
       todoCount: row.minutes?.todos.length ?? 0,
       ownerUserId: row.ownerUserId,
       ownerName: row.ownerUserId === null ? null : (ownerNames.get(row.ownerUserId) ?? null),
+      calendar: calendarByMeeting.get(row.id) ?? null,
     }));
     const toolRecords = (await context.workspaceTools?.list(workspaceId)) ?? [];
     sendJson(response, 200, {

@@ -159,6 +159,52 @@ describe.skipIf(connectionString === undefined)('postgres meeting store agenda',
     expect((await store.get(meeting.id))?.title).toBe('Starting early');
   });
 
+  it('keeps one calendar event state per meeting and deletes it with the meeting or workspace', async () => {
+    if (postgres === undefined) throw new Error('POSTGRES_URL is missing');
+    const store = createPostgresMeetingStore(postgres.pool);
+    const workspaceId = `workspace-${randomUUID()}`;
+    const meeting = await store.create({
+      workspaceId,
+      ownerUserId: 'owner-1',
+      title: 'On the calendar',
+      status: 'scheduled',
+      scheduledFor: new Date(Date.now() + 60 * 60_000).toISOString(),
+    });
+
+    await store.saveCalendarEvent!(meeting.id, {
+      uid: `kaki-meeting-${meeting.id}@kaki.local`,
+      sequence: 2,
+      state: 'error',
+      error: 'The calendar returned HTTP 500',
+      syncedAt: null,
+    });
+    expect(await store.calendarEventFor!(meeting.id)).toEqual({
+      uid: `kaki-meeting-${meeting.id}@kaki.local`,
+      sequence: 2,
+      state: 'error',
+      error: 'The calendar returned HTTP 500',
+      syncedAt: null,
+    });
+
+    await store.saveCalendarEvent!(meeting.id, {
+      uid: `kaki-meeting-${meeting.id}@kaki.local`,
+      sequence: 2,
+      state: 'synced',
+      error: null,
+      syncedAt: new Date().toISOString(),
+    });
+    expect((await store.calendarEventFor!(meeting.id))?.state).toBe('synced');
+
+    await store.deleteWorkspace!(workspaceId);
+    expect(await store.list(workspaceId)).toEqual([]);
+    expect(await store.calendarEventFor!(meeting.id)).toBeUndefined();
+    const remaining = await postgres.pool.query<{ count: string }>(
+      'select count(*)::text as count from meeting_calendar_events where meeting_id = $1',
+      [meeting.id],
+    );
+    expect(remaining.rows[0]?.count).toBe('0');
+  });
+
   it('stores a meeting with no agenda as an empty list', async () => {
     if (postgres === undefined) throw new Error('POSTGRES_URL is missing');
     const store = createPostgresMeetingStore(postgres.pool);

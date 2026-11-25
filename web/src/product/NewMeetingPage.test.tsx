@@ -262,6 +262,57 @@ describe('NewMeetingPage', () => {
     expect(await screen.findByText('meeting room')).toBeTruthy();
   });
 
+  it('picks an upcoming workspace calendar event and fills title, time and agenda', async () => {
+    installFetch(
+      baseRoutes({
+        'GET /api/workspaces/ws-1/calendar/events': () =>
+          reply({
+            connected: true,
+            events: [
+              {
+                uid: 'planning@example.test',
+                title: 'Quarterly planning',
+                date: '2999-11-13',
+                time: '09:30',
+                endTime: '10:30',
+                description: '- Budget\n- Hiring\n- Launch date',
+                people: ['Ada'],
+              },
+            ],
+          }),
+      }),
+    );
+    renderPage();
+
+    await screen.findByLabelText('Meeting title');
+    fireEvent.click(screen.getByRole('button', { name: 'From calendar' }));
+    fireEvent.click(await screen.findByRole('button', { name: /Quarterly planning/ }));
+
+    expect((screen.getByLabelText('Meeting title') as HTMLInputElement).value).toBe(
+      'Quarterly planning',
+    );
+    expect((screen.getByLabelText('Date') as HTMLInputElement).value).toBe('2999-11-13');
+    expect((screen.getByLabelText('Time') as HTMLInputElement).value).toBe('09:30');
+    expect((screen.getByLabelText('Agenda item 1') as HTMLInputElement).value).toBe('Budget');
+    expect((screen.getByLabelText('Agenda item 3') as HTMLInputElement).value).toBe('Launch date');
+  });
+
+  it('shows a plain hint when the workspace has no connected calendar', async () => {
+    installFetch(
+      baseRoutes({
+        'GET /api/workspaces/ws-1/calendar/events': () =>
+          reply({ connected: false, events: [] }),
+      }),
+    );
+    renderPage();
+
+    await screen.findByLabelText('Meeting title');
+    fireEvent.click(screen.getByRole('button', { name: 'From calendar' }));
+
+    expect(await screen.findByText(/This workspace has no connected calendar/)).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Connect one in its tools' })).toBeTruthy();
+  });
+
   it('shows the form when the saved draft chose the sample workspace', async () => {
     window.localStorage.setItem(
       DRAFT_KEY,

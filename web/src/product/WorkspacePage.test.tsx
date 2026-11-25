@@ -480,4 +480,120 @@ describe('WorkspacePage', () => {
     expect(screen.queryByRole('button', { name: 'End' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull();
   });
+
+  it('retries a meeting whose workspace calendar write failed', async () => {
+    const fetchMock = installFetch({
+      'GET /api/workspaces': () => reply(workspaces),
+      'GET /api/workspaces/ws-1': () =>
+        reply({
+          id: 'ws-1',
+          name: 'Team workspace',
+          kind: 'team',
+          readOnly: false,
+          people: [{ id: 'user-1', name: 'Ada Lovelace', role: 'admin' }],
+          tools: [{ kind: 'calendar', connected: true, settings: {}, lastOkAt: null }],
+          meetings: [
+            {
+              id: 'mtg-1',
+              title: 'Scheduled sync',
+              status: 'scheduled',
+              scheduledFor: '2999-01-01T02:00:00.000Z',
+              createdAt: '2026-11-01T02:00:00.000Z',
+              endedAt: null,
+              agenda: [],
+              pace: null,
+              todoCount: 0,
+              ownerUserId: 'user-1',
+              ownerName: 'Ada Lovelace',
+              calendar: {
+                uid: 'kaki-meeting-mtg-1@kaki.local',
+                sequence: 0,
+                state: 'error',
+                error: 'The calendar returned HTTP 500',
+                syncedAt: null,
+              },
+            },
+          ],
+          counts: { meetings: 1, todos: 0, records: 0 },
+        }),
+      'GET /api/workspaces/ws-1/invite': () =>
+        reply({
+          token: 'invite-token',
+          path: '/join-workspace/invite-token',
+          workspace: { id: 'ws-1', name: 'Team workspace' },
+        }),
+      'POST /api/meetings/mtg-1/calendar-sync': () =>
+        reply({
+          calendar: {
+            uid: 'kaki-meeting-mtg-1@kaki.local',
+            sequence: 0,
+            state: 'synced',
+            error: null,
+            syncedAt: '2026-11-01T03:00:00.000Z',
+          },
+          warning: null,
+        }),
+    });
+    renderPage('ws-1');
+
+    expect(await screen.findByText('The calendar returned HTTP 500')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry calendar' }));
+
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(
+          ([url, init]) =>
+            String(url) === '/api/meetings/mtg-1/calendar-sync' && init?.method === 'POST',
+        ),
+      ).toBe(true),
+    );
+    await waitFor(() =>
+      expect(screen.queryByText('The calendar returned HTTP 500')).toBeNull(),
+    );
+    expect(screen.getByRole('link', { name: 'Add to calendar' })).toBeTruthy();
+  });
+
+  it('deletes a team workspace only when the typed name matches', async () => {
+    const alert = vi.spyOn(window, 'alert').mockImplementation(() => undefined);
+    const fetchMock = installFetch({
+      'GET /api/workspaces': () => reply(workspaces),
+      'GET /api/workspaces/ws-1': () =>
+        reply({
+          id: 'ws-1',
+          name: 'Team workspace',
+          kind: 'team',
+          readOnly: false,
+          people: [{ id: 'user-1', name: 'Ada Lovelace', role: 'admin' }],
+          tools: [],
+          meetings: [],
+          counts: { meetings: 0, todos: 0, records: 0 },
+        }),
+      'GET /api/workspaces/ws-1/invite': () =>
+        reply({
+          token: 'invite-token',
+          path: '/join-workspace/invite-token',
+          workspace: { id: 'ws-1', name: 'Team workspace' },
+        }),
+      'DELETE /api/workspaces/ws-1': () => reply({ ok: true, calendarWarnings: [] }),
+    });
+    renderPage('ws-1');
+
+    expect(await screen.findByText('Get this workspace started')).toBeTruthy();
+    const confirm = screen.getByLabelText('Type the workspace name to confirm');
+    const button = screen.getByRole('button', { name: 'Delete workspace' });
+    expect(button).toHaveProperty('disabled', true);
+
+    fireEvent.change(confirm, { target: { value: 'Team workspace' } });
+    expect(button).toHaveProperty('disabled', false);
+    fireEvent.click(button);
+
+    expect(await screen.findByText('new meeting')).toBeTruthy();
+    expect(
+      fetchMock.mock.calls.some(
+        ([url, init]) => String(url) === '/api/workspaces/ws-1' && init?.method === 'DELETE',
+      ),
+    ).toBe(true);
+    expect(alert).not.toHaveBeenCalled();
+    alert.mockRestore();
+  });
 });

@@ -375,7 +375,7 @@ export function ToolSection({ workspace, canEdit, onChange }: ToolSectionProps) 
   }
 
   return (
-    <section className="card product-section" aria-label="Tools">
+    <section className="card product-section" id="workspace-tools" aria-label="Tools">
       <h2 className="product-section-title">Tools</h2>
       <p className="product-hint">
         Kaki uses these tools to read the workspace and to post what the meeting agreed.

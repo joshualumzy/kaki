@@ -177,6 +177,51 @@ describe.skipIf(connectionString === undefined)('postgres auth store', () => {
     );
   });
 
+  it('deletes a team workspace only for its admin, never a personal one', async () => {
+    const owner = await store.createGoogleUser({
+      googleSub: `google-${randomUUID()}`,
+      name: 'Owner',
+      email: `owner-${randomUUID()}@example.test`,
+    });
+    const member = await store.createGoogleUser({
+      googleSub: `google-${randomUUID()}`,
+      name: 'Member',
+      email: `member-${randomUUID()}@example.test`,
+    });
+    const team = await store.createWorkspace({ name: 'Kitchen', createdBy: owner.id });
+    await store.addWorkspaceMember({ workspaceId: team.workspace.id, userId: member.id, role: 'member' });
+    await store.saveWorkspaceInvite({
+      workspaceId: team.workspace.id,
+      token: `invite-${randomUUID()}`,
+      createdBy: owner.id,
+    });
+
+    expect(
+      await store.deleteWorkspace({ id: team.workspace.id, actorUserId: member.id }),
+    ).toBe(false);
+    expect(await store.getWorkspace(team.workspace.id)).toBeDefined();
+
+    expect(
+      await store.deleteWorkspace({ id: team.workspace.id, actorUserId: owner.id }),
+    ).toBe(true);
+    expect(await store.getWorkspace(team.workspace.id)).toBeUndefined();
+    expect(
+      await store.getMembership({ workspaceId: team.workspace.id, userId: owner.id }),
+    ).toBeUndefined();
+    expect(await store.getWorkspaceInvite(team.workspace.id)).toBeUndefined();
+
+    const personal = (await store.listWorkspacesForUser(owner.id)).find(
+      (entry) => entry.workspace.kind === 'personal',
+    );
+    expect(personal).toBeDefined();
+    expect(
+      await store.deleteWorkspace({
+        id: personal?.workspace.id ?? '',
+        actorUserId: owner.id,
+      }),
+    ).toBe(false);
+  });
+
   it('stores one reusable invite, joins as a member, and protects the last admin', async () => {
     const owner = await store.createGoogleUser({
       googleSub: `google-${randomUUID()}`,

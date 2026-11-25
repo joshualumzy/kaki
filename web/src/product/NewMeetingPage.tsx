@@ -6,14 +6,16 @@ import { useMe } from '../auth/useMe';
 import { SIGN_IN_ENDED } from '../net/plainFailure';
 import { Button, Card } from '../ui';
 import {
-  agendaFromCalendar,
   createMeeting,
   createWorkspace,
   getWorkspace,
+  listWorkspaceCalendar,
   listWorkspaces,
+  syncMeetingCalendar,
   tellKaki,
   type AgendaPayload,
   type MeetingCreated,
+  type WorkspaceCalendarEvent,
   type WorkspaceSummary,
 } from './api';
 import { AppBar } from './AppBar';
@@ -161,6 +163,11 @@ export function NewMeetingPage() {
   );
   const [method, setMethod] = useState<Method | null>(null);
   const [tellText, setTellText] = useState('');
+  const [calendarEvents, setCalendarEvents] = useState<WorkspaceCalendarEvent[] | null>(null);
+  const [calendarConnected, setCalendarConnected] = useState<boolean | null>(null);
+  const [calendarLoading, setCalendarLoading] = useState(false);
+  const [calendarError, setCalendarError] = useState<string | null>(null);
+  const [calendarReload, setCalendarReload] = useState(0);
   const [date, setDate] = useState('');
   const [time, setTime] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -238,6 +245,33 @@ export function NewMeetingPage() {
   }, [selectedId]);
 
   useEffect(() => {
+    if (method !== 'calendar' || selectedId === '') return undefined;
+    let cancelled = false;
+    setCalendarLoading(true);
+    setCalendarError(null);
+    setCalendarEvents(null);
+    setCalendarConnected(null);
+    listWorkspaceCalendar(selectedId)
+      .then(({ connected, events }) => {
+        if (cancelled) return;
+        setCalendarConnected(connected);
+        setCalendarEvents(events);
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        setCalendarError(
+          error instanceof Error ? error.message : 'Could not read the workspace calendar.',
+        );
+      })
+      .finally(() => {
+        if (!cancelled) setCalendarLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [method, selectedId, calendarReload]);
+
+  useEffect(() => {
     if (created !== null) return;
     writeDraft({
       ...(selectedId === '' ? {} : { workspaceId: selectedId }),
@@ -301,19 +335,43 @@ export function NewMeetingPage() {
     setAgenda((current) => current.filter((item) => item.id !== id));
   }
 
-  async function fillFromCalendar(): Promise<void> {
+  function chooseCalendarEvent(event: WorkspaceCalendarEvent): void {
+    setTitle(event.title);
+    setDate(event.date);
+    setTime(event.time);
+    // The event's notes become the agenda: one plain item per line, with list markers removed.
+    const lines = event.description
+      .split(/\r?\n/)
+      .map((line) => line.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, '').trim())
+      .filter((line) => line !== '' && !/^agenda:?$/i.test(line))
+      .slice(0, 20);
+    if (lines.length > 0) {
+      setAgenda(lines.map((line) => ({ id: makeAgendaId(), title: line, minutes: '' })));
+    }
+    setMethod(null);
+    setNote('Loaded from the workspace calendar. Check the title, time and agenda before scheduling.');
+  }
+
+  async function retryCalendar(meeting: MeetingCreated): Promise<void> {
     if (pending !== null) return;
     setPending('calendar');
     setError(null);
     setNote(null);
     try {
-      const invite = await agendaFromCalendar();
-      setTitle(invite.title);
-      setAgenda(agendaRows(invite.agenda));
-      setMethod(null);
-      setNote('Loaded from your calendar. Check it before creating the meeting.');
-    } catch (calendarError) {
-      setError(calendarError instanceof Error ? calendarError.message : 'Could not read your calendar.');
+      const outcome = await syncMeetingCalendar(meeting.id);
+      setCreated((current) =>
+        current === null || current.id !== meeting.id
+          ? current
+          : { ...current, calendar: outcome.calendar },
+      );
+      if (outcome.warning !== null) setError(outcome.warning);
+      else setNote('The meeting is back on the workspace calendar.');
+    } catch (calendarFailure) {
+      setError(
+        calendarFailure instanceof Error
+          ? calendarFailure.message
+          : 'Could not put the meeting on the calendar.',
+      );
     } finally {
       setPending(null);
     }
@@ -446,6 +504,9 @@ export function NewMeetingPage() {
     setComingUp(String(DEFAULT_PACE.comingUpBefore));
     setMethod(null);
     setTellText('');
+    setCalendarEvents(null);
+    setCalendarConnected(null);
+    setCalendarError(null);
     setDate('');
     setTime('');
     setNote(null);
@@ -500,6 +561,29 @@ export function NewMeetingPage() {
                 Open meeting
               </Link>
             </div>
+            {created.calendar?.state === 'error' ? (
+              <div>
+                <p className="product-error" role="alert">
+                  <ErrorText text={created.calendar.error ?? 'The meeting is not on the workspace calendar.'} />
+                </p>
+                <Button
+                  variant="ghost"
+                  onClick={() => void retryCalendar(created)}
+                  disabled={pending !== null}
+                >
+                  {pending === 'calendar' ? 'Retrying…' : 'Retry calendar'}
+                </Button>
+              </div>
+            ) : null}
+            {created.calendar?.state === 'not_connected' ? (
+              <p className="product-hint">
+                This meeting is not on a calendar. Connect the workspace calendar in its tools to
+                add it.
+              </p>
+            ) : null}
+            {created.calendar?.state === 'synced' ? (
+              <p className="product-note">The meeting is on the workspace calendar.</p>
+            ) : null}
             {copied === null ? null : (
               <p className="product-note" role="status">
                 {copied}
@@ -655,14 +739,63 @@ export function NewMeetingPage() {
 
                   {method === 'calendar' ? (
                     <div className="product-method-panel">
-                      <p className="product-hint">Use the meeting invite already in your calendar.</p>
-                      <Button
-                        variant="ghost"
-                        onClick={() => void fillFromCalendar()}
-                        disabled={pending !== null}
-                      >
-                        {pending === 'calendar' ? 'Reading calendar…' : 'Load from calendar'}
-                      </Button>
+                      {calendarLoading ? (
+                        <p className="product-hint" role="status">
+                          Reading the workspace calendar…
+                        </p>
+                      ) : null}
+                      {calendarError === null ? null : (
+                        <div>
+                          <p className="product-error" role="alert">
+                            <ErrorText text={calendarError} />
+                          </p>
+                          <Button
+                            variant="ghost"
+                            onClick={() => setCalendarReload((count) => count + 1)}
+                          >
+                            Try again
+                          </Button>
+                        </div>
+                      )}
+                      {!calendarLoading && calendarError === null && calendarConnected === false ? (
+                        <p className="product-hint">
+                          This workspace has no connected calendar.{' '}
+                          {selected === undefined ? null : (
+                            <Link className="product-link" to={`/workspaces/${encodeURIComponent(selected.id)}`}>
+                              Connect one in its tools
+                            </Link>
+                          )}{' '}
+                          and try again.
+                        </p>
+                      ) : null}
+                      {!calendarLoading &&
+                      calendarError === null &&
+                      calendarConnected === true &&
+                      calendarEvents !== null &&
+                      calendarEvents.length === 0 ? (
+                        <p className="product-hint">
+                          No upcoming events in the workspace calendar.
+                        </p>
+                      ) : null}
+                      {calendarEvents === null || calendarEvents.length === 0 ? null : (
+                        <ul className="product-calendar-events">
+                          {calendarEvents.map((event) => (
+                            <li key={`${event.uid}-${event.date}-${event.time}`}>
+                              <button
+                                type="button"
+                                className="product-calendar-event"
+                                onClick={() => chooseCalendarEvent(event)}
+                              >
+                                <span className="product-row-title">{event.title}</span>
+                                <span className="product-hint">
+                                  {event.date}, {event.time}
+                                  {event.endTime === undefined ? '' : `–${event.endTime}`}
+                                </span>
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
                     </div>
                   ) : null}
 

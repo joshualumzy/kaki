@@ -82,6 +82,34 @@ describe('workspaces API', () => {
     });
   });
 
+  it('refuses deleting a personal workspace or the sample workspace', async () => {
+    const { base, store } = await buildApp();
+    const ada = await signIn(store, 'Ada');
+    const list = (await (await request(base, '/api/workspaces', { cookie: ada.cookie })).json()) as Array<{
+      id: string;
+      kind: string;
+    }>;
+    const personal = list.find((workspace) => workspace.kind === 'personal');
+    expect(personal).toBeDefined();
+
+    const personalDelete = await request(base, `/api/workspaces/${personal?.id ?? ''}`, {
+      method: 'DELETE',
+      cookie: ada.cookie,
+      body: { confirm: 'My workspace' },
+    });
+    expect(personalDelete.status).toBe(403);
+    expect(await personalDelete.json()).toMatchObject({
+      error: 'A personal workspace is deleted together with your account.',
+    });
+
+    const sampleDelete = await request(base, `/api/workspaces/${SAMPLE_WORKSPACE_ID}`, {
+      method: 'DELETE',
+      cookie: ada.cookie,
+      body: { confirm: 'Nanyang Kopi (sample)' },
+    });
+    expect(sampleDelete.status).toBe(403);
+  });
+
   it('creates a team workspace with the caller as admin', async () => {
     const { base, store } = await buildApp();
     const ada = await signIn(store, 'Ada');

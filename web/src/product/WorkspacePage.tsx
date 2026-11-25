@@ -6,6 +6,7 @@ import { SIGN_IN_ENDED } from '../net/plainFailure';
 import { Button, Card } from '../ui';
 import {
   cancelMeeting,
+  deleteWorkspace,
   endMeetingFromList,
   getWorkspace,
   getWorkspaceInvite,
@@ -15,6 +16,7 @@ import {
   renameWorkspace,
   resetWorkspaceInvite,
   setWorkspaceMemberRole,
+  syncMeetingCalendar,
   updateMeeting,
   type MeetingSummary,
   type ToolStatus,
@@ -120,6 +122,9 @@ export function WorkspacePage() {
   const [meetingEditBusy, setMeetingEditBusy] = useState(false);
   const [meetingActionBusy, setMeetingActionBusy] = useState<string | null>(null);
   const [meetingActionError, setMeetingActionError] = useState<string | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState('');
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -316,7 +321,7 @@ export function WorkspacePage() {
     setMeetingActionBusy(meeting.id);
     setMeetingActionError(null);
     try {
-      await cancelMeeting(meeting.id);
+      const calendarWarning = await cancelMeeting(meeting.id);
       setDetail((current) =>
         current === null
           ? current
@@ -326,6 +331,7 @@ export function WorkspacePage() {
             },
       );
       if (meetingEdit?.id === meeting.id) setMeetingEdit(null);
+      if (calendarWarning !== null) setMeetingActionError(calendarWarning);
     } catch (error) {
       setMeetingActionError(
         error instanceof Error ? error.message : 'Could not cancel the meeting.',
@@ -349,6 +355,50 @@ export function WorkspacePage() {
       );
     } finally {
       setMeetingActionBusy(null);
+    }
+  }
+
+  async function retryMeetingCalendar(meeting: MeetingSummary): Promise<void> {
+    if (meetingActionBusy !== null) return;
+    setMeetingActionBusy(meeting.id);
+    setMeetingActionError(null);
+    try {
+      const outcome = await syncMeetingCalendar(meeting.id);
+      setDetail((current) =>
+        current === null
+          ? current
+          : {
+              ...current,
+              meetings: current.meetings.map((entry) =>
+                entry.id === meeting.id ? { ...entry, calendar: outcome.calendar } : entry,
+              ),
+            },
+      );
+      if (outcome.warning !== null) setMeetingActionError(outcome.warning);
+    } catch (error) {
+      setMeetingActionError(
+        error instanceof Error ? error.message : 'Could not put the meeting on the calendar.',
+      );
+    } finally {
+      setMeetingActionBusy(null);
+    }
+  }
+
+  async function deleteThisWorkspace(): Promise<void> {
+    if (detail === null || deleting || deleteConfirm !== detail.name) return;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      const warnings = await deleteWorkspace(detail.id, deleteConfirm);
+      if (warnings.length > 0) {
+        window.alert(
+          `The workspace was deleted. These calendar events could not be cancelled:\n\n${warnings.join('\n')}`,
+        );
+      }
+      navigate('/new', { replace: true });
+    } catch (error) {
+      setDeleteError(error instanceof Error ? error.message : 'Could not delete the workspace.');
+      setDeleting(false);
     }
   }
 
@@ -605,8 +655,40 @@ export function WorkspacePage() {
               </p>
             ) : null}
 
+            {!detail.readOnly &&
+            detail.kind === 'team' &&
+            detail.meetings.length === 0 &&
+            detail.people.length <= 1 ? (
+              <section className="card product-section product-first-steps" aria-label="First steps">
+                <h2 className="product-section-title">Get this workspace started</h2>
+                <ol className="product-first-steps-list">
+                  <li>
+                    <strong>Invite your team.</strong>{' '}
+                    <a className="product-link" href="#workspace-people">
+                      Share the invite link
+                    </a>{' '}
+                    so people can join this workspace.
+                  </li>
+                  <li>
+                    <strong>Connect your tools.</strong>{' '}
+                    <a className="product-link" href="#workspace-tools">
+                      Connect Gitea, Mattermost, email, wiki or calendar
+                    </a>{' '}
+                    so Kaki can read them and post what the meeting agrees.
+                  </li>
+                  <li>
+                    <strong>Hold your first meeting.</strong>{' '}
+                    <Link className="product-link" to="/new">
+                      Create a meeting
+                    </Link>{' '}
+                    and share its link with the people joining.
+                  </li>
+                </ol>
+              </section>
+            ) : null}
+
             <div className="product-grid">
-              <section className="card product-section" aria-label="People">
+              <section className="card product-section" id="workspace-people" aria-label="People">
                 <div className="product-tile-head">
                   <h2 className="product-section-title">People</h2>
                   <span className="product-pill">
@@ -805,6 +887,59 @@ export function WorkspacePage() {
                                 {copiedId === meeting.id ? 'Copied' : 'Copy'}
                               </Button>
                             </div>
+                            {meeting.scheduledFor === null ? null : (
+                              <p className="product-hint">
+                                <a
+                                  className="product-link"
+                                  href={`/api/meetings/${encodeURIComponent(meeting.id)}/calendar.ics`}
+                                  download
+                                >
+                                  Add to calendar
+                                </a>
+                              </p>
+                            )}
+                            {meeting.calendar?.state === 'error' ? (
+                              <div>
+                                <p className="product-error" role="alert">
+                                  <ErrorText
+                                    text={
+                                      meeting.calendar.error ??
+                                      'This meeting is not on the workspace calendar.'
+                                    }
+                                  />
+                                </p>
+                                {canManageMeeting(meeting) ? (
+                                  <Button
+                                    variant="ghost"
+                                    disabled={meetingActionBusy !== null}
+                                    onClick={() => void retryMeetingCalendar(meeting)}
+                                  >
+                                    {meetingActionBusy === meeting.id ? 'Retrying…' : 'Retry calendar'}
+                                  </Button>
+                                ) : null}
+                              </div>
+                            ) : null}
+                            {meeting.status === 'scheduled' &&
+                            meeting.calendar?.state === 'not_connected' ? (
+                              <div>
+                                <p className="product-hint">
+                                  Not on the workspace calendar. Connect Calendar under Tools to add
+                                  it.
+                                </p>
+                                {canManageMeeting(meeting) &&
+                                detail.tools.some(
+                                  (tool) => tool.kind === 'calendar' && tool.connected,
+                                ) ? (
+                                  <Button
+                                    variant="ghost"
+                                    disabled={meetingActionBusy !== null}
+                                    onClick={() => void retryMeetingCalendar(meeting)}
+                                  >
+                                    {meetingActionBusy === meeting.id ? 'Syncing…' : 'Sync to calendar'}
+                                  </Button>
+                                ) : null}
+                              </div>
+                            ) : null}
                             {canManageMeeting(meeting) ? (
                               <div className="product-row-actions">
                                 {meeting.status === 'scheduled' ? (
@@ -1077,6 +1212,46 @@ export function WorkspacePage() {
 
               <ToolSection workspace={detail} canEdit={canEdit} onChange={toolsChanged} />
             </div>
+
+            {canEdit && detail.kind === 'team' ? (
+              <section
+                className="card product-section product-danger-zone"
+                aria-label="Delete workspace"
+              >
+                <h2 className="product-section-title">Delete workspace</h2>
+                <p className="product-hint">
+                  Deleting <strong>{detail.name}</strong> removes its meetings, minutes, to-dos,
+                  people, invite link and tool logins for everyone. This cannot be undone.
+                </p>
+                <div className="product-field">
+                  <label className="product-label" htmlFor="delete-workspace-confirm">
+                    Type the workspace name to confirm
+                  </label>
+                  <input
+                    id="delete-workspace-confirm"
+                    className="product-input"
+                    value={deleteConfirm}
+                    placeholder={detail.name}
+                    onChange={(event) => setDeleteConfirm(event.target.value)}
+                    disabled={deleting}
+                  />
+                </div>
+                {deleteError === null ? null : (
+                  <p className="product-error" role="alert">
+                    <ErrorText text={deleteError} />
+                  </p>
+                )}
+                <div className="product-row-actions">
+                  <Button
+                    variant="ghost"
+                    disabled={deleting || deleteConfirm !== detail.name}
+                    onClick={() => void deleteThisWorkspace()}
+                  >
+                    {deleting ? 'Deleting…' : 'Delete workspace'}
+                  </Button>
+                </div>
+              </section>
+            ) : null}
           </>
         )}
       </main>

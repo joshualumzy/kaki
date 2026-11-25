@@ -758,6 +758,40 @@ export function createPostgresAuthStore(pool: Pool): AuthStore {
       return row === undefined ? undefined : toWorkspace(row);
     },
 
+    async deleteWorkspace({ id, actorUserId }, transaction) {
+      const client = transaction ?? (await pool.connect());
+      const ownsTransaction = transaction === undefined;
+      try {
+        if (ownsTransaction) await client.query('begin');
+        const workspace = await client.query<{ kind: string }>(
+          'select kind from workspaces where id = $1 for update',
+          [id],
+        );
+        if (workspace.rows[0]?.kind !== 'team') {
+          if (ownsTransaction) await client.query('rollback');
+          return false;
+        }
+        const actor = await client.query(
+          "select 1 from workspace_members where workspace_id = $1 and user_id = $2 and role = 'admin'",
+          [id, actorUserId],
+        );
+        if ((actor.rowCount ?? 0) === 0) {
+          if (ownsTransaction) await client.query('rollback');
+          return false;
+        }
+        await client.query('delete from workspace_members where workspace_id = $1', [id]);
+        await client.query('delete from workspace_invites where workspace_id = $1', [id]);
+        await client.query('delete from workspaces where id = $1', [id]);
+        if (ownsTransaction) await client.query('commit');
+        return true;
+      } catch (error) {
+        if (ownsTransaction) await client.query('rollback').catch(() => undefined);
+        throw error;
+      } finally {
+        if (ownsTransaction) client.release();
+      }
+    },
+
     async deleteUser(userId, transaction) {
       // The account deletion already runs everything in one transaction; only open our own when
       // this store is used on its own.

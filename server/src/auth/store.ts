@@ -198,6 +198,15 @@ export interface AuthStore {
   /** Delete every session this account holds; returns the token hashes so their sockets can close. */
   deleteSessionsForUser(userId: string): Promise<string[]>;
   renameWorkspace(input: { id: string; name: string }): Promise<WorkspaceRecord | undefined>;
+  /**
+   * Delete one team workspace's membership rows, invite link and workspace row, after rechecking
+   * inside a transaction that the actor is still an admin. Returns false when the workspace is
+   * gone, is not a team, or the actor may not delete it. Run inside `client` when given.
+   */
+  deleteWorkspace(
+    input: { id: string; actorUserId: string },
+    client?: PoolClient,
+  ): Promise<boolean>;
 
   /**
    * Delete the user, every session they hold (found by `user_id`), their seat claims, memberships
@@ -549,6 +558,15 @@ export function createMemoryAuthStore(now: () => number = Date.now): AuthStore {
       const updated: WorkspaceRecord = { ...workspace, name };
       workspaces.set(id, updated);
       return updated;
+    },
+    async deleteWorkspace({ id, actorUserId }) {
+      const workspace = workspaces.get(id);
+      if (workspace === undefined || workspace.kind !== 'team') return false;
+      if (members.get(id)?.get(actorUserId) !== 'admin') return false;
+      members.delete(id);
+      invites.delete(id);
+      workspaces.delete(id);
+      return true;
     },
     async deleteUser(userId, _client) {
       const hashes: string[] = [];

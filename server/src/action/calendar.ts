@@ -13,7 +13,7 @@ import { basicAuthHeaders } from './basicAuth';
 import { draftString, parseDraftObject } from './draft';
 import { acceptedDecisionBlock, memorySourceBlock } from './draftGrounding';
 import { DEFAULT_PROBE_TIMEOUT_MS, probeFailed, probeFetch, probeOk, responseProblem, type ToolProbeResult } from './probe';
-import { ActionError, createActionModule, plainReason } from './runner';
+import { ActionError, createActionModule } from './runner';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 const CONNECTION_MESSAGE = 'The calendar is not connected for this workspace.';
@@ -52,12 +52,77 @@ interface EventTimes {
 const START_PATTERN = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})$/;
 const ID_PATTERN = /^[A-Za-z0-9_-]+$/;
 
-function collectionUrl({ caldavUrl, user = 'user', calendar = 'calendar' }: CalendarSettings): string {
+/** One workspace calendar's CalDAV collection. */
+export function calendarCollectionUrl({
+  caldavUrl,
+  user = 'user',
+  calendar = 'calendar',
+}: CalendarSettings): string {
   return `${caldavUrl.replace(/\/+$/, '')}/${user}/${calendar}/`;
 }
 
-function calendarHeaders(settings: CalendarSettings): Record<string, string> {
+/** The headers for one calendar request; its password travels in Basic auth, never in the URL. */
+export function calendarRequestHeaders(settings: CalendarSettings): Record<string, string> {
   return basicAuthHeaders(settings.user, settings.password);
+}
+
+
+/** The address of one saved event file inside its calendar collection. */
+export function calendarEventUrl(settings: CalendarSettings, eventId: string): string {
+  return `${calendarCollectionUrl(settings)}${eventId}.ics`;
+}
+
+/** The result of writing one event: failure carries the plain sentence a person sees. */
+export type CalendarWriteResult = { ok: true } | { ok: false; message: string };
+
+/**
+ * Create the calendar collection when it is missing, then write one event file by id.
+ * A retry overwrites the same file, so it can never leave a second copy of one event.
+ */
+export async function writeCalendarEvent(
+  settings: CalendarSettings,
+  eventId: string,
+  ics: string,
+  fetchImpl: typeof fetch = fetch,
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+  signal?: AbortSignal,
+): Promise<CalendarWriteResult> {
+  const collection = calendarCollectionUrl(settings);
+  const request = async (url: string, init: RequestInit): Promise<Response | undefined> => {
+    const timeout = AbortSignal.timeout(timeoutMs);
+    try {
+      return await fetchImpl(url, {
+        ...init,
+        headers: { ...calendarRequestHeaders(settings), ...(init.headers as Record<string, string> | undefined) },
+        signal: signal === undefined ? timeout : AbortSignal.any([timeout, signal]),
+      });
+    } catch {
+      return undefined;
+    }
+  };
+  // "Already there" answers are fine; a real failure to create the collection shows up on the PUT.
+  const root = collection.replace(/[^/]+\/$/, '');
+  await request(root, { method: 'MKCOL' });
+  await request(collection, { method: 'MKCALENDAR' });
+  const response = await request(calendarEventUrl(settings, eventId), {
+    method: 'PUT',
+    headers: { 'content-type': 'text/calendar; charset=utf-8' },
+    body: ics,
+  });
+  if (response === undefined) {
+    return {
+      ok: false,
+      message: 'The calendar server is not answering. Check that it is running, then try again.',
+    };
+  }
+  if (!response.ok) {
+    const detail = (await response.text().catch(() => '')).slice(0, 200).trim();
+    return {
+      ok: false,
+      message: `The calendar returned HTTP ${response.status}${detail === '' ? '' : `: ${detail}`}`,
+    };
+  }
+  return { ok: true };
 }
 
 /** A calendar read failed in a way the setup import can report as 404 (missing) or 502 (unreachable). */
@@ -82,8 +147,8 @@ export async function fetchCalendarIcs(
 ): Promise<string> {
   let response: Response;
   try {
-    response = await fetchImpl(collectionUrl(settings), {
-      headers: calendarHeaders(settings),
+    response = await fetchImpl(calendarCollectionUrl(settings), {
+      headers: calendarRequestHeaders(settings),
       signal: AbortSignal.timeout(timeoutMs),
     });
   } catch {
@@ -106,8 +171,8 @@ export async function probeCalendar(
 ): Promise<ToolProbeResult> {
   const outcome = await probeFetch(
     fetchImpl,
-    collectionUrl(settings),
-    { method: 'GET', headers: calendarHeaders(settings) },
+    calendarCollectionUrl(settings),
+    { method: 'GET', headers: calendarRequestHeaders(settings) },
     'The calendar',
     timeoutMs,
   );
@@ -328,13 +393,13 @@ export async function viewEvent(
   if (!ID_PATTERN.test(id)) return plain(404, 'No such event');
   const get = async (url: string): Promise<Response> =>
     fetchImpl(url, {
-      headers: calendarHeaders(settings),
+      headers: calendarRequestHeaders(settings),
       signal: AbortSignal.timeout(DEFAULT_TIMEOUT_MS),
     });
 
   let response: Response;
   try {
-    response = await get(`${collectionUrl(settings)}${id}.ics`);
+    response = await get(`${calendarCollectionUrl(settings)}${id}.ics`);
   } catch {
     return plain(502, 'The calendar server is not answering. Check that it is running, then reload.');
   }
@@ -350,7 +415,7 @@ export async function viewEvent(
   // The rest of the calendar is context; if it cannot be read the page still shows this event.
   let events: CalendarEvent[] = [focus];
   try {
-    const all = await get(collectionUrl(settings));
+    const all = await get(calendarCollectionUrl(settings));
     if (all.ok) {
       const others = parseEvents(await all.text()).filter((e) => e.uid === '' || e.uid !== focus.uid);
       events = [focus, ...others];
@@ -406,31 +471,6 @@ export function createCalendarModule({
     return settings;
   }
 
-  async function call(
-    settings: CalendarSettings,
-    url: string,
-    init: RequestInit,
-    signal: AbortSignal,
-  ): Promise<Response> {
-    const timeout = AbortSignal.timeout(timeoutMs);
-    try {
-      return await fetchImpl(url, {
-        ...init,
-        headers: {
-          ...calendarHeaders(settings),
-          ...(init.headers as Record<string, string> | undefined),
-        },
-        signal: AbortSignal.any([timeout, signal]),
-      });
-    } catch (error) {
-      throw new ActionError(
-        timeout.aborted
-          ? `The calendar timed out after ${timeoutMs} ms; check the calendar before retrying`
-          : plainReason(error, 'The calendar'),
-      );
-    }
-  }
-
   return createActionModule({
     name: 'action-calendar',
     kind: 'calendar_event',
@@ -473,24 +513,10 @@ export function createCalendarModule({
 
       const { times, notes } = parseBody(draft.body);
       const ics = buildIcs(`kaki-${task.id}@kaki.local`, draft.subject, times, notes, new Date());
-      const collection = collectionUrl(settings);
-
-      // Make sure the calendar exists; "already there" answers are fine, real failures show up on the PUT.
-      const root = collection.replace(/[^/]+\/$/, '');
-      await call(settings, root, { method: 'MKCOL' }, signal).catch(() => undefined);
-      await call(settings, collection, { method: 'MKCALENDAR' }, signal).catch(() => undefined);
 
       // The file name is the task id, so a retry overwrites the same event instead of adding a second one.
-      const response = await call(
-        settings,
-        `${collection}${task.id}.ics`,
-        { method: 'PUT', headers: { 'content-type': 'text/calendar; charset=utf-8' }, body: ics },
-        signal,
-      );
-      if (!response.ok) {
-        const detail = (await response.text().catch(() => '')).slice(0, 200).trim();
-        throw new ActionError(`The calendar returned HTTP ${response.status}${detail === '' ? '' : `: ${detail}`}`);
-      }
+      const written = await writeCalendarEvent(settings, task.id, ics, fetchImpl, timeoutMs, signal);
+      if (!written.ok) throw new ActionError(written.message);
       // The viewer belongs to this meeting's routes, so the browser needs that meeting in the path.
       return `${settings.viewBaseUrl.replace(/\/+$/, '')}${calendarEventApiPath(meetingId, task.id)}`;
     },

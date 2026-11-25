@@ -71,7 +71,7 @@ async function agendaOwnerProblem(
  * The row a caller may manage, after rechecking membership server-side; sends the refusal itself
  * and returns undefined when they may not.
  */
-async function meetingForManagement(
+export async function meetingForManagement(
   call: RouteCall,
   id: string,
 ): Promise<MeetingRow | undefined> {
@@ -194,7 +194,12 @@ export async function handleCreateMeeting(call: RouteCall): Promise<void> {
       ...(scheduledFor === undefined ? {} : { scheduledFor }),
       ...(paceField.pace === undefined ? {} : { pace: paceField.pace }),
     });
-    sendJson(response, 200, { id: meeting.id, link: `/m/${meeting.id}` });
+    const calendar = await context.meetings?.calendarEventFor?.(meeting.id);
+    sendJson(response, 200, {
+      id: meeting.id,
+      link: `/m/${meeting.id}`,
+      ...(calendar === undefined ? {} : { calendar }),
+    });
   } catch (error) {
     if (error instanceof MeetingBusyError) {
       sendJson(response, 503, { error: 'busy', message: error.message });
@@ -468,8 +473,10 @@ export async function handleCancelMeeting(call: RouteCall): Promise<void> {
     sendJson(response, 500, { error: 'Meeting storage is unavailable.' });
     return;
   }
+  let calendarWarning: string | null = null;
   try {
-    await registry.cancel(id);
+    const outcome = await registry.cancel(id);
+    calendarWarning = outcome?.calendarWarning ?? null;
   } catch (error) {
     if (error instanceof MeetingOpenError) {
       sendJson(response, 409, { error: error.message });
@@ -477,7 +484,7 @@ export async function handleCancelMeeting(call: RouteCall): Promise<void> {
     }
     throw error;
   }
-  sendJson(response, 200, { ok: true });
+  sendJson(response, 200, { ok: true, calendarWarning });
 }
 
 /** End an open meeting from the list, writing its minutes as the room would. */

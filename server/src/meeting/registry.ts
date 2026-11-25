@@ -4,7 +4,11 @@ import type { Pool, PoolClient } from 'pg';
 import { ensureMeetingsSchema } from '../auth/schema';
 import type { MeetingPersistence } from '../persist/persistence';
 import type { MeetingInstance } from './instance';
-import { removeCalendarEventForCancelledMeeting } from './calendarEvent';
+import {
+  removeCalendarEventForCancelledMeeting,
+  type MeetingCalendarEventState,
+  type MeetingCalendarSync,
+} from './calendarEvent';
 import { agendaFromStored } from './agenda';
 import { SAMPLE_WORKSPACE_ID } from '../workspace/constants';
 import {
@@ -110,6 +114,15 @@ export interface MeetingStore {
   saveMinutes?(id: string, archive: { minutes: string; todos: ArchivedMeetingTodo[] }): Promise<void>;
   /** Tick one archived to-do done or not; returns the updated list, or undefined when there is no archive. */
   setTodoDone?(id: string, taskId: string, done: boolean): Promise<ArchivedMeetingTodo[] | undefined>;
+  /** The calendar event state kept with one meeting, or undefined before the first attempt. */
+  calendarEventFor?(meetingId: string): Promise<MeetingCalendarEventState | undefined>;
+  /** Keep one meeting's calendar event state, so a failed sync is visible and retryable. */
+  saveCalendarEvent?(meetingId: string, event: MeetingCalendarEventState): Promise<void>;
+  /**
+   * Delete every meeting in one workspace with its saved state, seat claims, meeting knowledge and
+   * calendar event rows. Run inside `client` when given.
+   */
+  deleteWorkspace?(workspaceId: string, client?: PoolClient): Promise<void>;
   /** Release the store's connection, when it owns one. */
   close?(): Promise<void>;
 }
@@ -152,8 +165,11 @@ export interface MeetingRegistry {
       pace?: MeetingPace;
     },
   ): Promise<MeetingRow | undefined>;
-  /** Delete a cancelled meeting and everything it left behind. */
-  cancel(id: string): Promise<void>;
+  /**
+   * Delete a cancelled meeting and everything it left behind. The calendar event is cancelled
+   * first; when that fails the deletion still happens and the warning says what was left behind.
+   */
+  cancel(id: string): Promise<{ calendarWarning: string | null }>;
   /**
    * Persist that a real meeting has started. Serialized with edit, cancel and load, so a meeting
    * can never be edited or deleted in the same instant its first Start moves it to open.
@@ -203,6 +219,8 @@ export interface MeetingRegistry {
   ): Promise<void>;
   /** Close one account's sockets and LiveKit audio in every loaded meeting, whatever its workspace. */
   endUser(userId: string): Promise<void>;
+  /** Close every loaded room in one workspace, before that workspace and its meetings are deleted. */
+  unloadWorkspace(workspaceId: string): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -242,6 +260,8 @@ interface MeetingRegistryDeps {
   /** A meeting of a workspace opened or closed, so its periodic index can start or stop. */
   onWorkspaceOpened?(workspaceId: string): void;
   onWorkspaceClosed?(workspaceId: string): void;
+  /** Keeps one calendar event per meeting in the workspace's connected calendar. */
+  calendarEvents?: MeetingCalendarSync;
 }
 
 const DEFAULT_MAX_OPEN = 10;
@@ -503,7 +523,7 @@ export function createMeetingRegistry(deps: MeetingRegistryDeps): MeetingRegistr
         }
         const status: MeetingStatus =
           scheduledAt !== undefined && scheduledAt > now() ? 'scheduled' : 'open';
-        return deps.store.create({
+        const row = await deps.store.create({
           workspaceId,
           ownerUserId,
           title: cleanTitle,
@@ -512,6 +532,16 @@ export function createMeetingRegistry(deps: MeetingRegistryDeps): MeetingRegistr
           ...(agenda === undefined ? {} : { agenda }),
           ...(pace === undefined ? {} : { pace }),
         });
+        // The meeting is saved first. A calendar that is down records its failure on the meeting
+        // and leaves it for the retry route, so scheduling never depends on the calendar.
+        if (row.status === 'scheduled' && deps.calendarEvents !== undefined) {
+          try {
+            await deps.calendarEvents.syncMeeting(row);
+          } catch (error) {
+            log(`kaki meetings: syncing the calendar event of ${row.id} failed: ${String(error)}`);
+          }
+        }
+        return row;
       });
     },
 
@@ -630,6 +660,17 @@ export function createMeetingRegistry(deps: MeetingRegistryDeps): MeetingRegistr
           instance.rebaseScheduledPlan?.(row);
           await unloadLocked(id);
         }
+        // Only a change people see on the event (its title, time or agenda) bumps SEQUENCE; changing
+        // the nudge pace is not a calendar change.
+        const eventChanged =
+          patch.title !== undefined || patch.agenda !== undefined || patch.scheduledFor !== undefined;
+        if (eventChanged && deps.calendarEvents !== undefined) {
+          try {
+            await deps.calendarEvents.syncMeeting(row, { bumpSequence: true });
+          } catch (error) {
+            log(`kaki meetings: updating the calendar event of ${id} failed: ${String(error)}`);
+          }
+        }
         return row;
       });
     },
@@ -656,9 +697,9 @@ export function createMeetingRegistry(deps: MeetingRegistryDeps): MeetingRegistr
       if (remove === undefined) {
         throw new Error('the meetings store cannot delete a meeting');
       }
-      await withMeetingLock(id, async () => {
+      return withMeetingLock(id, async () => {
         const row = await deps.store.get(id);
-        if (row === undefined) return;
+        if (row === undefined) return { calendarWarning: null };
         const instance = loaded.get(id);
         if (instance !== undefined && instance.session.phase() !== 'lobby') {
           throw new MeetingOpenError('This meeting is open now. End it instead of cancelling it.');
@@ -667,19 +708,22 @@ export function createMeetingRegistry(deps: MeetingRegistryDeps): MeetingRegistr
           throw new MeetingOpenError('This meeting is open now. End it instead of cancelling it.');
         }
         if (instance !== undefined) await unloadLocked(id);
-        // Round 3 removes the calendar event here; the hook is named now so cancellation owns it.
-        await removeCalendarEventForCancelledMeeting({
-          meetingId: row.id,
-          workspaceId: row.workspaceId,
-          ownerUserId: row.ownerUserId,
-          title: row.title,
-          scheduledFor: row.scheduledFor,
-        });
+        // The calendar event is cancelled first; a calendar that cannot be reached never stops the
+        // meeting itself from being deleted, and its warning travels back to the person.
+        let calendarWarning: string | null = null;
+        try {
+          const outcome = await removeCalendarEventForCancelledMeeting(row, deps.calendarEvents);
+          calendarWarning = outcome.warning;
+        } catch (error) {
+          calendarWarning = `The calendar event could not be cancelled: ${String(error)}`;
+          log(`kaki meetings: cancelling the calendar event of ${id} failed: ${String(error)}`);
+        }
         await deps.releaseMeeting?.(id);
         const deleted = await remove(id, { onlyIfScheduled: true });
         if (!deleted && (await deps.store.get(id)) !== undefined) {
           throw new MeetingOpenError('This meeting is open now. End it instead of cancelling it.');
         }
+        return { calendarWarning };
       });
     },
 
@@ -835,6 +879,15 @@ export function createMeetingRegistry(deps: MeetingRegistryDeps): MeetingRegistr
       }
     },
 
+    async unloadWorkspace(workspaceId) {
+      const ids = [...loaded.values()]
+        .filter((instance) => instance.workspaceId === workspaceId)
+        .map((instance) => instance.id);
+      for (const id of ids) {
+        await withMeetingLock(id, () => unloadLocked(id));
+      }
+    },
+
     async close() {
       if (closed) return;
       closed = true;
@@ -935,6 +988,24 @@ export function createPostgresMeetingStore(pool: Pool): MeetingStore {
                 : new Date(record.minutes_archived_at).toISOString(),
           } satisfies MeetingMinutesArchive,
         }),
+  });
+
+  interface CalendarEventRow {
+    meeting_id: string;
+    uid: string;
+    sequence: number;
+    state: string;
+    error: string | null;
+    synced_at: Date | string | null;
+  }
+
+  const calendarEventFrom = (record: CalendarEventRow): MeetingCalendarEventState => ({
+    uid: record.uid,
+    sequence: record.sequence,
+    state:
+      record.state === 'synced' || record.state === 'error' ? record.state : 'not_connected',
+    error: record.error,
+    syncedAt: record.synced_at === null ? null : new Date(record.synced_at).toISOString(),
   });
 
   return {
@@ -1171,6 +1242,73 @@ export function createPostgresMeetingStore(pool: Pool): MeetingStore {
       );
       return result.rows.map(row);
     },
+    async calendarEventFor(meetingId) {
+      await ensureMeetingsSchema(pool);
+      const result = await pool.query<CalendarEventRow>(
+        'select meeting_id, uid, sequence, state, error, synced_at from meeting_calendar_events where meeting_id = $1',
+        [meetingId],
+      );
+      const record = result.rows[0];
+      return record === undefined ? undefined : calendarEventFrom(record);
+    },
+    async saveCalendarEvent(meetingId, event) {
+      await ensureMeetingsSchema(pool);
+      await pool.query(
+        `insert into meeting_calendar_events (meeting_id, uid, sequence, state, error, synced_at)
+         values ($1, $2, $3, $4, $5, $6)
+         on conflict (meeting_id) do update set
+           uid = excluded.uid,
+           sequence = excluded.sequence,
+           state = excluded.state,
+           error = excluded.error,
+           synced_at = excluded.synced_at`,
+        [meetingId, event.uid, event.sequence, event.state, event.error, event.syncedAt],
+      );
+    },
+    async deleteWorkspace(workspaceId, transaction) {
+      const run = async (db: Pool | PoolClient): Promise<void> => {
+        const deleted = await db.query<{ id: string }>(
+          'delete from meetings where workspace_id = $1 returning id',
+          [workspaceId],
+        );
+        const ids = deleted.rows.map((record) => record.id);
+        if (ids.length === 0) return;
+        const tables = await db.query<{ states: string | null; claims: string | null; chunks: string | null }>(
+          `select to_regclass('meeting_state')::text as states,
+                  to_regclass('seat_claims')::text as claims,
+                  to_regclass('knowledge_chunks')::text as chunks`,
+        );
+        const found = tables.rows[0];
+        if (found?.states !== null && found?.states !== undefined) {
+          await db.query('delete from meeting_state where id = any($1::text[])', [ids]);
+        }
+        if (found?.claims !== null && found?.claims !== undefined) {
+          await db.query('delete from seat_claims where meeting_id = any($1::text[])', [ids]);
+        }
+        if (found?.chunks !== null && found?.chunks !== undefined) {
+          await db.query(
+            "delete from knowledge_chunks where source = 'meeting' and ref = any($1::text[])",
+            [ids.map((id) => `meeting:${id}`)],
+          );
+        }
+      };
+      if (transaction !== undefined) {
+        await run(transaction);
+        return;
+      }
+      await ensureMeetingsSchema(pool);
+      const client = await pool.connect();
+      try {
+        await client.query('begin');
+        await run(client);
+        await client.query('commit');
+      } catch (error) {
+        await client.query('rollback').catch(() => undefined);
+        throw error;
+      } finally {
+        client.release();
+      }
+    },
     async deleteByOwner(ownerUserId, workspaceIds, transaction) {
       const run = async (db: Pool | PoolClient): Promise<void> => {
         const deleted = await db.query<{ id: string }>(
@@ -1214,6 +1352,7 @@ export function createPostgresMeetingStore(pool: Pool): MeetingStore {
 /** The in-memory meeting rows tests use when no database is configured. */
 export function createMemoryMeetingStore(): MeetingStore & { rows: Map<string, MeetingRow> } {
   const rows = new Map<string, MeetingRow>();
+  const calendarEvents = new Map<string, MeetingCalendarEventState>();
   return {
     rows,
     async create({ id, workspaceId, ownerUserId, title, kind = 'real', status = 'open', scheduledFor, agenda = [], pace }) {
@@ -1254,6 +1393,7 @@ export function createMemoryMeetingStore(): MeetingStore & { rows: Map<string, M
       const meeting = rows.get(id);
       if (meeting === undefined) return false;
       if (options.onlyIfScheduled === true && meeting.status !== 'scheduled') return false;
+      calendarEvents.delete(id);
       return rows.delete(id);
     },
     async markEnded(id, endedAt) {
@@ -1295,6 +1435,20 @@ export function createMemoryMeetingStore(): MeetingStore & { rows: Map<string, M
       rows.set(id, { ...meeting, minutes: { ...meeting.minutes, todos } });
       return todos.map((todo) => ({ ...todo }));
     },
+    async calendarEventFor(meetingId) {
+      const state = calendarEvents.get(meetingId);
+      return state === undefined ? undefined : { ...state };
+    },
+    async saveCalendarEvent(meetingId, event) {
+      calendarEvents.set(meetingId, { ...event });
+    },
+    async deleteWorkspace(workspaceId) {
+      for (const [id, meeting] of rows) {
+        if (meeting.workspaceId !== workspaceId) continue;
+        calendarEvents.delete(id);
+        rows.delete(id);
+      }
+    },
     async countCreatedByOwnerSince(ownerUserId, since) {
       const from = since.getTime();
       return [...rows.values()].filter(
@@ -1318,6 +1472,7 @@ export function createMemoryMeetingStore(): MeetingStore & { rows: Map<string, M
           wanted.has(meeting.workspaceId) ||
           (meeting.ownerUserId === ownerUserId && meeting.kind === 'practice')
         ) {
+          calendarEvents.delete(id);
           rows.delete(id);
         } else if (meeting.ownerUserId === ownerUserId) {
           // The workspace stays, so the real meeting and its minutes stay with it.

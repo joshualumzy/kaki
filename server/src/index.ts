@@ -13,6 +13,7 @@ import type { MeetingPersistence } from './persist/persistence';
 import { logMissingSecretKey } from './workspace/secrets';
 import { createPostgresWorkspaceToolStore, type WorkspaceToolStore } from './workspace/tools';
 import { createPostgresAccountDataDeletion } from './account/deleteAccountData';
+import { createPostgresWorkspaceDataDeletion } from './workspace/deleteWorkspaceData';
 
 logMissingActionConfig();
 logMissingSecretKey();
@@ -70,6 +71,18 @@ const accountDeletion =
         tools: workspaceTools,
       })
     : undefined;
+const workspaceDeletion =
+  auth !== undefined &&
+  meetings !== undefined &&
+  workspaceTools !== undefined &&
+  meetingsPool !== undefined
+    ? createPostgresWorkspaceDataDeletion({
+        pool: meetingsPool,
+        auth: auth.store,
+        meetings,
+        tools: workspaceTools,
+      })
+    : undefined;
 
 let app: Awaited<ReturnType<typeof createApp>>;
 try {
@@ -85,6 +98,7 @@ try {
     ...(meetings === undefined ? {} : { meetings }),
     ...(workspaceTools === undefined ? {} : { workspaceTools }),
     ...(accountDeletion === undefined ? {} : { accountDeletion }),
+    ...(workspaceDeletion === undefined ? {} : { workspaceDeletion }),
     ...(persistenceFor === undefined ? {} : { persistenceFor }),
     ...(findSavedIdByCode === undefined ? {} : { findSavedIdByCode }),
   });

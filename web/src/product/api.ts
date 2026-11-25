@@ -30,6 +30,15 @@ export interface MeetingAgendaItem {
   ownerUserId?: string;
 }
 
+/** How one meeting's workspace calendar event stands. */
+export interface CalendarSyncInfo {
+  uid: string;
+  sequence: number;
+  state: 'not_connected' | 'synced' | 'error';
+  error: string | null;
+  syncedAt: string | null;
+}
+
 /** One meeting row on a workspace page. */
 export interface MeetingSummary {
   id: string;
@@ -43,6 +52,7 @@ export interface MeetingSummary {
   todoCount: number;
   ownerUserId: string | null;
   ownerName: string | null;
+  calendar: CalendarSyncInfo | null;
 }
 
 export interface WorkspaceDetail {
@@ -76,6 +86,8 @@ export interface AgendaPayload {
 export interface MeetingCreated {
   id: string;
   link: string;
+  /** The workspace calendar state, when the meeting was scheduled for later. */
+  calendar: CalendarSyncInfo | null;
 }
 
 export interface CreateMeetingInput {
@@ -247,6 +259,24 @@ function meetingAgendaFrom(value: unknown): MeetingAgendaItem[] {
   });
 }
 
+function calendarSyncInfoFrom(value: unknown): CalendarSyncInfo | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  if (typeof record.uid !== 'string' || typeof record.sequence !== 'number') return null;
+  const state =
+    record.state === 'synced' || record.state === 'error' || record.state === 'not_connected'
+      ? record.state
+      : null;
+  if (state === null) return null;
+  return {
+    uid: record.uid,
+    sequence: record.sequence,
+    state,
+    error: typeof record.error === 'string' ? record.error : null,
+    syncedAt: typeof record.syncedAt === 'string' ? record.syncedAt : null,
+  };
+}
+
 function meetingSummaryFrom(value: unknown): MeetingSummary | undefined {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined;
   const record = value as Record<string, unknown>;
@@ -263,6 +293,7 @@ function meetingSummaryFrom(value: unknown): MeetingSummary | undefined {
     todoCount: typeof record.todoCount === 'number' ? record.todoCount : 0,
     ownerUserId: typeof record.ownerUserId === 'string' ? record.ownerUserId : null,
     ownerName: typeof record.ownerName === 'string' ? record.ownerName : null,
+    calendar: calendarSyncInfoFrom(record.calendar),
   };
 }
 
@@ -518,7 +549,7 @@ export async function createMeeting(input: CreateMeetingInput): Promise<MeetingC
   if (body === null || typeof body.id !== 'string' || typeof body.link !== 'string') {
     throw new ProductApiError('Could not create the meeting. The server sent no meeting.', 502);
   }
-  return { id: body.id, link: body.link };
+  return { id: body.id, link: body.link, calendar: calendarSyncInfoFrom(body.calendar) };
 }
 
 export async function updateMeeting(id: string, input: UpdateMeetingInput): Promise<void> {
@@ -529,8 +560,10 @@ export async function updateMeeting(id: string, input: UpdateMeetingInput): Prom
   });
 }
 
-export async function cancelMeeting(id: string): Promise<void> {
-  await request(`/api/meetings/${encodeURIComponent(id)}`, { method: 'DELETE' });
+export async function cancelMeeting(id: string): Promise<string | null> {
+  const response = await request(`/api/meetings/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  const body = await readJson(response);
+  return typeof body?.calendarWarning === 'string' ? body.calendarWarning : null;
 }
 
 export async function endMeetingFromList(id: string): Promise<void> {
@@ -566,29 +599,86 @@ export async function tellKaki(text: string): Promise<{ title: string | null; ag
   };
 }
 
-export async function agendaFromCalendar(): Promise<{ title: string; agenda: AgendaPayload[] }> {
-  const response = await request(
-    '/api/agenda/from-calendar',
-    { method: 'POST' },
-  );
-  const body = await readJson(response);
-  if (body === null || typeof body.title !== 'string' || !Array.isArray(body.agenda)) {
-    throw new ProductApiError('Could not read your calendar. The server sent no invite.', 502);
+/** One upcoming event in a workspace's connected calendar. */
+export interface WorkspaceCalendarEvent {
+  uid: string;
+  title: string;
+  date: string;
+  time: string;
+  endTime?: string;
+  description: string;
+  people: string[];
+}
+
+function workspaceCalendarEventFrom(value: unknown): WorkspaceCalendarEvent | undefined {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  if (
+    typeof record.title !== 'string' ||
+    typeof record.date !== 'string' ||
+    typeof record.time !== 'string'
+  ) {
+    return undefined;
   }
   return {
-    title: body.title,
-    agenda: body.agenda.flatMap((entry) => {
-      if (typeof entry !== 'object' || entry === null) return [];
-      const record = entry as Record<string, unknown>;
-      if (typeof record.title !== 'string' || record.title.trim() === '') return [];
-      return [
-        {
-          title: record.title,
-          ...(typeof record.minutes === 'number' ? { minutes: record.minutes } : {}),
-        },
-      ];
+    uid: typeof record.uid === 'string' ? record.uid : '',
+    title: record.title,
+    date: record.date,
+    time: record.time,
+    ...(typeof record.endTime === 'string' ? { endTime: record.endTime } : {}),
+    description: typeof record.description === 'string' ? record.description : '',
+    people: Array.isArray(record.people)
+      ? record.people.filter((person): person is string => typeof person === 'string')
+      : [],
+  };
+}
+
+/** The workspace calendar's upcoming events, or a plain "not connected" answer. */
+export async function listWorkspaceCalendar(
+  workspaceId: string,
+): Promise<{ connected: boolean; events: WorkspaceCalendarEvent[] }> {
+  const response = await request(
+    `/api/workspaces/${encodeURIComponent(workspaceId)}/calendar/events`,
+    {},
+  );
+  const body = await readJson(response);
+  if (body === null || typeof body.connected !== 'boolean' || !Array.isArray(body.events)) {
+    throw new ProductApiError('Could not read the workspace calendar. The server sent no answer.', 502);
+  }
+  return {
+    connected: body.connected,
+    events: body.events.flatMap((entry) => {
+      const event = workspaceCalendarEventFrom(entry);
+      return event === undefined ? [] : [event];
     }),
   };
+}
+
+/** Retry the workspace calendar write for one scheduled meeting. */
+export async function syncMeetingCalendar(
+  meetingId: string,
+): Promise<{ calendar: CalendarSyncInfo | null; warning: string | null }> {
+  const response = await request(`/api/meetings/${encodeURIComponent(meetingId)}/calendar-sync`, {
+    method: 'POST',
+  });
+  const body = await readJson(response);
+  return {
+    calendar: calendarSyncInfoFrom(body?.calendar),
+    warning: typeof body?.warning === 'string' ? body.warning : null,
+  };
+}
+
+/** Delete a team workspace and everything in it; the calendar warnings say what stayed behind. */
+export async function deleteWorkspace(id: string, confirm: string): Promise<string[]> {
+  const response = await request(`/api/workspaces/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ confirm }),
+  });
+  const body = await readJson(response);
+  return Array.isArray(body?.calendarWarnings)
+    ? body.calendarWarnings.filter((warning): warning is string => typeof warning === 'string')
+    : [];
 }
 
 export async function getMeetingInfo(id: string): Promise<MeetingInfo> {

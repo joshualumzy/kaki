@@ -227,6 +227,19 @@ async function migrateMeetingsSchema(pool: Pool): Promise<void> {
     await client.query('alter table meetings add column if not exists minutes_archived_at timestamptz');
     await client.query('alter table meetings add column if not exists agenda jsonb');
     await client.query('alter table meetings add column if not exists pace jsonb');
+    // One workspace calendar event per meeting. Its UID is derived from the meeting id and its
+    // SEQUENCE is kept here, so an edit replaces the same event instead of adding a second one.
+    await client.query(`
+      create table if not exists meeting_calendar_events (
+        meeting_id text primary key references meetings(id) on delete cascade,
+        uid text not null,
+        sequence integer not null default 0,
+        state text not null default 'not_connected'
+          check (state in ('not_connected', 'synced', 'error')),
+        error text,
+        synced_at timestamptz
+      )
+    `);
     // Step-2 rows had no status; an open meeting is the truthful default for them.
     await client.query("update meetings set status = 'open' where status is null");
     await client.query("alter table meetings alter column status set default 'open'");

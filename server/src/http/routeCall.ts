@@ -15,6 +15,7 @@ import type { MeetingCodeSource } from '../meeting/meetingCode';
 import type { RejoinGuard } from '../meeting/rejoin';
 import type { MeetingSession } from '../meeting/session';
 import type { TaskStore } from '../meeting/tasks';
+import type { MeetingCalendarSync } from '../meeting/calendarEvent';
 import type { MeetingRegistry, MeetingStore } from '../meeting/registry';
 import type { RoomRoster, SeatReservations } from '../services/livekit';
 import type { LlmClient } from '../services/llm';
@@ -63,6 +64,10 @@ export interface RequestContext {
   }) => Promise<void>;
   /** Delete every stored trace of an account in one atomic step; returns its session hashes. */
   accountDeletion?: (userId: string) => Promise<string[]>;
+  /** Delete one team workspace, its meetings, tools and knowledge; false when it may not go. */
+  workspaceDeletion?: (workspaceId: string, userId: string) => Promise<boolean>;
+  /** Keep one calendar event per meeting in that meeting's workspace calendar. */
+  meetingCalendar?: MeetingCalendarSync;
   /** Guest-join attempts per client address, owned by the app. */
   guestJoinAttempts?: AttemptLimiter;
   /** Paid model requests for Tell Kaki, per account and address, owned by the app. */
@@ -84,6 +89,7 @@ export interface RequestContext {
     | 'updateScheduled'
     | 'cancel'
     | 'endMeeting'
+    | 'unloadWorkspace'
   >;
   /** The meeting a session must belong to: a seat for meeting A resolves to nobody on B's routes. */
   authMeetingId?: string;
