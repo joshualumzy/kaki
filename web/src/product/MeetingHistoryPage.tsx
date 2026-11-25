@@ -182,7 +182,7 @@ export function MeetingHistoryPage() {
 
   const hasConnectedTool = workspace?.tools.some((tool) => tool.connected) ?? false;
   const publish = minutes?.publish ?? null;
-  const publishedUrl = publish?.status === 'published' ? publish.artifactUrl : undefined;
+  const published = publish?.status === 'published';
   const publishPending = publishing || publish?.status === 'publishing';
   const publishFailure =
     publishError ?? (publish?.status === 'failed' ? publish.error ?? 'Could not publish the minutes.' : null);
@@ -293,15 +293,24 @@ export function MeetingHistoryPage() {
                         {copyNote}
                       </p>
                     )}
-                    {publishedUrl === undefined ? null : (
+                    {published ? (
                       <p className="product-note" role="status">
-                        Published to the team wiki.{' '}
-                        <a className="product-link" href={publishedUrl} target="_blank" rel="noreferrer">
-                          Open in Wiki ↗
-                        </a>
+                        Published to the team wiki.
+                        {publish?.artifactUrl === undefined ? null : (
+                          <>
+                            {' '}
+                            <a
+                              className="product-link"
+                              href={publish.artifactUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              Open in Wiki ↗
+                            </a>
+                          </>
+                        )}
                       </p>
-                    )}
-                    {publishedUrl !== undefined ? null : publishPending ? (
+                    ) : publishPending ? (
                       <p className="product-note" role="status">
                         Publishing the minutes to the team wiki…
                       </p>

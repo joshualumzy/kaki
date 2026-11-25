@@ -856,13 +856,17 @@ export async function getMeetingMinutes(
 export async function publishMeetingMinutes(
   workspaceId: string,
   meetingId: string,
-): Promise<MeetingMinutesPublish | null> {
+): Promise<MeetingMinutesPublish> {
   const response = await request(
     `/api/workspaces/${encodeURIComponent(workspaceId)}/meetings/${encodeURIComponent(meetingId)}/minutes/publish`,
     { method: 'POST' },
   );
   const body = await readJson(response);
-  return minutesPublishFrom(body?.publish);
+  const publish = minutesPublishFrom(body?.publish);
+  if (publish === null) {
+    throw new ProductApiError('Could not publish the minutes. The server sent no result.', 502);
+  }
+  return publish;
 }
 
 export async function setMeetingTodoDone(
