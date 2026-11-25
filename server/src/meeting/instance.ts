@@ -20,6 +20,7 @@ import {
   type MeetingStateSnapshot,
   type RunnerMeetingSnapshot,
   type Scenario,
+  type Task,
 } from '@kaki/shared';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Duplex } from 'node:stream';
@@ -38,7 +39,7 @@ import type { IdleTracker } from '../core/idle';
 import type { KakiModule } from '../core/modules';
 import type { WorkspaceTools } from '../workspace/tools';
 import type { MeetingPersistence } from '../persist/persistence';
-import type { ArchivedMeetingTodo, MeetingRow } from './types';
+import type { ArchivedMeetingTodo, MeetingMinutesPublish, MeetingRow } from './types';
 import {
   holderForRoomIdentity,
   realBaseScenario,
@@ -166,6 +167,31 @@ export interface MeetingInstanceDeps {
   serializeLifecycle?: <T>(task: () => Promise<T>) => Promise<T>;
   /** Keep Kaki's own copy of the minutes with the meeting row; absent for the sample practice meeting. */
   onMinutes?: (archive: { minutes: string; todos: ArchivedMeetingTodo[] }) => Promise<void>;
+  /** Keep the minutes card's progress towards the wiki with the meeting row, so history survives a reload. */
+  onMinutesPublish?: (publish: MeetingMinutesPublish) => Promise<void>;
+}
+
+/** The publish state a minutes card reports, or undefined while it has nothing to report yet. */
+function minutesPublishFromTask(task: Pick<Task, 'status' | 'artifactUrl' | 'error'>): MeetingMinutesPublish | undefined {
+  switch (task.status) {
+    case 'DRAFT_READY':
+      return { status: 'draft' };
+    case 'RUNNING':
+      return { status: 'publishing' };
+    case 'COMPLETED':
+    case 'SYNCED':
+      return {
+        status: 'published',
+        ...(task.artifactUrl === undefined ? {} : { artifactUrl: task.artifactUrl }),
+      };
+    case 'FAILED':
+      return {
+        status: 'failed',
+        error: task.error ?? 'Could not publish the minutes.',
+      };
+    default:
+      return undefined;
+  }
 }
 
 /** Create one meeting: its session, hub, rooms, tasks, routes and modules. */
@@ -207,6 +233,7 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
     onStarted,
     serializeLifecycle,
     onMinutes,
+    onMinutesPublish,
   } = deps;
   const runnerKind: 'real' | 'practice' = kind;
   const perVisitorPractice = kind === 'practice';
@@ -656,6 +683,12 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
   // task moving says nothing about that review, so leave the protection alone.
   tasks.onChange((task) => {
     if (task.purpose !== 'meeting_minutes') return;
+    const publish = minutesPublishFromTask(task);
+    if (publish !== undefined && onMinutesPublish !== undefined) {
+      void onMinutesPublish(publish).catch((error: unknown) => {
+        console.error(`kaki minutes: could not keep the publish state: ${error instanceof Error ? error.message : String(error)}`);
+      });
+    }
     if (
       task.status === 'COMPLETED' ||
       task.status === 'SYNCED' ||

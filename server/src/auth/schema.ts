@@ -228,6 +228,11 @@ async function migrateMeetingsSchema(pool: Pool): Promise<void> {
     await client.query('alter table meetings add column if not exists minutes_text text');
     await client.query('alter table meetings add column if not exists minutes_todos jsonb');
     await client.query('alter table meetings add column if not exists minutes_archived_at timestamptz');
+    // How far the archived minutes got towards the team wiki, so the history page can offer
+    // approval and then show the live page after a reload.
+    await client.query('alter table meetings add column if not exists minutes_publish_status text');
+    await client.query('alter table meetings add column if not exists minutes_publish_url text');
+    await client.query('alter table meetings add column if not exists minutes_publish_error text');
     await client.query('alter table meetings add column if not exists agenda jsonb');
     await client.query('alter table meetings add column if not exists pace jsonb');
     // One workspace calendar event per meeting. Its UID is derived from the meeting id and its

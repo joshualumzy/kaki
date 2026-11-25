@@ -191,4 +191,114 @@ describe('MeetingHistoryPage', () => {
     expect(await screen.findByText(/minutes are still being prepared/)).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Copy' })).toBeNull();
   });
+
+  it('lets the owner approve and publish the minutes, then shows the published link', async () => {
+    const publishes: string[] = [];
+    installFetch({
+      'GET /api/workspaces': () => reply(workspaces),
+      'GET /api/workspaces/ws-1': () => reply(workspace),
+      'GET /api/workspaces/ws-1/meetings/mtg-1/minutes': () =>
+        reply({
+          id: 'mtg-1',
+          title: 'Weekly planning',
+          date: '2026-11-20T10:00:00.000Z',
+          minutes: '## Decisions\n\n**We agreed** the rota.',
+          todos: [],
+          canEdit: true,
+          wikiConnected: true,
+          publish: null,
+        }),
+      'POST /api/workspaces/ws-1/meetings/mtg-1/minutes/publish': () => {
+        publishes.push('publish');
+        return reply({
+          publish: { status: 'published', artifactUrl: 'https://wiki.example/en/meetings/2026-11-20-weekly-planning' },
+        });
+      },
+    });
+    renderPage();
+
+    expect(await screen.findByRole('heading', { name: 'Weekly planning' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Approve & publish' }));
+
+    await waitFor(() => expect(publishes).toEqual(['publish']));
+    const link = await screen.findByRole('link', { name: /Open in Wiki/ });
+    expect(link.getAttribute('href')).toBe(
+      'https://wiki.example/en/meetings/2026-11-20-weekly-planning',
+    );
+    expect(screen.queryByRole('button', { name: 'Approve & publish' })).toBeNull();
+  });
+
+  it('keeps the published state and link from the server after a reload', async () => {
+    installFetch({
+      'GET /api/workspaces': () => reply(workspaces),
+      'GET /api/workspaces/ws-1': () => reply(workspace),
+      'GET /api/workspaces/ws-1/meetings/mtg-1/minutes': () =>
+        reply({
+          id: 'mtg-1',
+          title: 'Weekly planning',
+          date: '2026-11-20T10:00:00.000Z',
+          minutes: '## Decisions',
+          todos: [],
+          canEdit: true,
+          wikiConnected: true,
+          publish: {
+            status: 'published',
+            artifactUrl: 'https://wiki.example/en/meetings/2026-11-20-weekly-planning',
+          },
+        }),
+    });
+    renderPage();
+
+    expect(await screen.findByRole('heading', { name: 'Weekly planning' })).toBeTruthy();
+    expect(screen.getByRole('link', { name: /Open in Wiki/ }).getAttribute('href')).toBe(
+      'https://wiki.example/en/meetings/2026-11-20-weekly-planning',
+    );
+    expect(screen.queryByRole('button', { name: 'Approve & publish' })).toBeNull();
+  });
+
+  it('says plainly when no wiki is connected instead of offering to publish', async () => {
+    installFetch({
+      'GET /api/workspaces': () => reply(workspaces),
+      'GET /api/workspaces/ws-1': () => reply(workspace),
+      'GET /api/workspaces/ws-1/meetings/mtg-1/minutes': () =>
+        reply({
+          id: 'mtg-1',
+          title: 'Weekly planning',
+          date: '2026-11-20T10:00:00.000Z',
+          minutes: '## Decisions',
+          todos: [],
+          canEdit: true,
+          wikiConnected: false,
+          publish: null,
+        }),
+    });
+    renderPage();
+
+    expect(await screen.findByRole('heading', { name: 'Weekly planning' })).toBeTruthy();
+    expect(screen.getByText(/No wiki is connected in this workspace/)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Approve & publish' })).toBeNull();
+  });
+
+  it('shows why publishing failed and offers a retry', async () => {
+    installFetch({
+      'GET /api/workspaces': () => reply(workspaces),
+      'GET /api/workspaces/ws-1': () => reply(workspace),
+      'GET /api/workspaces/ws-1/meetings/mtg-1/minutes': () =>
+        reply({
+          id: 'mtg-1',
+          title: 'Weekly planning',
+          date: '2026-11-20T10:00:00.000Z',
+          minutes: '## Decisions',
+          todos: [],
+          canEdit: true,
+          wikiConnected: true,
+          publish: { status: 'failed', error: 'The wiki rejected the login.' },
+        }),
+    });
+    renderPage();
+
+    expect(await screen.findByRole('heading', { name: 'Weekly planning' })).toBeTruthy();
+    expect(screen.getByRole('alert').textContent).toContain('The wiki rejected the login.');
+    expect(screen.getByRole('button', { name: 'Retry publishing' })).toBeTruthy();
+  });
 });

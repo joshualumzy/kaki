@@ -23,6 +23,18 @@ export interface MeetingMinutesArchive {
   archivedAt: string;
 }
 
+/** How far the end-of-meeting minutes have got towards the team wiki. */
+export type MinutesPublishStatus = 'draft' | 'publishing' | 'published' | 'failed';
+
+/** The publish state kept with the meeting row, so it survives a reload and an unloaded room. */
+export interface MeetingMinutesPublish {
+  status: MinutesPublishStatus;
+  /** The live wiki page once it is published. */
+  artifactUrl?: string;
+  /** Why publishing could not finish; shown on the history page. */
+  error?: string;
+}
+
 /** One row of the `meetings` table. Workspace and owner ids are plain text for now. */
 export interface MeetingRow {
   id: string;
@@ -39,6 +51,8 @@ export interface MeetingRow {
   endedAt: string | null;
   /** Kaki's own copy of the minutes, once the meeting has ended and they were written. */
   minutes?: MeetingMinutesArchive | null;
+  /** How far the minutes got towards the wiki; absent until the minutes card is drafted. */
+  minutesPublish?: MeetingMinutesPublish | null;
 }
 
 /** How a meeting is opened at the runner: the practice instance runs everything, a real one listens. */

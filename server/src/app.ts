@@ -236,6 +236,7 @@ function buildServerRouteTable({ auth }: { auth: Auth | undefined }): RoutedRout
     { method: 'POST', path: '/api/workspaces/:id/leave', access: 'user', handle: handleWorkspaces },
     { method: 'GET', path: '/api/workspaces/:id/meetings', access: 'user', handle: handleWorkspaces },
     { method: 'GET', path: '/api/workspaces/:id/meetings/:meetingId/minutes', access: 'user', handle: handleWorkspaces },
+    { method: 'POST', path: '/api/workspaces/:id/meetings/:meetingId/minutes/publish', access: 'user', handle: handleWorkspaces },
     { method: 'POST', path: '/api/workspaces/:id/meetings/:meetingId/todos/:taskId', access: 'user', handle: handleWorkspaces },
     { method: 'GET', path: '/api/workspaces/:id/tools', access: 'user', handle: handleWorkspaces },
     { method: 'POST', path: '/api/workspaces/:id/tools/:kind/test', access: 'user', handle: handleWorkspaces },
@@ -610,6 +611,9 @@ export async function createApp({
       serializeLifecycle: (task) => registry.serialize(row.id, task),
       onMinutes: async (archive) => {
         await meetings.saveMinutes?.(row.id, archive);
+      },
+      onMinutesPublish: async (publish) => {
+        await meetings.saveMinutesPublish?.(row.id, publish);
       },
     });
   }

@@ -124,6 +124,15 @@ export interface ArchivedTodo {
   done: boolean;
 }
 
+/** How far the minutes got towards the team wiki. */
+export type MinutesPublishStatus = 'draft' | 'publishing' | 'published' | 'failed';
+
+export interface MeetingMinutesPublish {
+  status: MinutesPublishStatus;
+  artifactUrl?: string;
+  error?: string;
+}
+
 /** Kaki's own copy of an ended meeting's minutes and to-dos. */
 export interface MeetingMinutes {
   id: string;
@@ -132,6 +141,10 @@ export interface MeetingMinutes {
   minutes: string | null;
   todos: ArchivedTodo[];
   canEdit: boolean;
+  /** Whether this workspace has a wiki the minutes can be published to. */
+  wikiConnected: boolean;
+  /** The server's record of this meeting's publish attempt; null when none was drafted. */
+  publish: MeetingMinutesPublish | null;
 }
 
 /** A failed API call, carrying the server's sentence and HTTP status when there was one. */
@@ -780,6 +793,25 @@ function archivedTodoFrom(value: unknown): ArchivedTodo | undefined {
   };
 }
 
+function minutesPublishFrom(value: unknown): MeetingMinutesPublish | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  const status = record.status;
+  if (
+    status !== 'draft' &&
+    status !== 'publishing' &&
+    status !== 'published' &&
+    status !== 'failed'
+  ) {
+    return null;
+  }
+  return {
+    status,
+    ...(typeof record.artifactUrl === 'string' ? { artifactUrl: record.artifactUrl } : {}),
+    ...(typeof record.error === 'string' ? { error: record.error } : {}),
+  };
+}
+
 export async function listMeetingHistory(workspaceId: string): Promise<MeetingHistoryItem[]> {
   const response = await request(
     `/api/workspaces/${encodeURIComponent(workspaceId)}/meetings`,
@@ -816,7 +848,21 @@ export async function getMeetingMinutes(
         })
       : [],
     canEdit: body.canEdit === true,
+    wikiConnected: body.wikiConnected === true,
+    publish: minutesPublishFrom(body.publish),
   };
+}
+
+export async function publishMeetingMinutes(
+  workspaceId: string,
+  meetingId: string,
+): Promise<MeetingMinutesPublish | null> {
+  const response = await request(
+    `/api/workspaces/${encodeURIComponent(workspaceId)}/meetings/${encodeURIComponent(meetingId)}/minutes/publish`,
+    { method: 'POST' },
+  );
+  const body = await readJson(response);
+  return minutesPublishFrom(body?.publish);
 }
 
 export async function setMeetingTodoDone(

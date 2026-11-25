@@ -16,9 +16,15 @@ import type {
   AgendaItem,
   ArchivedMeetingTodo,
   MeetingMinutesArchive,
+  MeetingMinutesPublish,
   MeetingRow,
   MeetingStatus,
+  MinutesPublishStatus,
 } from './types';
+
+function isMinutesPublishStatus(value: string): value is MinutesPublishStatus {
+  return value === 'draft' || value === 'publishing' || value === 'published' || value === 'failed';
+}
 
 /** A registry refusal the HTTP layer turns into a 503 with this exact message. */
 export class MeetingBusyError extends Error {
@@ -112,6 +118,8 @@ export interface MeetingStore {
   }): Promise<void>;
   /** Keep Kaki's own copy of the minutes and to-dos with the meeting row. */
   saveMinutes?(id: string, archive: { minutes: string; todos: ArchivedMeetingTodo[] }): Promise<void>;
+  /** Keep how far the archived minutes got towards the team wiki, so history survives a reload. */
+  saveMinutesPublish?(id: string, publish: MeetingMinutesPublish): Promise<void>;
   /** Tick one archived to-do done or not; returns the updated list, or undefined when there is no archive. */
   setTodoDone?(id: string, taskId: string, done: boolean): Promise<ArchivedMeetingTodo[] | undefined>;
   /** The calendar event state kept with one meeting, or undefined before the first attempt. */
@@ -1002,6 +1010,9 @@ export function createPostgresMeetingStore(pool: Pool): MeetingStore {
     minutes_text?: string | null;
     minutes_todos?: ArchivedMeetingTodo[] | null;
     minutes_archived_at?: Date | string | null;
+    minutes_publish_status?: string | null;
+    minutes_publish_url?: string | null;
+    minutes_publish_error?: string | null;
   }): MeetingRow => ({
     id: record.id,
     workspaceId: record.workspace_id,
@@ -1026,6 +1037,21 @@ export function createPostgresMeetingStore(pool: Pool): MeetingStore {
                 ? new Date(record.created_at).toISOString()
                 : new Date(record.minutes_archived_at).toISOString(),
           } satisfies MeetingMinutesArchive,
+        }),
+    ...(record.minutes_publish_status === null ||
+    record.minutes_publish_status === undefined ||
+    !isMinutesPublishStatus(record.minutes_publish_status)
+      ? {}
+      : {
+          minutesPublish: {
+            status: record.minutes_publish_status,
+            ...(record.minutes_publish_url === null || record.minutes_publish_url === undefined
+              ? {}
+              : { artifactUrl: record.minutes_publish_url }),
+            ...(record.minutes_publish_error === null || record.minutes_publish_error === undefined
+              ? {}
+              : { error: record.minutes_publish_error }),
+          } satisfies MeetingMinutesPublish,
         }),
   });
 
@@ -1091,7 +1117,8 @@ export function createPostgresMeetingStore(pool: Pool): MeetingStore {
           `insert into meetings (id, workspace_id, owner_user_id, title, kind, status, scheduled_for, agenda, pace)
            values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb)
            returning id, workspace_id, owner_user_id, title, kind, status, scheduled_for, agenda, pace, created_at, ended_at,
-                     minutes_text, minutes_todos, minutes_archived_at`,
+                     minutes_text, minutes_todos, minutes_archived_at,
+                     minutes_publish_status, minutes_publish_url, minutes_publish_error`,
           [
             id ?? newMeetingId(),
             workspaceId,
@@ -1117,7 +1144,8 @@ export function createPostgresMeetingStore(pool: Pool): MeetingStore {
       await ensureMeetingsSchema(pool);
       const result = await pool.query(
         `select id, workspace_id, owner_user_id, title, kind, status, scheduled_for, agenda, pace, created_at, ended_at,
-                  minutes_text, minutes_todos, minutes_archived_at
+                  minutes_text, minutes_todos, minutes_archived_at,
+                     minutes_publish_status, minutes_publish_url, minutes_publish_error
            from meetings where id = $1`,
         [id],
       );
@@ -1149,7 +1177,8 @@ export function createPostgresMeetingStore(pool: Pool): MeetingStore {
           options.onlyIfScheduled === true ? " and status = 'scheduled'" : ''
         }
          returning id, workspace_id, owner_user_id, title, kind, status, scheduled_for, agenda, pace, created_at, ended_at,
-                   minutes_text, minutes_todos, minutes_archived_at`,
+                   minutes_text, minutes_todos, minutes_archived_at,
+                     minutes_publish_status, minutes_publish_url, minutes_publish_error`,
         values,
       );
       return result.rows[0] === undefined ? undefined : row(result.rows[0]);
@@ -1240,6 +1269,17 @@ export function createPostgresMeetingStore(pool: Pool): MeetingStore {
         [id, archive.minutes, JSON.stringify(archive.todos)],
       );
     },
+    async saveMinutesPublish(id, publish) {
+      await ensureMeetingsSchema(pool);
+      await pool.query(
+        `update meetings
+            set minutes_publish_status = $2,
+                minutes_publish_url = $3,
+                minutes_publish_error = $4
+          where id = $1`,
+        [id, publish.status, publish.artifactUrl ?? null, publish.error ?? null],
+      );
+    },
     async setTodoDone(id, taskId, done) {
       await ensureMeetingsSchema(pool);
       const current = await pool.query<{ minutes_todos: ArchivedMeetingTodo[] | null }>(
@@ -1268,7 +1308,8 @@ export function createPostgresMeetingStore(pool: Pool): MeetingStore {
       await ensureMeetingsSchema(pool);
       const result = await pool.query(
         `select id, workspace_id, owner_user_id, title, kind, status, scheduled_for, agenda, pace, created_at, ended_at,
-                  minutes_text, minutes_todos, minutes_archived_at
+                  minutes_text, minutes_todos, minutes_archived_at,
+                     minutes_publish_status, minutes_publish_url, minutes_publish_error
            from meetings where workspace_id = $1 order by created_at desc`,
         [workspaceId],
       );
@@ -1278,7 +1319,8 @@ export function createPostgresMeetingStore(pool: Pool): MeetingStore {
       await ensureMeetingsSchema(pool);
       const result = await pool.query(
         `select id, workspace_id, owner_user_id, title, kind, status, scheduled_for, agenda, pace, created_at, ended_at,
-                  minutes_text, minutes_todos, minutes_archived_at
+                  minutes_text, minutes_todos, minutes_archived_at,
+                     minutes_publish_status, minutes_publish_url, minutes_publish_error
            from meetings where owner_user_id = $1 order by created_at asc`,
         [ownerUserId],
       );
@@ -1483,6 +1525,11 @@ export function createMemoryMeetingStore(): MeetingStore & { rows: Map<string, M
         ...meeting,
         minutes: { minutes: archive.minutes, todos: archive.todos.map((todo) => ({ ...todo })), archivedAt: new Date().toISOString() },
       });
+    },
+    async saveMinutesPublish(id, publish) {
+      const meeting = rows.get(id);
+      if (meeting === undefined) return;
+      rows.set(id, { ...meeting, minutesPublish: { ...publish } });
     },
     async setTodoDone(id, taskId, done) {
       const meeting = rows.get(id);

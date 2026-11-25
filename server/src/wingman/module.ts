@@ -511,7 +511,7 @@ export function createWingmanModule(options: WingmanModuleOptions = {}): KakiMod
                   source = verdict.source;
                 } else {
                   console.warn(
-                    `kaki wingman: dropped the catch-up suggestion for ${person.role} on "${itemTitle}"; the evidence does not support it`,
+                    `kaki wingman: dropped the catch-up suggestion for ${person.role} on "${itemTitle}"; the evidence does not support it (suggestion: ${JSON.stringify(candidate)}; evidence: ${JSON.stringify(verdict.evidence)})`,
                   );
                 }
               } catch (error) {

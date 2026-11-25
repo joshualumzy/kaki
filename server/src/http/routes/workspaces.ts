@@ -11,6 +11,7 @@ import {
 } from '../../auth/store';
 import { SAMPLE_WORKSPACE } from '../../workspace/sample';
 import { CalendarUnreachableError } from '../../meeting/calendarEvent';
+import type { MeetingInstance } from '../../meeting/instance';
 import { SAMPLE_WORKSPACE_ID } from '../../workspace/constants';
 import { connectorFor, ConnectorError } from '../../workspace/connector';
 import { decryptSecret, parseSecretKey, SecretKeyError } from '../../workspace/secrets';
@@ -473,20 +474,21 @@ export async function handleWorkspaces(call: RouteCall): Promise<void> {
     return;
   }
 
-  const historyMatch = /^\/api\/workspaces\/([^/]+)\/meetings(?:\/([^/]+)(?:\/minutes|\/todos\/([^/]+))?)?$/.exec(path);
+  const historyMatch = /^\/api\/workspaces\/([^/]+)\/meetings(?:\/([^/]+)(?:\/minutes(?:\/publish)?|\/todos\/([^/]+))?)?$/.exec(path);
   if (historyMatch !== null) {
     const historyWorkspaceId = decodeURIComponent(historyMatch[1] ?? '');
     const meetingId = historyMatch[2] === undefined ? undefined : decodeURIComponent(historyMatch[2]);
     const todoId = historyMatch[3] === undefined ? undefined : decodeURIComponent(historyMatch[3]);
+    const isPublishing = path.endsWith('/minutes/publish');
     const meetings = context.meetings;
     if (meetings === undefined) {
       sendJson(response, 500, { error: 'Meeting storage is unavailable.' });
       return;
     }
     // The sample workspace is built in and read-only: it has no members, but a person may list
-    // their own real meetings there and read their minutes. They may not edit its to-dos.
+    // their own real meetings there and read their minutes. They may not edit its to-dos or publish.
     const isSample = historyWorkspaceId === SAMPLE_WORKSPACE_ID;
-    if (isSample && (method !== 'GET' || todoId !== undefined)) {
+    if (isSample && (method !== 'GET' || todoId !== undefined || isPublishing)) {
       sendJson(response, 403, { error: "The sample workspace's meetings are read-only" });
       return;
     }
@@ -536,6 +538,9 @@ export async function handleWorkspaces(call: RouteCall): Promise<void> {
     const canEdit = !isSample && (meeting.ownerUserId === userId || membership === 'admin');
 
     if (method === 'GET' && todoId === undefined && path.endsWith('/minutes')) {
+      const wikiConnected =
+        context.workspaceTools !== undefined &&
+        (await context.workspaceTools.get(historyWorkspaceId, 'wiki')) !== undefined;
       sendJson(response, 200, {
         id: meeting.id,
         title: meeting.title,
@@ -543,7 +548,136 @@ export async function handleWorkspaces(call: RouteCall): Promise<void> {
         minutes: meeting.minutes?.minutes ?? null,
         todos: meeting.minutes?.todos ?? [],
         canEdit,
+        wikiConnected,
+        publish: meeting.minutesPublish ?? null,
       });
+      return;
+    }
+
+    if (isPublishing) {
+      if (method !== 'POST') {
+        sendJson(response, 404, { error: 'Not found' });
+        return;
+      }
+      if (!canEdit) {
+        sendJson(response, 403, {
+          error: 'Only the meeting owner or a workspace admin can publish the minutes.',
+        });
+        return;
+      }
+      const minutesText = meeting.minutes?.minutes;
+      if (minutesText === undefined || minutesText.trim() === '') {
+        sendJson(response, 409, { error: 'The minutes are still being prepared. Reload in a moment.' });
+        return;
+      }
+      const wiki =
+        context.workspaceTools === undefined
+          ? undefined
+          : await context.workspaceTools.get(historyWorkspaceId, 'wiki');
+      if (wiki === undefined) {
+        sendJson(response, 409, {
+          error: 'No wiki is connected in this workspace, so the minutes cannot be published.',
+        });
+        return;
+      }
+      if (context.registry === undefined) {
+        sendJson(response, 503, { error: 'Kaki could not open this meeting’s minutes. Try again in a moment.' });
+        return;
+      }
+      let instance: MeetingInstance | undefined;
+      try {
+        instance = await context.registry.get(meetingId);
+      } catch (error) {
+        console.error(`kaki workspaces: could not open ${meetingId} to publish its minutes`, error);
+        sendJson(response, 503, { error: 'Kaki could not open this meeting’s minutes. Try again in a moment.' });
+        return;
+      }
+      if (instance === undefined) {
+        sendJson(response, 409, {
+          error: 'There are no publishable minutes for this meeting. Copy or download them instead.',
+        });
+        return;
+      }
+      // A meeting that ended before its card was kept (an older save, or a silent room) can still
+      // publish the copy Kaki archived: make the same minutes card here and send it down the same path.
+      let task = instance.tasks.list().find((candidate) => candidate.purpose === 'meeting_minutes');
+      if (task === undefined) {
+        const roles = instance.session.active().roles;
+        const assignee =
+          roles.find((role) => role.facilitator === true && role.id !== 'everyone')?.id ??
+          roles.find((role) => role.id !== 'everyone')?.id ??
+          roles[0]?.id;
+        if (assignee === undefined) {
+          sendJson(response, 409, {
+            error: 'There are no publishable minutes for this meeting. Copy or download them instead.',
+          });
+          return;
+        }
+        try {
+          const created = instance.tasks.suggestWithPurpose(
+            {
+              title: 'Publish meeting minutes to the team wiki',
+              context: `Full summary of ${meeting.title} (agenda, action items, open questions, and discussion transcript).`,
+              suggestedAssignee: assignee,
+              actionKind: 'wiki_page',
+            },
+            'meeting_minutes',
+          );
+          instance.tasks.transition(created.id, 'DISPATCHED', { assignee });
+          instance.tasks.transition(created.id, 'CLAIMED', {
+            mode: 'ACTION_AGENT',
+            draft: {
+              target: 'Wiki: meeting notes',
+              subject: `${meeting.title} — Meeting Minutes`,
+              body: minutesText,
+            },
+          });
+          instance.tasks.transition(created.id, 'DRAFT_READY');
+          task = instance.tasks.get(created.id);
+        } catch (error) {
+          console.error(`kaki workspaces: could not draft the minutes of ${meetingId} to publish`, error);
+          sendJson(response, 409, { error: 'Kaki could not prepare these minutes to publish. Try again.' });
+          return;
+        }
+      }
+      if (task === undefined) {
+        sendJson(response, 409, {
+          error: 'There are no publishable minutes for this meeting. Copy or download them instead.',
+        });
+        return;
+      }
+      if (task.status === 'COMPLETED' || task.status === 'SYNCED') {
+        sendJson(response, 200, {
+          publish: {
+            status: 'published',
+            ...(task.artifactUrl === undefined ? {} : { artifactUrl: task.artifactUrl }),
+          },
+        });
+        return;
+      }
+      if (task.status === 'RUNNING') {
+        sendJson(response, 202, { publish: { status: 'publishing' } });
+        return;
+      }
+      if (task.status !== 'DRAFT_READY' && task.status !== 'FAILED') {
+        sendJson(response, 409, { error: 'The minutes cannot be published right now.' });
+        return;
+      }
+      try {
+        instance.tasks.transition(task.id, 'RUNNING', {
+          draft: {
+            target: task.draft?.target ?? 'Wiki: meeting notes',
+            subject: task.draft?.subject ?? `${meeting.title} — Meeting Minutes`,
+            // Publish exactly the copy the owner reviewed on this page.
+            body: minutesText,
+          },
+        });
+      } catch (error) {
+        console.error(`kaki workspaces: could not start publishing the minutes of ${meetingId}`, error);
+        sendJson(response, 409, { error: 'Kaki could not start publishing these minutes. Try again.' });
+        return;
+      }
+      sendJson(response, 202, { publish: { status: 'publishing' } });
       return;
     }
 

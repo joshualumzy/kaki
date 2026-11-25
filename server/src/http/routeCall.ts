@@ -92,6 +92,7 @@ export interface RequestContext {
     | 'create'
     | 'createPractice'
     | 'findPractice'
+    | 'get'
     | 'endOwnedBy'
     | 'endWorkspaceMember'
     | 'endUser'

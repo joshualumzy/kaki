@@ -8,6 +8,7 @@ import {
   getMeetingMinutes,
   getWorkspace,
   listWorkspaces,
+  publishMeetingMinutes,
   setMeetingTodoDone,
   type MeetingMinutes,
   type WorkspaceDetail,
@@ -52,6 +53,10 @@ export function MeetingHistoryPage() {
   const [savingTodo, setSavingTodo] = useState<string | null>(null);
   const [todoError, setTodoError] = useState<string | null>(null);
   const [minutesAttempts, setMinutesAttempts] = useState(0);
+  const [publishing, setPublishing] = useState(false);
+  const [publishError, setPublishError] = useState<string | null>(null);
+  const [publishSlow, setPublishSlow] = useState(false);
+  const [publishAttempts, setPublishAttempts] = useState(0);
   useDocumentTitle(
     minutes === null ? 'Meeting history · Kaki' : `${minutes.title} · Kaki`,
   );
@@ -61,6 +66,9 @@ export function MeetingHistoryPage() {
     let cancelled = false;
     setMinutes(null);
     setMinutesAttempts(0);
+    setPublishError(null);
+    setPublishSlow(false);
+    setPublishAttempts(0);
     setError(null);
     setNotFound(false);
     Promise.all([listWorkspaces(), getWorkspace(id), getMeetingMinutes(id, meetingId)])
@@ -103,6 +111,26 @@ export function MeetingHistoryPage() {
     return () => window.clearTimeout(timer);
   }, [id, meetingId, minutes, minutesAttempts, signedIn]);
 
+  // The wiki write can take a few seconds. Ask the server for the card's publish state until it
+  // settles, so the page shows the live link (or the failure) without a manual reload.
+  useEffect(() => {
+    if (!signedIn) return undefined;
+    if (minutes?.publish?.status !== 'publishing') return undefined;
+    if (publishAttempts >= 15) {
+      setPublishSlow(true);
+      return undefined;
+    }
+    const timer = window.setTimeout(() => {
+      getMeetingMinutes(id, meetingId)
+        .then((next) => {
+          setMinutes(next);
+          setPublishAttempts((count) => count + 1);
+        })
+        .catch(() => setPublishAttempts((count) => count + 1));
+    }, 1_500);
+    return () => window.clearTimeout(timer);
+  }, [id, meetingId, minutes, publishAttempts, signedIn]);
+
   if (guard.status !== 'ready') return guard.fallback;
 
   if (error === SIGN_IN_ENDED) {
@@ -134,7 +162,30 @@ export function MeetingHistoryPage() {
     }
   }
 
+  async function publishMinutes(): Promise<void> {
+    if (minutes === null || publishing) return;
+    setPublishing(true);
+    setPublishError(null);
+    setPublishSlow(false);
+    setPublishAttempts(0);
+    try {
+      const publish = await publishMeetingMinutes(id, meetingId);
+      setMinutes((current) => (current === null ? current : { ...current, publish }));
+    } catch (failure) {
+      setPublishError(
+        failure instanceof Error ? failure.message : 'Could not publish the minutes. Try again.',
+      );
+    } finally {
+      setPublishing(false);
+    }
+  }
+
   const hasConnectedTool = workspace?.tools.some((tool) => tool.connected) ?? false;
+  const publish = minutes?.publish ?? null;
+  const publishedUrl = publish?.status === 'published' ? publish.artifactUrl : undefined;
+  const publishPending = publishing || publish?.status === 'publishing';
+  const publishFailure =
+    publishError ?? (publish?.status === 'failed' ? publish.error ?? 'Could not publish the minutes.' : null);
 
   return (
     <>
@@ -241,6 +292,42 @@ export function MeetingHistoryPage() {
                       <p className="product-note" role="status">
                         {copyNote}
                       </p>
+                    )}
+                    {publishedUrl === undefined ? null : (
+                      <p className="product-note" role="status">
+                        Published to the team wiki.{' '}
+                        <a className="product-link" href={publishedUrl} target="_blank" rel="noreferrer">
+                          Open in Wiki ↗
+                        </a>
+                      </p>
+                    )}
+                    {publishedUrl !== undefined ? null : publishPending ? (
+                      <p className="product-note" role="status">
+                        Publishing the minutes to the team wiki…
+                      </p>
+                    ) : !minutes.canEdit ? null : !minutes.wikiConnected ? (
+                      <p className="product-note">
+                        No wiki is connected in this workspace, so Kaki can’t publish these minutes
+                        here. Connect Wiki.js in the workspace to publish them.
+                      </p>
+                    ) : (
+                      <>
+                        {publishFailure === null ? null : (
+                          <p className="product-error" role="alert">
+                            <ErrorText text={publishFailure} />
+                          </p>
+                        )}
+                        {publishSlow && publishFailure === null ? (
+                          <p className="product-note" role="status">
+                            Kaki is still publishing these minutes. Reload in a moment to check.
+                          </p>
+                        ) : null}
+                        <div className="product-actions">
+                          <Button disabled={publishing} onClick={() => void publishMinutes()}>
+                            {publish?.status === 'failed' ? 'Retry publishing' : 'Approve & publish'}
+                          </Button>
+                        </div>
+                      </>
                     )}
                     <Markdown text={minutes.minutes} />
                   </>
