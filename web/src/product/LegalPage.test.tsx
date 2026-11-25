@@ -27,7 +27,7 @@ describe('PrivacyPage', () => {
     expect(screen.getByText(/can contain meeting text/)).toBeTruthy();
     expect(screen.getByText(/keeps logs for up to 30 days/)).toBeTruthy();
     expect(screen.getByText(/backs up its database every night/)).toBeTruthy();
-    expect(screen.getByText(/keeps the newest 7/)).toBeTruthy();
+    expect(screen.getByText(/removes backups older than 7 days/)).toBeTruthy();
     expect(screen.getByText(/in backups for up to 7 days/)).toBeTruthy();
   });
 

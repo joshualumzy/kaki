@@ -9,7 +9,7 @@ Type=oneshot
 User=root
 UMask=0077
 Environment=KAKI_APP_DIR=/home/azureuser/app
-# Optional overrides: KAKI_APP_DIR, KAKI_BACKUP_DIR, KAKI_BACKUP_KEEP, KAKI_ENV_FILE,
+# Optional overrides: KAKI_APP_DIR, KAKI_BACKUP_DIR, KAKI_BACKUP_KEEP_DAYS, KAKI_ENV_FILE,
 # KAKI_COMPOSE_FILE.
 EnvironmentFile=-/etc/kaki-backup.env
 ExecStart=/bin/bash /usr/local/bin/kaki-backup.sh

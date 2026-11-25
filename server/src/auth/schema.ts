@@ -107,7 +107,7 @@ export async function ensureAuthSchema(pool: Pool): Promise<void> {
   `);
 
   // A creator who is removed from a team, or whose account is deleted, must not keep the team's
-  // invite or workspace alive through a restrictive foreign key. Attribution may go null; the row
+  // workspace alive through a restrictive foreign key (invites are created with set null). Attribution may go null; the row
   // and its data stay while any member remains.
   await pool.query(`
     do $$
@@ -120,29 +120,12 @@ export async function ensureAuthSchema(pool: Pool): Promise<void> {
          where conrelid = 'workspaces'::regclass
            and contype = 'f'
            and confrelid = 'users'::regclass
+           and confdeltype <> 'n'
       loop
         execute format('alter table workspaces drop constraint %I', found.conname);
+        alter table workspaces add constraint workspaces_created_by_fkey
+          foreign key (created_by) references users(id) on delete set null;
       end loop;
-      alter table workspaces add constraint workspaces_created_by_fkey
-        foreign key (created_by) references users(id) on delete set null;
-    end $$;
-  `);
-  await pool.query(`
-    do $$
-    declare
-      found record;
-    begin
-      for found in
-        select conname
-          from pg_constraint
-         where conrelid = 'workspace_invites'::regclass
-           and contype = 'f'
-           and confrelid = 'users'::regclass
-      loop
-        execute format('alter table workspace_invites drop constraint %I', found.conname);
-      end loop;
-      alter table workspace_invites add constraint workspace_invites_created_by_fkey
-        foreign key (created_by) references users(id) on delete set null;
     end $$;
   `);
 

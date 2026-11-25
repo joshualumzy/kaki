@@ -305,7 +305,7 @@ The required keys are an OpenAI-compatible LLM gateway (`KAKI_LLM_BASE_URL`, `KA
 
 Open `http://localhost:5173` in Chrome; the practice meeting is at `/practice`. To use the signed-in pages locally, also set `KAKI_AUTH=1`, the Google keys and the other sign-in keys listed in the [Practice meeting guide](docs/practice-meeting.md#sign-in-mode).
 
-The cloud VM is managed from the same repository, and its wake page and idle check are shown under [Try it](#try-it). Its journald logs are capped at 30 days, and the newest seven nightly Postgres dumps are kept in `/var/backups/kaki`; see [deploy/systemd/README.md](deploy/systemd/README.md) and the [backup restore command](deploy/backup/README.md#restore).
+The cloud VM is managed from the same repository, and its wake page and idle check are shown under [Try it](#try-it). Its journald logs are capped at 30 days, and nightly Postgres dumps are kept for 7 days in `/var/backups/kaki`; see [deploy/systemd/README.md](deploy/systemd/README.md) and the [backup restore command](deploy/backup/README.md#restore).
 
 ```bash
 npm start                 # Local stack: checks, Docker, seed, index, server, web app, AI runner, preflight

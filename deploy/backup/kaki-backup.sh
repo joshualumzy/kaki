@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # Nightly Postgres backup for the Kaki VM. Runs pg_dump inside the compose Postgres container,
 # using the POSTGRES_URL from the server's own env file, writes a compressed dump to a root-only
-# directory, keeps the newest seven and removes older ones. Any failure exits non-zero and is visible
+# directory, keeps dumps from the last 7 days and removes older ones. Any failure exits non-zero and is visible
 # in journalctl.
 set -euo pipefail
 umask 077
 
 APP_DIR="${KAKI_APP_DIR:-/home/azureuser/app}"
 BACKUP_DIR="${KAKI_BACKUP_DIR:-/var/backups/kaki}"
-KEEP="${KAKI_BACKUP_KEEP:-7}"
+KEEP_DAYS="${KAKI_BACKUP_KEEP_DAYS:-7}"
 ENV_FILE="${KAKI_ENV_FILE:-$APP_DIR/.env}"
 COMPOSE_FILE="${KAKI_COMPOSE_FILE:-$APP_DIR/docker/docker-compose.yml}"
 HELPER="$APP_DIR/deploy/backup/read-postgres-url.mjs"
@@ -30,8 +30,8 @@ cleanup() {
 }
 trap cleanup EXIT
 
-if ! [[ "$KEEP" =~ ^[1-9][0-9]*$ ]]; then
-  fail "KAKI_BACKUP_KEEP must be a positive whole number, got '$KEEP'"
+if ! [[ "$KEEP_DAYS" =~ ^[1-9][0-9]*$ ]]; then
+  fail "KAKI_BACKUP_KEEP_DAYS must be a positive whole number, got '$KEEP_DAYS'"
 fi
 command -v docker >/dev/null 2>&1 || fail "docker is required to run pg_dump in the Postgres container"
 command -v node >/dev/null 2>&1 || fail "node is required to read POSTGRES_URL from $ENV_FILE"
@@ -73,8 +73,7 @@ mv -f -- "$tmp" "$target" || fail "could not move the new dump into $target"
 tmp=""
 log "wrote $target ($(wc -c <"$target") bytes)"
 
-if ! old_backups=$(find "$BACKUP_DIR" -maxdepth 1 -type f -name 'kaki-*.sql.gz' -printf '%T@\t%p\n' |
-  sort -rn | tail -n +"$((KEEP + 1))" | cut -f2-); then
+if ! old_backups=$(find "$BACKUP_DIR" -maxdepth 1 -type f -name 'kaki-*.sql.gz'  -mtime +"$((KEEP_DAYS - 1))" ! -path "$target"); then
   fail "could not list old backups in $BACKUP_DIR for retention"
 fi
 while IFS= read -r old; do
@@ -84,4 +83,4 @@ while IFS= read -r old; do
 done <<<"$old_backups"
 
 kept=$(find "$BACKUP_DIR" -maxdepth 1 -type f -name 'kaki-*.sql.gz' | wc -l)
-log "kept the newest $KEEP backups ($kept present)"
+log "kept backups from the last $KEEP_DAYS days ($kept present)"

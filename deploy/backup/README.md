@@ -1,7 +1,7 @@
 # Kaki nightly database backup
 
 Kaki's Postgres runs in the compose stack (`docker/docker-compose.yml`). This unit runs `pg_dump`
-inside that Postgres container every night, compresses the dump and keeps the newest seven. It reads
+inside that Postgres container every night, compresses the dump and keeps the last 7 days of dumps. It reads
 the database user and name from the same `POSTGRES_URL` the server loads from `~/app/.env`, so no
 database password is written into this repository or into the script.
 
@@ -43,7 +43,7 @@ KAKI_APP_DIR=/home/azureuser/app
 KAKI_ENV_FILE=/home/azureuser/app/.env
 KAKI_COMPOSE_FILE=/home/azureuser/app/docker/docker-compose.yml
 KAKI_BACKUP_DIR=/var/backups/kaki
-KAKI_BACKUP_KEEP=7
+KAKI_BACKUP_KEEP_DAYS=7
 ```
 
 `KAKI_ENV_FILE` must be the server's env file: the script reads `POSTGRES_URL` from it. If that file

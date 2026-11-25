@@ -32,7 +32,7 @@ sudo journalctl --disk-usage
 
 ## Nightly database backup
 
-The backup unit dumps the app database from the compose Postgres container, keeps the newest seven compressed dumps in `/var/backups/kaki` and removes older ones. It reads `POSTGRES_URL` from the server's `~/app/.env`, so the database password stays out of the repository and the unit. It runs at 02:30 and after any missed run when the VM boots.
+The backup unit dumps the app database from the compose Postgres container, keeps compressed dumps from the last 7 days in `/var/backups/kaki` and removes older ones. It reads `POSTGRES_URL` from the server's `~/app/.env`, so the database password stays out of the repository and the unit. It runs at 02:30 and after any missed run when the VM boots.
 
 Install it in the same deploy pass:
 

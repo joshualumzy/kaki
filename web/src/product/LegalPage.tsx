@@ -154,7 +154,7 @@ export function PrivacyPage() {
       </p>
       <p>
         Kaki also backs up its database every night. Each backup is a compressed copy that only the
-        machine&apos;s administrator can read, and Kaki keeps the newest 7 and removes older ones. A
+        machine&apos;s administrator can read, and Kaki removes backups older than 7 days. A
         backup can therefore hold deleted meeting text for up to 7 days.
       </p>
       <p>
