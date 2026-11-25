@@ -390,4 +390,26 @@ describe('guest task actions', () => {
       ),
     ).not.toThrow();
   });
+
+  it('lets the host run the tool action even without a workspace membership record', () => {
+    const tasks = createTaskStore({
+      hub: app.hub,
+      scenario: testScenario,
+      seatIsGuest: () => true,
+      isHostSeat: (role) => role === 'chef',
+    });
+    const task = tasks.suggest({
+      title: 'Fix the oven',
+      context: 'Trips the fuse.',
+      suggestedAssignee: 'chef',
+      actionKind: 'gitea_issue',
+    });
+    tasks.transition(task.id, 'DISPATCHED', { assignee: 'chef' });
+    expect(() =>
+      tasks.handleCommand(
+        { type: 'CLAIM_TASK', taskId: task.id, mode: 'ACTION_AGENT' },
+        roleAudience('chef'),
+      ),
+    ).not.toThrow();
+  });
 });

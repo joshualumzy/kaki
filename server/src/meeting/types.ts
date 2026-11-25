@@ -41,18 +41,5 @@ export interface MeetingRow {
   minutes?: MeetingMinutesArchive | null;
 }
 
-/**
- * The state a meeting is in now. A scheduled meeting whose time has passed is open: its room can be
- * entered and started, so it must never still be shown as scheduled.
- */
-export function meetingStatusNow(
-  row: Pick<MeetingRow, 'status' | 'scheduledFor'>,
-  at: number = Date.now(),
-): MeetingStatus {
-  if (row.status !== 'scheduled' || row.scheduledFor === null) return row.status;
-  const when = Date.parse(row.scheduledFor);
-  return Number.isNaN(when) || when > at ? 'scheduled' : 'open';
-}
-
 /** How a meeting is opened at the runner: the practice instance runs everything, a real one listens. */
 export type RunnerMeetingKind = 'real' | 'practice';

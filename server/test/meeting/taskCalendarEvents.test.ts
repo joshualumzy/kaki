@@ -4,7 +4,7 @@ import {
   createTaskCalendarLifecycle,
   taskCalendarUid,
 } from '../../src/meeting/taskCalendarEvents';
-import { createMemoryCalendarCancellationStore } from '../../src/meeting/calendarCancellations';
+import { CalendarUnreachableError } from '../../src/meeting/calendarEvent';
 
 const settings = { caldavUrl: 'http://cal.test', viewBaseUrl: 'http://kaki.test' };
 
@@ -81,18 +81,17 @@ describe('follow-up calendar lifecycle', () => {
       settings,
     });
 
-    expect(await lifecycle.cancelForWorkspace('workspace-1', { requestedBy: 'user-1' })).toEqual([]);
+    expect(await lifecycle.cancelForWorkspace('workspace-1')).toEqual([]);
     const put = fetchImpl.mock.calls.filter(([, init]) => init?.method === 'PUT').at(-1);
     expect(String(put?.[1]?.body)).toContain('STATUS:CANCELLED');
     expect(String(put?.[1]?.body)).toContain('SEQUENCE:1');
     expect(await store.listForWorkspace('workspace-1')).toEqual([]);
   });
 
-  it('keeps a failed workspace follow-up cancellation for an admin retry', async () => {
+  it('refuses a failed follow-up cancellation and keeps the row unless the admin deletes anyway', async () => {
     const store = createMemoryTaskCalendarEventStore();
-    const cancellations = createMemoryCalendarCancellationStore();
     const fetchImpl = calendarFetch();
-    const lifecycle = createTaskCalendarLifecycle({ store, fetchImpl, cancellations });
+    const lifecycle = createTaskCalendarLifecycle({ store, fetchImpl });
     await lifecycle.run({
       taskId: 'task-3',
       meetingId: 'meeting-1',
@@ -107,27 +106,17 @@ describe('follow-up calendar lifecycle', () => {
     const failing = vi.fn<typeof fetch>(async (_url, init) =>
       new Response('', { status: init?.method === 'PUT' ? 500 : 405 }),
     );
-    const failingLifecycle = createTaskCalendarLifecycle({
-      store,
-      fetchImpl: failing,
-      cancellations,
+    const failingLifecycle = createTaskCalendarLifecycle({ store, fetchImpl: failing });
+    await expect(failingLifecycle.cancelForWorkspace('workspace-1')).rejects.toBeInstanceOf(
+      CalendarUnreachableError,
+    );
+    // The refused cancellation leaves the workspace's follow-up row in place for a retry.
+    expect(await store.listForWorkspace('workspace-1')).toHaveLength(1);
+
+    const remaining = await failingLifecycle.cancelForWorkspace('workspace-1', {
+      deleteAnyway: true,
     });
-    const warnings = await failingLifecycle.cancelForWorkspace('workspace-1', {
-      workspaceName: 'Kitchen',
-      requestedBy: 'user-1',
-    });
-    expect(warnings).toHaveLength(1);
-    expect(warnings[0]).toContain('Follow up later');
-    const pending = await cancellations.listForWorkspace('workspace-1');
-    expect(pending).toHaveLength(1);
-    expect(pending[0]).toMatchObject({
-      source: 'followup',
-      title: 'Follow up later',
-      workspaceName: 'Kitchen',
-      requestedBy: 'user-1',
-    });
-    expect(pending[0]?.error).toContain('HTTP 500');
-    // The pending record carries everything a retry needs, so the active row is gone with the workspace.
+    expect(remaining).toEqual(['Follow up later']);
     expect(await store.listForWorkspace('workspace-1')).toEqual([]);
   });
 });

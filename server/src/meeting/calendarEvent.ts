@@ -1,13 +1,17 @@
 import type { AgendaItem } from './agenda';
 import { writeCalendarEvent, type CalendarSettings } from '../action/calendar';
 import type { WorkspaceToolSource } from '../workspace/tools';
-import {
-  openStoredCalendar,
-  sealCalendarBinding,
-  type CalendarCancellationStore,
-  type CalendarBinding,
-} from './calendarCancellations';
-import type { EncryptedSecret } from '../workspace/secrets';
+
+/** The plain sentence shown when the calendar could not be reached for a cancellation. */
+export const CALENDAR_UNREACHABLE_MESSAGE = "The team calendar can't be reached.";
+
+/** A cancellation that could not reach the calendar; the meeting or workspace is left untouched. */
+export class CalendarUnreachableError extends Error {
+  constructor(readonly detail: string) {
+    super(CALENDAR_UNREACHABLE_MESSAGE);
+    this.name = 'CalendarUnreachableError';
+  }
+}
 
 /** How one meeting's workspace calendar event stands right now. */
 export type MeetingCalendarState = 'not_connected' | 'synced' | 'error';
@@ -26,19 +30,10 @@ export interface MeetingCalendarEventState {
   syncedAt: string | null;
 }
 
-/** The calendar destination kept with a meeting, so a failed cancellation can still be retried. */
-export interface StoredCalendarBinding {
-  binding: CalendarBinding;
-  secret: EncryptedSecret | null;
-}
-
-/** The per-meeting calendar state and destination a meeting store can offer. */
+/** The per-meeting calendar state a meeting store can offer. */
 export interface MeetingCalendarEventStore {
   calendarEventFor?(meetingId: string): Promise<MeetingCalendarEventState | undefined>;
   saveCalendarEvent?(meetingId: string, event: MeetingCalendarEventState): Promise<void>;
-  /** The destination captured by the last successful or attempted sync. */
-  calendarBindingFor?(meetingId: string): Promise<StoredCalendarBinding | undefined>;
-  saveCalendarBinding?(meetingId: string, binding: StoredCalendarBinding): Promise<void>;
 }
 
 /** The meeting facts one calendar event needs. */
@@ -48,11 +43,6 @@ export interface MeetingCalendarSubject {
   title: string;
   scheduledFor: string | null;
   agenda: readonly AgendaItem[];
-}
-
-/** Why a cancelled meeting's event could not be removed, or null when it was. */
-export interface CalendarCancelOutcome {
-  warning: string | null;
 }
 
 /** What one sync attempt left behind. */
@@ -67,22 +57,14 @@ export interface SelectedCalendarEvent {
   fileId: string;
 }
 
-/** Who asked for a cancellation, so a durable retry can be shown back to them. */
-export interface CalendarCancelRequest {
-  workspaceName?: string | null;
-  requestedBy?: string | null;
-}
-
 /** The calendar write path the meeting registry and the retry route both use. */
 export interface MeetingCalendarSync {
   syncMeeting(
     meeting: MeetingCalendarSubject,
     options?: { bumpSequence?: boolean; selected?: SelectedCalendarEvent },
   ): Promise<CalendarSyncOutcome>;
-  cancelMeeting(
-    meeting: MeetingCalendarSubject,
-    request?: CalendarCancelRequest,
-  ): Promise<CalendarCancelOutcome>;
+  /** Cancel one meeting's event; throws CalendarUnreachableError when it cannot be reached. */
+  cancelMeeting(meeting: MeetingCalendarSubject): Promise<void>;
 }
 
 /** Options for the sync service; tests inject a fake calendar and clock. */
@@ -92,8 +74,6 @@ export interface MeetingCalendarSyncOptions {
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
   now?: () => number;
-  /** Keep a failed cancellation durably, so an admin can retry it after the meeting is gone. */
-  cancellations?: CalendarCancellationStore;
 }
 
 const DEFAULT_MEETING_MINUTES = 30;
@@ -230,7 +210,6 @@ export function createMeetingCalendarSync({
   fetchImpl = fetch,
   timeoutMs,
   now = Date.now,
-  cancellations,
 }: MeetingCalendarSyncOptions): MeetingCalendarSync {
   async function load(meetingId: string): Promise<MeetingCalendarEventState | undefined> {
     return store.calendarEventFor?.(meetingId);
@@ -238,36 +217,6 @@ export function createMeetingCalendarSync({
 
   async function save(meetingId: string, state: MeetingCalendarEventState): Promise<void> {
     await store.saveCalendarEvent?.(meetingId, state);
-  }
-
-  /** Keep the destination while it is readable, so a later cancellation has something to retry. */
-  async function rememberBinding(
-    meetingId: string,
-    settings: CalendarSettings | undefined,
-  ): Promise<void> {
-    if (settings === undefined || store.saveCalendarBinding === undefined) return;
-    try {
-      await store.saveCalendarBinding(meetingId, sealCalendarBinding(settings));
-    } catch {
-      // A missing server key must not stop the meeting itself from syncing.
-    }
-  }
-
-  /** The live calendar when connected, otherwise the destination captured by the last sync. */
-  async function calendarFor(
-    meetingId: string,
-    workspaceId: string,
-  ): Promise<CalendarSettings | undefined> {
-    const stored = await store.calendarBindingFor?.(meetingId);
-    try {
-      const live = writableCalendar(await tools.toolsFor(workspaceId));
-      if (live !== undefined) return live;
-    } catch (error) {
-      // A readable destination from the last sync still lets a cancellation be retried.
-      if (stored === undefined) throw error;
-    }
-    if (stored === undefined) return undefined;
-    return openStoredCalendar(stored.binding, stored.secret);
   }
 
   function notConnectedState(
@@ -288,42 +237,6 @@ export function createMeetingCalendarSync({
         : null,
       syncedAt: existing?.syncedAt ?? null,
     };
-  }
-
-  /** Keep the failed cancellation so a retry is possible even after the meeting row is gone. */
-  async function rememberCancellation(
-    meeting: MeetingCalendarSubject,
-    existing: MeetingCalendarEventState,
-    settings: CalendarSettings | undefined,
-    request: CalendarCancelRequest,
-    error: string,
-  ): Promise<void> {
-    if (cancellations === undefined || settings === undefined) return;
-    let sealed: { binding: CalendarBinding; secret: EncryptedSecret | null };
-    try {
-      sealed = sealCalendarBinding(settings);
-    } catch {
-      // Without the server key the password cannot be kept; still keep the rest of the intent.
-      const { password: _password, ...binding } = settings;
-      sealed = { binding, secret: null };
-    }
-    await cancellations.add({
-      workspaceId: meeting.workspaceId,
-      workspaceName: request.workspaceName ?? null,
-      meetingId: meeting.id,
-      source: 'meeting',
-      uid: existing.uid,
-      sequence: existing.sequence + 1,
-      fileId: existing.fileId ?? meetingCalendarFileId(meeting.id),
-      title: meeting.title,
-      description: meetingDescription(meeting.agenda),
-      start: new Date(meeting.scheduledFor ?? new Date().toISOString()).toISOString(),
-      durationMinutes: meetingDurationMinutes(meeting.agenda),
-      binding: sealed.binding,
-      secret: sealed.secret,
-      error,
-      requestedBy: request.requestedBy ?? null,
-    });
   }
 
   return {
@@ -368,7 +281,6 @@ export function createMeetingCalendarSync({
         await save(meeting.id, state);
         return { state, warning: state.error };
       }
-      await rememberBinding(meeting.id, settings);
 
       let ics: string;
       try {
@@ -418,31 +330,23 @@ export function createMeetingCalendarSync({
       return { state, warning: null };
     },
 
-    async cancelMeeting(meeting, request = {}) {
+    async cancelMeeting(meeting) {
       const existing = await load(meeting.id);
       // Nothing was ever written, so there is nothing to take back.
-      if (existing === undefined || existing.state === 'not_connected') {
-        return { warning: null };
-      }
-      if (meeting.scheduledFor === null) return { warning: null };
+      if (existing === undefined || existing.state === 'not_connected') return;
+      if (meeting.scheduledFor === null) return;
 
       let settings: CalendarSettings | undefined;
       try {
-        settings = await calendarFor(meeting.id, meeting.workspaceId);
+        settings = writableCalendar(await tools.toolsFor(meeting.workspaceId));
       } catch (error) {
-        const warning = `The workspace calendar could not be read, so its event was not cancelled: ${plainReason(
-          error,
-        )}`;
-        await rememberCancellation(meeting, existing, undefined, request, warning);
-        return { warning };
+        throw new CalendarUnreachableError(
+          `the workspace calendar could not be read: ${plainReason(error)}`,
+        );
       }
       if (settings === undefined) {
-        const warning =
-          'The workspace calendar is not connected, so this meeting could not be removed from it.';
-        await rememberCancellation(meeting, existing, undefined, request, warning);
-        return { warning };
+        throw new CalendarUnreachableError('the workspace calendar is not connected');
       }
-      await rememberBinding(meeting.id, settings);
 
       let ics: string;
       try {
@@ -457,9 +361,9 @@ export function createMeetingCalendarSync({
           now: new Date(now()),
         });
       } catch (error) {
-        const warning = `The calendar event could not be cancelled: ${plainReason(error)}`;
-        await rememberCancellation(meeting, existing, settings, request, warning);
-        return { warning };
+        throw new CalendarUnreachableError(
+          `the calendar event could not be rebuilt: ${plainReason(error)}`,
+        );
       }
       const written = await writeCalendarEvent(
         settings,
@@ -468,10 +372,7 @@ export function createMeetingCalendarSync({
         fetchImpl,
         timeoutMs,
       );
-      if (written.ok) return { warning: null };
-      const warning = `The calendar event could not be cancelled: ${written.message}`;
-      await rememberCancellation(meeting, existing, settings, request, warning);
-      return { warning };
+      if (!written.ok) throw new CalendarUnreachableError(written.message);
     },
   };
 }
@@ -480,11 +381,10 @@ export function createMeetingCalendarSync({
  * The Round 2 hook: remove the calendar event Kaki created for a cancelled meeting. A meeting
  * that has no calendar, or never reached one, has nothing to remove.
  */
-export function removeCalendarEventForCancelledMeeting(
+export async function removeCalendarEventForCancelledMeeting(
   meeting: MeetingCalendarSubject,
   calendar: MeetingCalendarSync | undefined,
-  request?: CalendarCancelRequest,
-): Promise<CalendarCancelOutcome> {
-  if (calendar === undefined) return Promise.resolve({ warning: null });
-  return calendar.cancelMeeting(meeting, request);
+): Promise<void> {
+  if (calendar === undefined) return;
+  await calendar.cancelMeeting(meeting);
 }

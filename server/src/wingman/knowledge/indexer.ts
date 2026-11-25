@@ -7,7 +7,6 @@ import type { GiteaSettings } from '../../action/gitea';
 import type { MattermostSettings } from '../../action/mattermost';
 import type { WikiSettings } from '../../action/wiki';
 import { SAMPLE_WORKSPACE_ID } from '../../workspace/constants';
-import { assertWorkspaceWritable, lockWorkspaceForWrite } from '../../workspace/gate';
 import {
   createMemoryWorkspaceToolStore,
   createWorkspaceToolSource,
@@ -642,9 +641,21 @@ async function writeWorkspaceChunksIn(
   options: { prune?: boolean },
 ): Promise<void> {
   // An indexer that wakes after a workspace deletion must not recreate its private chunks. The
-  // shared gate makes it wait for an in-flight deletion, then the tombstone refuses the write.
-  await lockWorkspaceForWrite(db, workspaceId);
-  await assertWorkspaceWritable(db, workspaceId, SAMPLE_WORKSPACE_ID);
+  // workspace row is locked in share mode: it either waits out an in-flight deletion and finds the
+  // row gone, or writes first and the deletion removes the chunks with everything else.
+  if (workspaceId !== SAMPLE_WORKSPACE_ID) {
+    const table = await db.query<{ name: string | null }>('select to_regclass($1) as name', [
+      'workspaces',
+    ]);
+    if (table.rows[0]?.name !== null && table.rows[0]?.name !== undefined) {
+      const workspace = await db.query('select id from workspaces where id = $1 for key share', [
+        workspaceId,
+      ]);
+      if ((workspace.rowCount ?? 0) === 0) {
+        throw new Error(`workspace ${workspaceId} no longer exists`);
+      }
+    }
+  }
   await ensureKnowledgeSchema(db);
   for (const [index, chunk] of chunks.entries()) {
     const embedding = embeddings[index];

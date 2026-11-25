@@ -4,16 +4,31 @@ import {
   writeCalendarEvent,
   type CalendarSettings,
 } from '../action/calendar';
-import {
-  sealCalendarBinding,
-  type CalendarBinding,
-  type CalendarCancellationStore,
-} from './calendarCancellations';
+import { CalendarUnreachableError } from './calendarEvent';
 import {
   decryptSecret,
+  encryptSecret,
   parseSecretKey,
   type EncryptedSecret,
 } from '../workspace/secrets';
+
+/** Where a follow-up event lives now, without its password. */
+export interface CalendarBinding {
+  caldavUrl: string;
+  viewBaseUrl: string;
+  user?: string;
+  calendar?: string;
+}
+
+/** Seal one live calendar's settings, keeping its password encrypted. */
+function sealCalendarBinding(settings: CalendarSettings): {
+  binding: CalendarBinding;
+  secret: EncryptedSecret | null;
+} {
+  const { password, ...binding } = settings;
+  if (password === undefined || password === '') return { binding, secret: null };
+  return { binding, secret: encryptSecret(password, parseSecretKey(process.env.KAKI_SECRET_KEY)) };
+}
 
 /** One approved follow-up event, kept with the workspace that must cancel it later. */
 export interface TaskCalendarEvent {
@@ -74,10 +89,14 @@ export interface TaskCalendarLifecycle {
     durationMinutes: number;
     settings: CalendarSettings;
   }): Promise<{ uid: string; fileId: string; sequence: number }>;
-  /** Take every follow-up of a workspace off its calendar before the workspace disappears. */
+  /**
+   * Take every follow-up of a workspace off its calendar before the workspace disappears. Throws
+   * CalendarUnreachableError when a cancellation cannot be written, unless `deleteAnyway` is set;
+   * then the rows are still removed and the titles that may remain are returned.
+   */
   cancelForWorkspace(
     workspaceId: string,
-    request: { workspaceName?: string | null; requestedBy?: string | null },
+    options?: { deleteAnyway?: boolean },
   ): Promise<string[]>;
 }
 
@@ -86,13 +105,11 @@ export function createTaskCalendarLifecycle({
   fetchImpl = fetch,
   timeoutMs,
   now = Date.now,
-  cancellations,
 }: {
   store: TaskCalendarEventStore;
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
   now?: () => number;
-  cancellations?: CalendarCancellationStore;
 }): TaskCalendarLifecycle {
   return {
     async run(input) {
@@ -154,86 +171,48 @@ export function createTaskCalendarLifecycle({
       return { uid, fileId, sequence };
     },
 
-    async cancelForWorkspace(workspaceId, request) {
-      const warnings: string[] = [];
+    async cancelForWorkspace(workspaceId, options = {}) {
+      const remaining: string[] = [];
       for (const record of await store.listForWorkspace(workspaceId)) {
-        let settings: CalendarSettings;
         try {
-          settings = openTaskCalendar(record);
-        } catch (error) {
-          const message = error instanceof Error ? error.message : 'The calendar login could not be read.';
-          warnings.push(`${record.title}: the calendar event could not be cancelled: ${message}`);
-          await rememberCancellation(record, message, record.binding, record.secret, request);
-          continue;
-        }
-        let ics: string;
-        try {
-          ics = buildIcs(
-            record.uid,
-            record.title,
-            { start: record.start, durationMinutes: record.durationMinutes },
-            record.description,
-            new Date(now()),
-            { sequence: record.sequence + 1, cancelled: true },
-          );
-        } catch (error) {
-          const message = error instanceof Error ? error.message : 'The event could not be rebuilt.';
-          warnings.push(`${record.title}: the calendar event could not be cancelled: ${message}`);
-          await rememberCancellation(record, message, settings, record.secret, request);
-          continue;
-        }
-        const written = await writeCalendarEvent(
-          settings,
-          record.fileId,
-          ics,
-          fetchImpl,
-          timeoutMs,
-        );
-        if (written.ok) {
+          await cancelOne(record);
           await store.delete(record.taskId);
-          continue;
+        } catch (error) {
+          if (options.deleteAnyway !== true) throw error;
+          // The admin chose to delete anyway; its event may stay on the calendar.
+          remaining.push(record.title);
+          await store.delete(record.taskId);
         }
-        const warning = `${record.title}: the calendar event could not be cancelled: ${written.message}`;
-        warnings.push(warning);
-        await store.save({
-          ...record,
-          state: 'error',
-          error: warning,
-          syncedAt: record.syncedAt,
-        });
-        await rememberCancellation(record, warning, settings, record.secret, request);
       }
-      // The pending record, when one was needed, already holds everything a retry needs.
       await store.deleteForWorkspace(workspaceId);
-      return warnings;
+      return remaining;
     },
   };
 
-  async function rememberCancellation(
-    record: TaskCalendarEvent,
-    error: string,
-    settings: CalendarSettings,
-    secret: EncryptedSecret | null,
-    request: { workspaceName?: string | null; requestedBy?: string | null },
-  ): Promise<void> {
-    if (cancellations === undefined) return;
-    await cancellations.add({
-      workspaceId: record.workspaceId,
-      workspaceName: request.workspaceName ?? null,
-      meetingId: record.meetingId,
-      source: 'followup',
-      uid: record.uid,
-      sequence: record.sequence + 1,
-      fileId: record.fileId,
-      title: record.title,
-      description: record.description,
-      start: record.start,
-      durationMinutes: record.durationMinutes,
-      binding: settings,
-      secret,
-      error,
-      requestedBy: request.requestedBy ?? null,
-    });
+  async function cancelOne(record: TaskCalendarEvent): Promise<void> {
+    let settings: CalendarSettings;
+    try {
+      settings = openTaskCalendar(record);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'The calendar login could not be read.';
+      throw new CalendarUnreachableError(`${record.title}: ${message}`);
+    }
+    let ics: string;
+    try {
+      ics = buildIcs(
+        record.uid,
+        record.title,
+        { start: record.start, durationMinutes: record.durationMinutes },
+        record.description,
+        new Date(now()),
+        { sequence: record.sequence + 1, cancelled: true },
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'The event could not be rebuilt.';
+      throw new CalendarUnreachableError(`${record.title}: ${message}`);
+    }
+    const written = await writeCalendarEvent(settings, record.fileId, ics, fetchImpl, timeoutMs);
+    if (!written.ok) throw new CalendarUnreachableError(`${record.title}: ${written.message}`);
   }
 }
 

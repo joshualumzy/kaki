@@ -16,9 +16,7 @@ import type { RejoinGuard } from '../meeting/rejoin';
 import type { MeetingSession } from '../meeting/session';
 import type { TaskStore } from '../meeting/tasks';
 import type { MeetingCalendarSync } from '../meeting/calendarEvent';
-import type { CalendarCancellationService } from '../meeting/calendarCancellations';
 import type { TaskCalendarLifecycle } from '../meeting/taskCalendarEvents';
-import type { WorkspaceFence } from '../workspace/fence';
 import type { MeetingRegistry, MeetingStore } from '../meeting/registry';
 import type { RoomRoster, SeatReservations } from '../services/livekit';
 import type { LlmClient } from '../services/llm';
@@ -75,18 +73,16 @@ export interface RequestContext {
   ) => Promise<boolean>;
   /** Keep one calendar event per meeting in that meeting's workspace calendar. */
   meetingCalendar?: MeetingCalendarSync;
-  /** Failed cancellations kept for an admin retry. */
-  calendarCancellations?: CalendarCancellationService;
   /** Approved follow-up events, so workspace deletion takes them off the calendar too. */
   taskCalendar?: TaskCalendarLifecycle;
-  /** Serialises workspace deletion against creates, loads and other writers. */
-  workspaceFence?: WorkspaceFence;
   /** Guest-join attempts per client address, owned by the app. */
   guestJoinAttempts?: AttemptLimiter;
   /** Paid model requests for Tell Kaki, per account and address, owned by the app. */
   tellKakiAttempts?: AttemptLimiter;
   /** Paid calendar reads for agenda import, per account and address, owned by the app. */
   agendaFromCalendarAttempts?: AttemptLimiter;
+  /** Calendar picker reads, per account only, owned by the app. */
+  calendarReadAttempts?: AttemptLimiter;
   /** Practice-room opens per client address, so a cookie-clearing loop cannot hold every room. */
   practiceAttempts?: AttemptLimiter;
   /** The meeting registry, for the server-wide lookup and creation of meetings and practices. */

@@ -9,18 +9,15 @@ import {
   type CalendarSyncOutcome,
   type MeetingCalendarEventState,
   type MeetingCalendarSync,
-  type StoredCalendarBinding,
 } from './calendarEvent';
-import { WorkspaceFencedError, type WorkspaceFence } from '../workspace/fence';
 import { agendaFromStored } from './agenda';
 import { SAMPLE_WORKSPACE_ID } from '../workspace/constants';
-import {
-  meetingStatusNow,
-  type AgendaItem,
-  type ArchivedMeetingTodo,
-  type MeetingMinutesArchive,
-  type MeetingRow,
-  type MeetingStatus,
+import type {
+  AgendaItem,
+  ArchivedMeetingTodo,
+  MeetingMinutesArchive,
+  MeetingRow,
+  MeetingStatus,
 } from './types';
 
 /** A registry refusal the HTTP layer turns into a 503 with this exact message. */
@@ -121,9 +118,6 @@ export interface MeetingStore {
   calendarEventFor?(meetingId: string): Promise<MeetingCalendarEventState | undefined>;
   /** Keep one meeting's calendar event state, so a failed sync is visible and retryable. */
   saveCalendarEvent?(meetingId: string, event: MeetingCalendarEventState): Promise<void>;
-  /** The calendar destination captured with the last sync, for a later cancellation retry. */
-  calendarBindingFor?(meetingId: string): Promise<StoredCalendarBinding | undefined>;
-  saveCalendarBinding?(meetingId: string, binding: StoredCalendarBinding): Promise<void>;
   /**
    * Delete every meeting in one workspace with its saved state, seat claims, meeting knowledge and
    * calendar event rows. Run inside `client` when given.
@@ -175,12 +169,9 @@ export interface MeetingRegistry {
   ): Promise<MeetingRow | undefined>;
   /**
    * Delete a cancelled meeting and everything it left behind. The calendar event is cancelled
-   * first; when that fails the deletion still happens and the warning says what was left behind.
+   * first; when the calendar cannot be reached the cancellation is refused and the meeting stays.
    */
-  cancel(
-    id: string,
-    options?: { workspaceName?: string | null; requestedBy?: string | null },
-  ): Promise<{ calendarWarning: string | null }>;
+  cancel(id: string): Promise<void>;
   /**
    * Retry one scheduled meeting's calendar write inside its lifecycle lock, reloading the row so a
    * delayed retry can never overwrite an edit or resurrect a cancelled meeting.
@@ -278,8 +269,6 @@ interface MeetingRegistryDeps {
   onWorkspaceClosed?(workspaceId: string): void;
   /** Keeps one calendar event per meeting in the workspace's connected calendar. */
   calendarEvents?: MeetingCalendarSync;
-  /** Serialises workspace deletion against creates, loads and other writers. */
-  fence?: WorkspaceFence;
 }
 
 const DEFAULT_MAX_OPEN = 10;
@@ -322,12 +311,6 @@ export function createMeetingRegistry(deps: MeetingRegistryDeps): MeetingRegistr
     positiveEnvNumber('KAKI_PRACTICE_UNLOAD_MS', DEFAULT_PRACTICE_UNLOAD_MS);
   const now = deps.now ?? Date.now;
   const log = deps.log ?? ((message: string) => console.log(message));
-  const fence = deps.fence;
-
-  /** Run work for one workspace behind its deletion gate, when the app wired one. */
-  function fenced<T>(workspaceId: string, task: () => Promise<T>): Promise<T> {
-    return fence === undefined ? task() : fence.run(workspaceId, task);
-  }
   const loaded = new Map<string, MeetingInstance>();
   /**
    * The owner of each loaded real meeting that still holds an open slot. An ended meeting keeps
@@ -544,43 +527,40 @@ export function createMeetingRegistry(deps: MeetingRegistryDeps): MeetingRegistr
       if (scheduledAt !== undefined && Number.isNaN(scheduledAt)) {
         throw new Error('a meeting scheduledFor must be a date');
       }
-      return serializedCreate(ownerUserId, () =>
-        fenced(workspaceId, async () => {
-          const createdToday = await deps.store.countCreatedByOwnerSince(ownerUserId, startOfDay());
-          if (createdToday >= maxMeetingsPerDay) {
-            log(
-              `kaki meetings: refusing to create a meeting for ${ownerUserId}: ` +
-                `${createdToday} already created today`,
-            );
-            throw new MeetingBusyError(dailyLimitMessage(maxMeetingsPerDay));
+      return serializedCreate(ownerUserId, async () => {
+        const createdToday = await deps.store.countCreatedByOwnerSince(ownerUserId, startOfDay());
+        if (createdToday >= maxMeetingsPerDay) {
+          log(
+            `kaki meetings: refusing to create a meeting for ${ownerUserId}: ` +
+              `${createdToday} already created today`,
+          );
+          throw new MeetingBusyError(dailyLimitMessage(maxMeetingsPerDay));
+        }
+        // A planned meeting is scheduled until somebody actually starts it; the clock alone never
+        // makes it open, so an overdue meeting still shows as not started.
+        const status: MeetingStatus = scheduledFor === undefined ? 'open' : 'scheduled';
+        const row = await deps.store.create({
+          workspaceId,
+          ownerUserId,
+          title: cleanTitle,
+          status,
+          ...(scheduledFor === undefined ? {} : { scheduledFor }),
+          ...(agenda === undefined ? {} : { agenda }),
+          ...(pace === undefined ? {} : { pace }),
+        });
+        // The meeting is saved first. A calendar that is down records its failure on the meeting
+        // and leaves it for the retry route, so scheduling never depends on the calendar.
+        if (row.status === 'scheduled' && deps.calendarEvents !== undefined) {
+          try {
+            await deps.calendarEvents.syncMeeting(row, {
+              ...(selectedCalendarEvent === undefined ? {} : { selected: selectedCalendarEvent }),
+            });
+          } catch (error) {
+            log(`kaki meetings: syncing the calendar event of ${row.id} failed: ${String(error)}`);
           }
-          const status: MeetingStatus =
-            scheduledAt !== undefined && scheduledAt > now() ? 'scheduled' : 'open';
-          const row = await deps.store.create({
-            workspaceId,
-            ownerUserId,
-            title: cleanTitle,
-            status,
-            ...(scheduledFor === undefined ? {} : { scheduledFor }),
-            ...(agenda === undefined ? {} : { agenda }),
-            ...(pace === undefined ? {} : { pace }),
-          });
-          // The meeting is saved first. A calendar that is down records its failure on the meeting
-          // and leaves it for the retry route, so scheduling never depends on the calendar. The
-          // whole create, including this write, is inside the workspace gate, so an in-flight
-          // deletion waits and then finds the new event to cancel.
-          if (row.status === 'scheduled' && deps.calendarEvents !== undefined) {
-            try {
-              await deps.calendarEvents.syncMeeting(row, {
-                ...(selectedCalendarEvent === undefined ? {} : { selected: selectedCalendarEvent }),
-              });
-            } catch (error) {
-              log(`kaki meetings: syncing the calendar event of ${row.id} failed: ${String(error)}`);
-            }
-          }
-          return row;
-        }),
-      );
+        }
+        return row;
+      });
     },
 
     async get(id) {
@@ -591,12 +571,7 @@ export function createMeetingRegistry(deps: MeetingRegistryDeps): MeetingRegistr
       const loadPromise = withMeetingLock(id, async () => {
         const row = await deps.store.get(id);
         if (row === undefined) return undefined;
-        try {
-          return await fenced(row.workspaceId, () => loadUnlocked(id));
-        } catch (error) {
-          if (error instanceof WorkspaceFencedError) return undefined;
-          throw error;
-        }
+        return loadUnlocked(id);
       });
       loading.set(id, loadPromise);
       try {
@@ -687,40 +662,38 @@ export function createMeetingRegistry(deps: MeetingRegistryDeps): MeetingRegistr
       return withMeetingLock(id, async () => {
         const existing = await deps.store.get(id);
         if (existing === undefined) return undefined;
-        return fenced(existing.workspaceId, async () => {
-          const instance = loaded.get(id);
-          // A loaded room that has begun starting or running is open now, whatever the row's schedule
-          // says; changing its plan would unload the very room people are in.
-          if (instance !== undefined && instance.session.phase() !== 'lobby') {
-            throw new MeetingOpenError();
+        const instance = loaded.get(id);
+        // A loaded room that has begun starting or running is open now, whatever the row's schedule
+        // says; changing its plan would unload the very room people are in.
+        if (instance !== undefined && instance.session.phase() !== 'lobby') {
+          throw new MeetingOpenError();
+        }
+        if (existing.status !== 'scheduled') throw new MeetingOpenError();
+        const row = await update(id, patch, { onlyIfScheduled: true });
+        if (row === undefined) {
+          const current = await deps.store.get(id);
+          if (current === undefined) return undefined;
+          throw new MeetingOpenError();
+        }
+        // A lobby may already be loaded (someone opened the link early). Rebase its saved draft and
+        // agenda onto the edited row, then drop it, so the next opening validates against the new
+        // plan instead of a stale snapshot that still names the old topics or pace.
+        if (instance !== undefined) {
+          instance.rebaseScheduledPlan?.(row);
+          await unloadLocked(id);
+        }
+        // Only a change people see on the event (its title, time or agenda) bumps SEQUENCE; changing
+        // the nudge pace is not a calendar change.
+        const eventChanged =
+          patch.title !== undefined || patch.agenda !== undefined || patch.scheduledFor !== undefined;
+        if (eventChanged && deps.calendarEvents !== undefined) {
+          try {
+            await deps.calendarEvents.syncMeeting(row, { bumpSequence: true });
+          } catch (error) {
+            log(`kaki meetings: updating the calendar event of ${id} failed: ${String(error)}`);
           }
-          if (meetingStatusNow(existing, now()) !== 'scheduled') throw new MeetingOpenError();
-          const row = await update(id, patch, { onlyIfScheduled: true });
-          if (row === undefined) {
-            const current = await deps.store.get(id);
-            if (current === undefined) return undefined;
-            throw new MeetingOpenError();
-          }
-          // A lobby may already be loaded (someone opened the link early). Rebase its saved draft and
-          // agenda onto the edited row, then drop it, so the next opening validates against the new
-          // plan instead of a stale snapshot that still names the old topics or pace.
-          if (instance !== undefined) {
-            instance.rebaseScheduledPlan?.(row);
-            await unloadLocked(id);
-          }
-          // Only a change people see on the event (its title, time or agenda) bumps SEQUENCE; changing
-          // the nudge pace is not a calendar change.
-          const eventChanged =
-            patch.title !== undefined || patch.agenda !== undefined || patch.scheduledFor !== undefined;
-          if (eventChanged && deps.calendarEvents !== undefined) {
-            try {
-              await deps.calendarEvents.syncMeeting(row, { bumpSequence: true });
-            } catch (error) {
-              log(`kaki meetings: updating the calendar event of ${id} failed: ${String(error)}`);
-            }
-          }
-          return row;
-        });
+        }
+        return row;
       });
     },
 
@@ -732,12 +705,10 @@ export function createMeetingRegistry(deps: MeetingRegistryDeps): MeetingRegistr
       return withMeetingLock(id, async () => {
         const row = await deps.store.get(id);
         if (row === undefined || row.status === 'ended') return false;
-        return fenced(row.workspaceId, async () => {
-          const current = await deps.store.get(id);
-          if (current === undefined || current.status === 'ended') return false;
-          await markOpen(id);
-          return true;
-        });
+        const current = await deps.store.get(id);
+        if (current === undefined || current.status === 'ended') return false;
+        await markOpen(id);
+        return true;
       });
     },
 
@@ -745,42 +716,32 @@ export function createMeetingRegistry(deps: MeetingRegistryDeps): MeetingRegistr
       return withMeetingLock(id, task);
     },
 
-    async cancel(id, options = {}) {
+    async cancel(id) {
       const remove = deps.store.delete;
       if (remove === undefined) {
         throw new Error('the meetings store cannot delete a meeting');
       }
       return withMeetingLock(id, async () => {
         const row = await deps.store.get(id);
-        if (row === undefined) return { calendarWarning: null };
-        return fenced(row.workspaceId, async () => {
-          const current = await deps.store.get(id);
-          if (current === undefined) return { calendarWarning: null };
-          const instance = loaded.get(id);
-          if (instance !== undefined && instance.session.phase() !== 'lobby') {
-            throw new MeetingOpenError('This meeting is open now. End it instead of cancelling it.');
-          }
-          if (meetingStatusNow(current, now()) !== 'scheduled') {
-            throw new MeetingOpenError('This meeting is open now. End it instead of cancelling it.');
-          }
-          if (instance !== undefined) await unloadLocked(id);
-          // The calendar event is cancelled first; a calendar that cannot be reached never stops the
-          // meeting itself from being deleted, and its warning travels back to the person.
-          let calendarWarning: string | null = null;
-          try {
-            const outcome = await removeCalendarEventForCancelledMeeting(current, deps.calendarEvents, options);
-            calendarWarning = outcome.warning;
-          } catch (error) {
-            calendarWarning = `The calendar event could not be cancelled: ${String(error)}`;
-            log(`kaki meetings: cancelling the calendar event of ${id} failed: ${String(error)}`);
-          }
-          await deps.releaseMeeting?.(id);
-          const deleted = await remove(id, { onlyIfScheduled: true });
-          if (!deleted && (await deps.store.get(id)) !== undefined) {
-            throw new MeetingOpenError('This meeting is open now. End it instead of cancelling it.');
-          }
-          return { calendarWarning };
-        });
+        if (row === undefined) return;
+        const current = await deps.store.get(id);
+        if (current === undefined) return;
+        const instance = loaded.get(id);
+        if (instance !== undefined && instance.session.phase() !== 'lobby') {
+          throw new MeetingOpenError('This meeting is open now. End it instead of cancelling it.');
+        }
+        if (current.status !== 'scheduled') {
+          throw new MeetingOpenError('This meeting is open now. End it instead of cancelling it.');
+        }
+        // The calendar event goes first. A calendar that cannot be reached refuses the cancellation,
+        // so the meeting and its event stay together and the person can try again.
+        await removeCalendarEventForCancelledMeeting(current, deps.calendarEvents);
+        if (instance !== undefined) await unloadLocked(id);
+        await deps.releaseMeeting?.(id);
+        const deleted = await remove(id, { onlyIfScheduled: true });
+        if (!deleted && (await deps.store.get(id)) !== undefined) {
+          throw new MeetingOpenError('This meeting is open now. End it instead of cancelling it.');
+        }
       });
     },
 
@@ -789,19 +750,17 @@ export function createMeetingRegistry(deps: MeetingRegistryDeps): MeetingRegistr
       return withMeetingLock(id, async () => {
         const row = await deps.store.get(id);
         if (row === undefined) return undefined;
-        return fenced(row.workspaceId, async () => {
-          // Reload inside the lock: a reschedule or cancel may have finished while this request
-          // waited, and the retry must see the current title, time and SEQUENCE.
-          const current = await deps.store.get(id);
-          if (
-            current === undefined ||
-            current.scheduledFor === null ||
-            meetingStatusNow(current, now()) !== 'scheduled'
-          ) {
-            return undefined;
-          }
-          return deps.calendarEvents!.syncMeeting(current);
-        });
+        // Reload inside the lock: a reschedule or cancel may have finished while this request
+        // waited, and the retry must see the current title, time and SEQUENCE.
+        const current = await deps.store.get(id);
+        if (
+          current === undefined ||
+          current.scheduledFor === null ||
+          current.status !== 'scheduled'
+        ) {
+          return undefined;
+        }
+        return deps.calendarEvents!.syncMeeting(current);
       });
     },
 
@@ -809,44 +768,42 @@ export function createMeetingRegistry(deps: MeetingRegistryDeps): MeetingRegistr
       return withMeetingLock(id, async () => {
         const row = await deps.store.get(id);
         if (row === undefined) return 'not-found';
-        return fenced(row.workspaceId, async () => {
-          const currentRow = await deps.store.get(id);
-          if (currentRow === undefined) return 'not-found';
-          let instance = loaded.get(id);
-          // No instance here, but a saved session may still be running (for example after a restart).
-          // Restore it and end it through the normal lifecycle, so its minutes are finalized exactly
-          // as a room end would, rather than merely marking the row ended.
-          if (instance === undefined && currentRow.status !== 'ended') {
-            instance = await loadUnlocked(id, { skipQuota: true });
-          }
-          if (instance === undefined) {
-            const endedAt = new Date(now()).toISOString();
-            await deps.store.markEnded?.(id, endedAt);
-            owners.delete(id);
-            return 'ended';
-          }
-          const phase = instance.session.phase();
-          if (phase === 'starting') return 'starting';
-          if (phase === 'running' && !instance.session.abandoned()) {
-            if (instance.hub.handleServerCommand === undefined) {
-              throw new Error('this meeting cannot be ended from the list');
-            }
-            // The shared screen is the host's channel; ending this way writes the minutes like any end.
-            await instance.hub.handleServerCommand({ type: 'END_MEETING' }, { kind: 'screen' });
-            // Keep the ended snapshot, then let the minutes the end scheduled finish writing.
-            await instance.persistence?.flush();
-          } else if (phase !== 'ended') {
-            // A lobby that never started has no clock or minutes, so tearing the room down is its end.
-            await unloadLocked(id);
-          }
+        const currentRow = await deps.store.get(id);
+        if (currentRow === undefined) return 'not-found';
+        let instance = loaded.get(id);
+        // No instance here, but a saved session may still be running (for example after a restart).
+        // Restore it and end it through the normal lifecycle, so its minutes are finalized exactly
+        // as a room end would, rather than merely marking the row ended.
+        if (instance === undefined && currentRow.status !== 'ended') {
+          instance = await loadUnlocked(id, { skipQuota: true });
+        }
+        if (instance === undefined) {
           const endedAt = new Date(now()).toISOString();
-          const current = await deps.store.get(id);
-          if (current !== undefined && current.status !== 'ended') {
-            await deps.store.markEnded?.(id, endedAt);
-          }
+          await deps.store.markEnded?.(id, endedAt);
           owners.delete(id);
           return 'ended';
-        });
+        }
+        const phase = instance.session.phase();
+        if (phase === 'starting') return 'starting';
+        if (phase === 'running' && !instance.session.abandoned()) {
+          if (instance.hub.handleServerCommand === undefined) {
+            throw new Error('this meeting cannot be ended from the list');
+          }
+          // The shared screen is the host's channel; ending this way writes the minutes like any end.
+          await instance.hub.handleServerCommand({ type: 'END_MEETING' }, { kind: 'screen' });
+          // Keep the ended snapshot, then let the minutes the end scheduled finish writing.
+          await instance.persistence?.flush();
+        } else if (phase !== 'ended') {
+          // A lobby that never started has no clock or minutes, so tearing the room down is its end.
+          await unloadLocked(id);
+        }
+        const endedAt = new Date(now()).toISOString();
+        const current = await deps.store.get(id);
+        if (current !== undefined && current.status !== 'ended') {
+          await deps.store.markEnded?.(id, endedAt);
+        }
+        owners.delete(id);
+        return 'ended';
       });
     },
 
@@ -1080,14 +1037,6 @@ export function createPostgresMeetingStore(pool: Pool): MeetingStore {
     state: string;
     error: string | null;
     synced_at: Date | string | null;
-  }
-
-  interface CalendarBindingRow {
-    calendar: StoredCalendarBinding['binding'];
-    secret: Buffer | null;
-    iv: Buffer | null;
-    tag: Buffer | null;
-    key_id: string | null;
   }
 
   const calendarEventFrom = (record: CalendarEventRow): MeetingCalendarEventState => ({
@@ -1367,44 +1316,6 @@ export function createPostgresMeetingStore(pool: Pool): MeetingStore {
         ],
       );
     },
-    async calendarBindingFor(meetingId) {
-      await ensureMeetingsSchema(pool);
-      const result = await pool.query<CalendarBindingRow>(
-        'select calendar, secret, iv, tag, key_id from meeting_calendar_bindings where meeting_id = $1',
-        [meetingId],
-      );
-      const row = result.rows[0];
-      if (row === undefined) return undefined;
-      return {
-        binding: row.calendar,
-        secret:
-          row.secret === null || row.iv === null || row.tag === null || row.key_id === null
-            ? null
-            : { secret: row.secret, iv: row.iv, tag: row.tag, keyId: row.key_id },
-      };
-    },
-    async saveCalendarBinding(meetingId, stored) {
-      await ensureMeetingsSchema(pool);
-      await pool.query(
-        `insert into meeting_calendar_bindings (meeting_id, calendar, secret, iv, tag, key_id)
-         values ($1, $2::jsonb, $3, $4, $5, $6)
-         on conflict (meeting_id) do update set
-           calendar = excluded.calendar,
-           secret = excluded.secret,
-           iv = excluded.iv,
-           tag = excluded.tag,
-           key_id = excluded.key_id,
-           updated_at = now()`,
-        [
-          meetingId,
-          JSON.stringify(stored.binding),
-          stored.secret?.secret ?? null,
-          stored.secret?.iv ?? null,
-          stored.secret?.tag ?? null,
-          stored.secret?.keyId ?? null,
-        ],
-      );
-    },
     async deleteWorkspace(workspaceId, transaction) {
       const run = async (db: Pool | PoolClient): Promise<void> => {
         const deleted = await db.query<{ id: string }>(
@@ -1499,7 +1410,6 @@ export function createPostgresMeetingStore(pool: Pool): MeetingStore {
 export function createMemoryMeetingStore(): MeetingStore & { rows: Map<string, MeetingRow> } {
   const rows = new Map<string, MeetingRow>();
   const calendarEvents = new Map<string, MeetingCalendarEventState>();
-  const calendarBindings = new Map<string, StoredCalendarBinding>();
   return {
     rows,
     async create({ id, workspaceId, ownerUserId, title, kind = 'real', status = 'open', scheduledFor, agenda = [], pace }) {
@@ -1541,7 +1451,6 @@ export function createMemoryMeetingStore(): MeetingStore & { rows: Map<string, M
       if (meeting === undefined) return false;
       if (options.onlyIfScheduled === true && meeting.status !== 'scheduled') return false;
       calendarEvents.delete(id);
-      calendarBindings.delete(id);
       return rows.delete(id);
     },
     async markEnded(id, endedAt) {
@@ -1590,18 +1499,10 @@ export function createMemoryMeetingStore(): MeetingStore & { rows: Map<string, M
     async saveCalendarEvent(meetingId, event) {
       calendarEvents.set(meetingId, { ...event });
     },
-    async calendarBindingFor(meetingId) {
-      const binding = calendarBindings.get(meetingId);
-      return binding === undefined ? undefined : { ...binding };
-    },
-    async saveCalendarBinding(meetingId, binding) {
-      calendarBindings.set(meetingId, { ...binding });
-    },
     async deleteWorkspace(workspaceId) {
       for (const [id, meeting] of rows) {
         if (meeting.workspaceId !== workspaceId) continue;
         calendarEvents.delete(id);
-        calendarBindings.delete(id);
         rows.delete(id);
       }
     },
@@ -1629,7 +1530,6 @@ export function createMemoryMeetingStore(): MeetingStore & { rows: Map<string, M
           (meeting.ownerUserId === ownerUserId && meeting.kind === 'practice')
         ) {
           calendarEvents.delete(id);
-          calendarBindings.delete(id);
           rows.delete(id);
         } else if (meeting.ownerUserId === ownerUserId) {
           // The workspace stays, so the real meeting and its minutes stay with it.

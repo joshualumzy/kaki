@@ -146,13 +146,9 @@ export async function ensureAuthSchema(pool: Pool): Promise<void> {
     end $$;
   `);
 
-  // A deletion leaves a durable marker, so a writer that wakes up after it cannot recreate rows.
-  await pool.query(`
-    create table if not exists workspace_deletions (
-      workspace_id text primary key,
-      deleted_at timestamptz not null default now()
-    )
-  `);
+  // A deletion no longer leaves a marker; existing data is removed and foreign keys refuse later
+  // writes for a workspace whose row is gone.
+  await pool.query('drop table if exists workspace_deletions');
 
   await ensureWorkspaceToolsSchema(pool);
 
@@ -266,47 +262,9 @@ async function migrateMeetingsSchema(pool: Pool): Promise<void> {
       )
     `);
     await client.query('alter table meeting_calendar_events add column if not exists file_id text');
-    // The calendar destination itself, with its password encrypted, so a cancellation has a
-    // durable place to retry even when the workspace connection is gone.
-    await client.query(`
-      create table if not exists meeting_calendar_bindings (
-        meeting_id text primary key references meetings(id) on delete cascade,
-        calendar jsonb not null,
-        secret bytea,
-        iv bytea,
-        tag bytea,
-        key_id text,
-        updated_at timestamptz not null default now()
-      )
-    `);
-    // A cancellation that failed keeps everything a retry needs, even after its meeting or
-    // workspace row is gone. The password is held encrypted, never in the JSON binding.
-    await client.query(`
-      create table if not exists calendar_cancellations (
-        id text primary key,
-        workspace_id text not null,
-        workspace_name text,
-        meeting_id text,
-        source text not null check (source in ('meeting', 'followup')),
-        uid text not null,
-        sequence integer not null,
-        file_id text not null,
-        title text not null,
-        description text not null default '',
-        start_text text not null,
-        duration_minutes integer not null,
-        calendar jsonb not null,
-        secret bytea,
-        iv bytea,
-        tag bytea,
-        key_id text,
-        error text not null,
-        attempts integer not null default 0,
-        requested_by text,
-        created_at timestamptz not null default now(),
-        last_attempt_at timestamptz
-      )
-    `);
+    // The durable retry records are gone: a failed cancellation is now refused, not queued.
+    await client.query('drop table if exists calendar_cancellations');
+    await client.query('drop table if exists meeting_calendar_bindings');
     // Follow-up events approved from a meeting's action cards live in the same durable lifecycle:
     // a stable UID, a stored SEQUENCE and the workspace that must cancel them when it is deleted.
     await client.query(`

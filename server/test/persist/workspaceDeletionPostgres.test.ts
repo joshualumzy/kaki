@@ -5,8 +5,6 @@ import { createPostgresAuthStore } from '../../src/auth/postgres';
 import { createPostgresMeetingStore } from '../../src/meeting/registry';
 import { createPostgresWorkspaceToolStore } from '../../src/workspace/tools';
 import { createPostgresWorkspaceDataDeletion } from '../../src/workspace/deleteWorkspaceData';
-import { assertWorkspaceWritable, workspaceIsDeleted } from '../../src/workspace/gate';
-import { SAMPLE_WORKSPACE_ID } from '../../src/workspace/constants';
 import { createPostgresTestSchema, type PostgresTestSchema } from '../postgresTestSchema';
 
 const connectionString = process.env.POSTGRES_URL;
@@ -125,10 +123,6 @@ describe.skipIf(connectionString === undefined)('postgres workspace deletion', (
     expect(chunks.rows[0]?.count).toBe('0');
 
     // A writer that wakes up after the commit cannot recreate the deleted workspace's data.
-    expect(await workspaceIsDeleted(postgres.pool, team.workspace.id)).toBe(true);
-    await expect(
-      assertWorkspaceWritable(postgres.pool, team.workspace.id, SAMPLE_WORKSPACE_ID),
-    ).rejects.toThrow(/deleted/);
     await expect(
       tools.save({
         workspaceId: team.workspace.id,

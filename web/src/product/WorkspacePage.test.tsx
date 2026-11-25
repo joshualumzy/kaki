@@ -257,6 +257,50 @@ describe('WorkspacePage', () => {
     expect(await screen.findByText('sign in')).toBeTruthy();
   });
 
+  it('shows an overdue meeting that never started as Didn\'t start, still editable and cancellable', async () => {
+    installFetch({
+      'GET /api/workspaces': () => reply(workspaces),
+      'GET /api/workspaces/ws-1': () =>
+        reply({
+          id: 'ws-1',
+          name: 'Team workspace',
+          kind: 'team',
+          readOnly: false,
+          people: [{ id: 'user-1', name: 'Ada Lovelace', role: 'admin' }],
+          tools: [],
+          meetings: [
+            {
+              id: 'mtg-overdue',
+              title: 'Yesterday planning',
+              status: 'scheduled',
+              scheduledFor: '2020-01-01T02:00:00.000Z',
+              createdAt: '2019-12-01T02:00:00.000Z',
+              endedAt: null,
+              agenda: [],
+              pace: null,
+              todoCount: 0,
+              ownerUserId: 'user-1',
+              ownerName: 'Ada Lovelace',
+            },
+          ],
+          counts: { meetings: 1, todos: 0, records: 0 },
+        }),
+      'GET /api/workspaces/ws-1/invite': () =>
+        reply({
+          token: 'invite-token',
+          path: '/join-workspace/invite-token',
+          workspace: { id: 'ws-1', name: 'Team workspace' },
+        }),
+    });
+    renderPage('ws-1');
+
+    expect(await screen.findByText("Didn't start")).toBeTruthy();
+    expect(screen.getByText(/^Didn't start · was scheduled for /)).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Edit' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Reschedule' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeTruthy();
+  });
+
   it('edits a scheduled meeting with member owners and pace', async () => {
     const fetchMock = installFetch({
       'GET /api/workspaces': () => reply(workspaces),
@@ -594,6 +638,73 @@ describe('WorkspacePage', () => {
       ),
     ).toBe(true);
     expect(alert).not.toHaveBeenCalled();
+    alert.mockRestore();
+  });
+
+  it('offers Delete anyway when the calendar cannot be reached', async () => {
+    const alert = vi.spyOn(window, 'alert').mockImplementation(() => undefined);
+    let deletes = 0;
+    const fetchMock = installFetch({
+      'GET /api/workspaces': () => reply(workspaces),
+      'GET /api/workspaces/ws-1': () =>
+        reply({
+          id: 'ws-1',
+          name: 'Team workspace',
+          kind: 'team',
+          readOnly: false,
+          people: [{ id: 'user-1', name: 'Ada Lovelace', role: 'admin' }],
+          tools: [],
+          meetings: [],
+          counts: { meetings: 0, todos: 0, records: 0 },
+        }),
+      'GET /api/workspaces/ws-1/invite': () =>
+        reply({
+          token: 'invite-token',
+          path: '/join-workspace/invite-token',
+          workspace: { id: 'ws-1', name: 'Team workspace' },
+        }),
+      'DELETE /api/workspaces/ws-1': () => {
+        deletes += 1;
+        return deletes === 1
+          ? reply(
+              {
+                error:
+                  "The team calendar can't be reached, so the workspace wasn't deleted. Try again.",
+                canDeleteAnyway: true,
+              },
+              502,
+            )
+          : reply({ ok: true, calendarEventsMayRemain: true });
+      },
+    });
+    renderPage('ws-1');
+
+    expect(await screen.findByText('Get this workspace started')).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('Type the workspace name to confirm'), {
+      target: { value: 'Team workspace' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Delete workspace' }));
+
+    expect(
+      await screen.findByText(
+        "The team calendar can't be reached, so the workspace wasn't deleted. Try again.",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.getByText('Delete anyway? The calendar events for upcoming meetings may remain.'),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Delete anyway' }));
+
+    expect(await screen.findByText('new meeting')).toBeTruthy();
+    const deleteCall = fetchMock.mock.calls
+      .filter(
+        ([url, init]) => String(url) === '/api/workspaces/ws-1' && init?.method === 'DELETE',
+      )
+      .at(-1);
+    expect(JSON.parse(String(deleteCall?.[1]?.body))).toMatchObject({ deleteAnyway: true });
+    expect(alert).toHaveBeenCalledWith(
+      'The workspace was deleted. The calendar events for upcoming meetings may remain.',
+    );
     alert.mockRestore();
   });
 });

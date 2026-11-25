@@ -136,8 +136,7 @@ describe('meeting calendar events', () => {
       fetchImpl,
     });
     await calendar.syncMeeting(meeting);
-    const outcome = await calendar.cancelMeeting(meeting);
-    expect(outcome.warning).toBeNull();
+    await calendar.cancelMeeting(meeting);
     const lastPut = fetchImpl.mock.calls
       .filter(([, init]) => init?.method === 'PUT')
       .at(-1);
@@ -158,7 +157,7 @@ describe('meeting calendar events', () => {
     const outcome = await calendar.syncMeeting(meeting);
     expect(outcome.state.state).toBe('not_connected');
     expect(fetchImpl.mock.calls).toHaveLength(0);
-    expect(await calendar.cancelMeeting(meeting)).toEqual({ warning: null });
+    expect(await calendar.cancelMeeting(meeting)).toBeUndefined();
   });
 
   it('escapes text and folds long lines at 75 octets', () => {

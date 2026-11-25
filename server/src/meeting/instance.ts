@@ -499,8 +499,6 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
    * socket. A seat's own ask always arrives over such a socket, so the map is current when read.
    */
   const seatGuests = new Map<string, boolean>();
-  /** Whether a tool action from this seat must be refused: a host is never a guest for its own meeting. */
-  const seatToolGuests = new Map<string, boolean>();
   const runnerMayUseAudience = (audience: ClientAudience): boolean => {
     const role = audienceRole(audience);
     return role !== undefined && aiVoiceRoles().has(role) && !isHumanSeat(role);
@@ -588,10 +586,9 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
           // someone whose membership is not proven.
           const userId = principal.userId;
           let guest = true;
-          let workspaceMissing = false;
           if (userId !== undefined && auth !== undefined) {
             try {
-              workspaceMissing = (await auth.store.getWorkspace(workspaceId)) === undefined;
+              const workspaceMissing = (await auth.store.getWorkspace(workspaceId)) === undefined;
               if (!workspaceMissing) {
                 guest =
                   (await auth.store.getMembership({ workspaceId, userId })) ===
@@ -599,28 +596,18 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
               }
             } catch (error) {
               console.warn(`kaki meetings: could not read a seat holder's workspace membership`, error);
-              // A lookup that fails is not a missing workspace: keep the host failed closed.
+              // A lookup that fails is not a missing workspace: keep the seat failed closed.
               guest = true;
-              workspaceMissing = false;
             }
           }
           seatGuests.set(seat, guest);
-          // Tool authority follows current workspace membership. A real workspace may only act when
-          // its host or seat is still a member; the sample workspace and a databaseless fixture have
-          // no membership records, so their host keeps the built-in tools it was given.
-          seatToolGuests.set(
-            seat,
-            principal?.kind === 'host' && workspaceMissing ? false : guest,
-          );
         } else if (decision.runner === true || principal?.kind === 'practice') {
           // The AI runner and a practice visitor are not workspace guests: the runner acts for an
           // AI colleague inside the pack, and a practice visitor never reaches real workspace data.
           seatGuests.set(seat, false);
-          seatToolGuests.set(seat, false);
         } else {
           // An unidentified principal fails closed as a guest.
           seatGuests.set(seat, true);
-          seatToolGuests.set(seat, true);
         }
       }
     }
@@ -661,7 +648,8 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
   const tasks = createTaskStore({
     hub,
     scenario: () => session.active(),
-    seatIsGuest: (role) => seatToolGuests.get(role),
+    seatIsGuest: (role) => seatGuests.get(role),
+    isHostSeat: (role) => hostIdentityOf(session.active()).seat === role,
   });
   hub.onCommand(tasks.handleCommand);
   // The ended team meeting is the owner's until the minutes are published or dismissed. Any other

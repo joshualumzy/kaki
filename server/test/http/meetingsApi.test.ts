@@ -163,7 +163,7 @@ describe('meetings API', () => {
     expect(stranger.historyWorkspaceId).toBeNull();
   });
 
-  it('marks a future meeting as scheduled and a past one as open', async () => {
+  it('marks a future meeting as scheduled and leaves a past one not started', async () => {
     const { base, store } = await buildApp();
     const ada = await signIn(store, 'Ada');
     const team = await store.createWorkspace({ name: 'Team', createdBy: ada.user.id });
@@ -190,7 +190,8 @@ describe('meetings API', () => {
     const pastInfo = (await (
       await request(base, `/api/meetings/${past.id}/info`)
     ).json()) as { status: string };
-    expect(pastInfo.status).toBe('open');
+    // The clock never opens a meeting: only Start does, so an overdue one stays not started.
+    expect(pastInfo.status).toBe('scheduled');
   });
 
   it('allows the sample workspace but refuses non-members, bad titles and bad dates', async () => {

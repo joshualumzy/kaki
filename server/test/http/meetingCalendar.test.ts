@@ -113,16 +113,26 @@ interface FakeCalendar {
   putStarted?: Deferred;
 }
 
+function utcStamp(date: Date): string {
+  return `${date.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z')}`;
+}
+
 async function calendarServer(): Promise<FakeCalendar> {
   const fake: FakeCalendar = { url: '', puts: [], failWrites: false };
   const server = createServer((req, res) => {
     void (async () => {
     if (req.method === 'GET') {
+      const earlier = utcStamp(new Date(Date.now() - 60_000));
       res.setHeader('content-type', 'text/calendar; charset=utf-8');
       res.end(
         [
           'BEGIN:VCALENDAR',
           'VERSION:2.0',
+          'BEGIN:VEVENT',
+          'UID:earlier@example.test',
+          `DTSTART:${earlier}`,
+          'SUMMARY:Earlier today',
+          'END:VEVENT',
           'BEGIN:VEVENT',
           'UID:planning@example.test',
           'DTSTART:29991113T100000Z',
@@ -148,6 +158,18 @@ async function calendarServer(): Promise<FakeCalendar> {
       return;
     }
     if (req.method === 'REPORT') {
+      const earlierStart = utcStamp(new Date(Date.now() - 60_000));
+      const earlier = [
+        'BEGIN:VCALENDAR',
+        'VERSION:2.0',
+        'BEGIN:VEVENT',
+        'UID:earlier@example.test',
+        `DTSTART:${earlierStart}`,
+        'SUMMARY:Earlier today',
+        'END:VEVENT',
+        'END:VCALENDAR',
+        '',
+      ].join('\r\n');
       const planning = [
         'BEGIN:VCALENDAR',
         'VERSION:2.0',
@@ -177,6 +199,9 @@ async function calendarServer(): Promise<FakeCalendar> {
         [
           '<?xml version="1.0" encoding="utf-8"?>',
           '<d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">',
+          '<d:response><d:href>/user/calendar/earlier.ics</d:href><d:propstat><d:prop><c:calendar-data>',
+          earlier,
+          '</c:calendar-data></d:prop></d:propstat></d:response>',
           '<d:response><d:href>/user/calendar/planning.ics</d:href><d:propstat><d:prop><c:calendar-data>',
           planning,
           '</c:calendar-data></d:prop></d:propstat></d:response>',
@@ -285,6 +310,7 @@ describe('workspace calendar and meeting events', () => {
       events: Array<{ uid: string; title: string; date: string; time: string; description: string }>;
     };
     expect(listing.connected).toBe(true);
+    // An event that started earlier today is not upcoming; only the future one is listed.
     expect(listing.events.map((event) => event.title)).toEqual(['Quarterly planning']);
     expect(listing.events[0]).toMatchObject({
       uid: 'planning@example.test',
@@ -331,9 +357,7 @@ describe('workspace calendar and meeting events', () => {
       cookie: ada.cookie,
     });
     expect(cancelled.status).toBe(200);
-    expect((await cancelled.json()) as { calendarWarning: null }).toMatchObject({
-      calendarWarning: null,
-    });
+    expect(await cancelled.json()).toEqual({ ok: true });
     expect(calendar.puts.at(-1)?.body).toContain('STATUS:CANCELLED');
     expect(calendar.puts.at(-1)?.body).toContain('SEQUENCE:2');
   });
@@ -375,7 +399,7 @@ describe('workspace calendar and meeting events', () => {
     expect(calendar.puts.at(-1)?.body).toContain('SEQUENCE:0');
   });
 
-  it('deletes a team workspace with everything it holds, warning when calendar cancellation fails', async () => {
+  it('refuses to delete a workspace when the calendar is unreachable, then deletes anyway on request', async () => {
     process.env.KAKI_SECRET_KEY = newKey();
     const store = createMemoryAuthStore();
     const { base, meetings, workspaceTools } = await buildApp(store);
@@ -402,42 +426,36 @@ describe('workspace calendar and meeting events', () => {
     expect(asMember.status).toBe(403);
 
     calendar.failWrites = true;
-    const deleted = await request(base, `/api/workspaces/${workspaceId}`, {
+    const refused = await request(base, `/api/workspaces/${workspaceId}`, {
       method: 'DELETE',
       cookie: ada.cookie,
       body: { confirm: 'Kitchen' },
     });
+    expect(refused.status).toBe(502);
+    expect(await refused.json()).toMatchObject({
+      error: "The team calendar can't be reached, so the workspace wasn't deleted. Try again.",
+      canDeleteAnyway: true,
+    });
+    // Nothing was deleted and no calendar event was marked cancelled.
+    expect(await store.getWorkspace(workspaceId)).toBeDefined();
+    expect(await meetings.list(workspaceId)).toHaveLength(1);
+    expect(calendar.puts.filter((put) => put.body.includes('STATUS:CANCELLED'))).toHaveLength(0);
+
+    const deleted = await request(base, `/api/workspaces/${workspaceId}`, {
+      method: 'DELETE',
+      cookie: ada.cookie,
+      body: { confirm: 'Kitchen', deleteAnyway: true },
+    });
     expect(deleted.status).toBe(200);
-    const body = (await deleted.json()) as { ok: boolean; calendarWarnings: string[] };
-    expect(body.ok).toBe(true);
-    expect(body.calendarWarnings).toHaveLength(1);
-    expect(body.calendarWarnings[0]).toContain('Doomed meeting');
+    expect(await deleted.json()).toMatchObject({
+      ok: true,
+      calendarEventsMayRemain: true,
+    });
 
     expect(await store.getWorkspace(workspaceId)).toBeUndefined();
     expect(await store.getMembership({ workspaceId, userId: ada.user.id })).toBeUndefined();
     expect(await meetings.list(workspaceId)).toEqual([]);
     expect(await workspaceTools.list(workspaceId)).toEqual([]);
-
-    // The workspace is gone, but the event is not: the admin who deleted it can still retry.
-    const pending = (await (
-      await request(base, '/api/calendar-cancellations', { cookie: ada.cookie })
-    ).json()) as Array<{ id: string; title: string; error: string }>;
-    expect(pending).toHaveLength(1);
-    expect(pending[0]).toMatchObject({ title: 'Doomed meeting' });
-    expect(pending[0]?.error).toContain('HTTP 500');
-
-    calendar.failWrites = false;
-    const retried = await request(base, `/api/calendar-cancellations/${pending[0]!.id}/retry`, {
-      method: 'POST',
-      cookie: ada.cookie,
-    });
-    expect(retried.status).toBe(200);
-    expect(calendar.puts.at(-1)?.body).toContain('STATUS:CANCELLED');
-    expect(
-      (await (
-        await request(base, '/api/calendar-cancellations', { cookie: ada.cookie })
-      ).json()) as unknown[],
-    ).toEqual([]);
   });
 
   it('refuses the workspace calendar and .ics to a non-member', async () => {
@@ -483,6 +501,30 @@ describe('workspace calendar and meeting events', () => {
     const meeting = await scheduleMeeting(base, ada.cookie, workspaceId, 'No calendar');
     expect(meeting.calendar).toMatchObject({ state: 'not_connected', sequence: 0 });
   });
+  it('limits calendar picker reads to 60 a minute for the signed-in account', async () => {
+    process.env.KAKI_SECRET_KEY = newKey();
+    const store = createMemoryAuthStore();
+    const { base } = await buildApp(store);
+    const ada = await signIn(store, 'Ada');
+    const workspaceId = await createTeam(base, ada.cookie);
+    const calendar = await calendarServer();
+    await connectCalendar(base, ada.cookie, workspaceId, calendar.url);
+
+    for (let read = 0; read < 60; read += 1) {
+      const allowed = await request(base, `/api/workspaces/${workspaceId}/calendar/events`, {
+        cookie: ada.cookie,
+      });
+      expect(allowed.status).toBe(200);
+    }
+    const limited = await request(base, `/api/workspaces/${workspaceId}/calendar/events`, {
+      cookie: ada.cookie,
+    });
+    expect(limited.status).toBe(429);
+    expect(await limited.json()).toEqual({
+      error: 'Too many calendar reads. Wait a minute and try again.',
+    });
+  });
+
   it('binds a meeting to the picked event and updates that resource instead of adding a duplicate', async () => {
     process.env.KAKI_SECRET_KEY = newKey();
     const store = createMemoryAuthStore();
@@ -549,7 +591,7 @@ describe('workspace calendar and meeting events', () => {
     expect(calendar.puts).toHaveLength(0);
   });
 
-  it('keeps a failed cancellation and retries it after the meeting is gone', async () => {
+  it('refuses to cancel a meeting when the calendar is unreachable and keeps the meeting', async () => {
     process.env.KAKI_SECRET_KEY = newKey();
     const store = createMemoryAuthStore();
     const { base, meetings } = await buildApp(store);
@@ -564,32 +606,21 @@ describe('workspace calendar and meeting events', () => {
       method: 'DELETE',
       cookie: ada.cookie,
     });
-    expect(cancelled.status).toBe(200);
-    expect(((await cancelled.json()) as { calendarWarning: string }).calendarWarning).toContain(
-      'could not be cancelled',
-    );
-    expect(await meetings.list(workspaceId)).toEqual([]);
-
-    const pendingResponse = await request(base, '/api/workspaces/' + workspaceId + '/calendar-cancellations', {
-      cookie: ada.cookie,
+    expect(cancelled.status).toBe(502);
+    expect(await cancelled.json()).toEqual({
+      error: "The team calendar can't be reached, so the meeting wasn't cancelled. Try again.",
     });
-    expect(pendingResponse.status).toBe(200);
-    const pending = (await pendingResponse.json()) as Array<{ id: string; title: string; error: string }>;
-    expect(pending).toHaveLength(1);
-    expect(pending[0]).toMatchObject({ title: 'Late cancel' });
-    expect(pending[0]?.error).toContain('HTTP 500');
+    // The meeting and its row stay, so the person can try again.
+    expect(await meetings.list(workspaceId)).toHaveLength(1);
 
     calendar.failWrites = false;
-    const retried = await request(base, `/api/calendar-cancellations/${pending[0]!.id}/retry`, {
-      method: 'POST',
+    const retried = await request(base, `/api/meetings/${meeting.id}`, {
+      method: 'DELETE',
       cookie: ada.cookie,
     });
     expect(retried.status).toBe(200);
     expect(calendar.puts.at(-1)?.body).toContain('STATUS:CANCELLED');
-    const after = await request(base, '/api/workspaces/' + workspaceId + '/calendar-cancellations', {
-      cookie: ada.cookie,
-    });
-    expect(await after.json()).toEqual([]);
+    expect(await meetings.list(workspaceId)).toEqual([]);
   });
 
   it('serialises a delayed retry with an edit so it cannot roll back the title or SEQUENCE', async () => {

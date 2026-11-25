@@ -356,7 +356,7 @@ describe('meeting lifecycle API', () => {
     expect((await meetings.get(id))?.pace).toEqual(pace);
   });
 
-  it('shows a past scheduled meeting as open and counts each meeting’s to-dos', async () => {
+  it('shows a past scheduled meeting as not started and counts each meeting’s to-dos', async () => {
     const { base, store, meetings } = await buildApp();
     const owner = await signIn(store, 'Owner');
     const team = await store.createWorkspace({ name: 'Team', createdBy: owner.user.id });
@@ -391,8 +391,37 @@ describe('meeting lifecycle API', () => {
     };
     const overdueRow = body.meetings.find((meeting) => meeting.id === overdue.id);
     const endedRow = body.meetings.find((meeting) => meeting.id === ended.id);
-    expect(overdueRow?.status).toBe('open');
+    // Never started, so it stays scheduled (the UI shows "Didn't start"); the clock does not open it.
+    expect(overdueRow?.status).toBe('scheduled');
     expect(endedRow).toMatchObject({ status: 'ended', todoCount: 2 });
     expect(body.counts.todos).toBe(2);
+  });
+
+  it('keeps an overdue meeting that never started editable and cancellable', async () => {
+    const { base, store, meetings } = await buildApp();
+    const owner = await signIn(store, 'Owner');
+    const team = await store.createWorkspace({ name: 'Team', createdBy: owner.user.id });
+    const overdue = await meetings.create({
+      workspaceId: team.workspace.id,
+      ownerUserId: owner.user.id,
+      title: 'Never started',
+      status: 'scheduled',
+      scheduledFor: past(),
+    });
+
+    const edited = await request(base, `/api/meetings/${overdue.id}`, {
+      method: 'PATCH',
+      cookie: owner.cookie,
+      body: { title: 'Still editable' },
+    });
+    expect(edited.status).toBe(200);
+    expect((await meetings.get(overdue.id))?.title).toBe('Still editable');
+
+    const cancelled = await request(base, `/api/meetings/${overdue.id}`, {
+      method: 'DELETE',
+      cookie: owner.cookie,
+    });
+    expect(cancelled.status).toBe(200);
+    expect(await meetings.get(overdue.id)).toBeUndefined();
   });
 });

@@ -13,7 +13,6 @@ import { logMissingSecretKey } from './workspace/secrets';
 import { createPostgresWorkspaceToolStore, type WorkspaceToolStore } from './workspace/tools';
 import { createPostgresAccountDataDeletion } from './account/deleteAccountData';
 import { createPostgresWorkspaceDataDeletion } from './workspace/deleteWorkspaceData';
-import { createPostgresCalendarCancellationStore } from './meeting/calendarCancellations';
 import { createPostgresTaskCalendarEventStore } from './meeting/taskCalendarEvents';
 
 logMissingActionConfig();
@@ -33,7 +32,6 @@ let findSavedIdByCode: ((code: string) => Promise<string | undefined>) | undefin
 let persistenceFor: ((id: string) => Promise<MeetingPersistence | undefined>) | undefined;
 let meetingsPool: Pool | undefined;
 let workspaceTools: WorkspaceToolStore | undefined;
-let calendarCancellations: ReturnType<typeof createPostgresCalendarCancellationStore> | undefined;
 let taskCalendarEvents: ReturnType<typeof createPostgresTaskCalendarEventStore> | undefined;
 if (postgresUrl !== undefined && postgresUrl !== '') {
   meetingsPool = new Pool({ connectionString: postgresUrl });
@@ -41,7 +39,6 @@ if (postgresUrl !== undefined && postgresUrl !== '') {
   await ensureMeetingsSchema(meetingsPool);
   await ensureWorkspaceToolsSchema(meetingsPool);
   workspaceTools = createPostgresWorkspaceToolStore(meetingsPool);
-  calendarCancellations = createPostgresCalendarCancellationStore(meetingsPool);
   taskCalendarEvents = createPostgresTaskCalendarEventStore(meetingsPool);
   const store = createPostgresMeetingStore(meetingsPool);
   meetings = {
@@ -99,7 +96,6 @@ try {
     draftOnly: process.env.KAKI_DRAFT_ONLY === '1',
     ...(meetings === undefined ? {} : { meetings }),
     ...(workspaceTools === undefined ? {} : { workspaceTools }),
-    ...(calendarCancellations === undefined ? {} : { calendarCancellations }),
     ...(taskCalendarEvents === undefined ? {} : { taskCalendarEvents }),
     ...(accountDeletion === undefined ? {} : { accountDeletion }),
     ...(workspaceDeletion === undefined ? {} : { workspaceDeletion }),

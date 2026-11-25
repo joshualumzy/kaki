@@ -10,8 +10,7 @@ import {
   type WorkspaceRole,
 } from '../../auth/store';
 import { SAMPLE_WORKSPACE } from '../../workspace/sample';
-import { WorkspaceFencedError } from '../../workspace/fence';
-import { meetingStatusNow } from '../../meeting/types';
+import { CalendarUnreachableError } from '../../meeting/calendarEvent';
 import { SAMPLE_WORKSPACE_ID } from '../../workspace/constants';
 import { connectorFor, ConnectorError } from '../../workspace/connector';
 import { decryptSecret, parseSecretKey, SecretKeyError } from '../../workspace/secrets';
@@ -402,18 +401,8 @@ export async function handleWorkspaces(call: RouteCall): Promise<void> {
           }
           sendJson(response, 200, { role: updated });
         };
-        // A demotion and a deletion take turns: whichever enters first finishes, and the other
-        // rechecks the membership it can still see.
-        if (context.workspaceFence !== undefined) {
-          await context.workspaceFence.run(memberWorkspaceId, change);
-        } else {
-          await change();
-        }
+        await change();
       } catch (error) {
-        if (error instanceof WorkspaceFencedError) {
-          sendJson(response, 404, { error: 'Workspace not found' });
-          return;
-        }
         if (error instanceof WorkspaceMemberError && sendMemberRefusal(response, error, 'patch')) {
           return;
         }
@@ -724,17 +713,15 @@ export async function handleWorkspaces(call: RouteCall): Promise<void> {
           connectedAt: now,
           lastOkAt: now,
         });
-        // Index the new connection in the background; the saved answer never waits for embeddings,
-        // but the workspace gate stays held until it settles so a deletion drains it.
+        // Index the new connection in the background; the saved answer never waits for embeddings.
         try {
           const tools = await context.toolSource?.toolsFor(toolWorkspaceId);
           if (tools !== undefined && context.indexWorkspaceTool !== undefined) {
-            const index = () =>
-              context.indexWorkspaceTool!({ workspaceId: toolWorkspaceId, kind, tools });
-            const pending =
-              context.workspaceFence === undefined
-                ? index()
-                : context.workspaceFence.track(toolWorkspaceId, index);
+            const pending = context.indexWorkspaceTool({
+              workspaceId: toolWorkspaceId,
+              kind,
+              tools,
+            });
             void pending.catch((error: unknown) =>
               console.error(
                 `kaki indexer: indexing ${kind} for workspace ${toolWorkspaceId} after connect failed`,
@@ -756,36 +743,12 @@ export async function handleWorkspaces(call: RouteCall): Promise<void> {
           lastOkAt: now,
         });
       };
-      try {
-        if (context.workspaceFence === undefined) {
-          await commit();
-        } else {
-          await context.workspaceFence.run(toolWorkspaceId, commit);
-        }
-      } catch (error) {
-        if (error instanceof WorkspaceFencedError) {
-          sendJson(response, 404, { error: 'Workspace not found' });
-          return;
-        }
-        throw error;
-      }
+      await commit();
       return;
     }
 
     if (method === 'DELETE' && !isTest) {
-      try {
-        await (context.workspaceFence === undefined
-          ? toolStore.delete(toolWorkspaceId, kind)
-          : context.workspaceFence.run(toolWorkspaceId, () =>
-              toolStore.delete(toolWorkspaceId, kind),
-            ));
-      } catch (error) {
-        if (error instanceof WorkspaceFencedError) {
-          sendJson(response, 404, { error: 'Workspace not found' });
-          return;
-        }
-        throw error;
-      }
+      await toolStore.delete(toolWorkspaceId, kind);
       sendJson(response, 200, { ok: true });
       return;
     }
@@ -875,13 +838,7 @@ export async function handleWorkspaces(call: RouteCall): Promise<void> {
       sendJson(response, 500, { error: 'Workspace deletion is unavailable.' });
       return;
     }
-    const calendarWarnings: string[] = [];
-    // Block new meeting loads, creates, tool writes and indexing now. Work already inside the gate
-    // finishes first, so the snapshot below sees every calendar event and room it must handle.
-    const release =
-      context.workspaceFence === undefined
-        ? undefined
-        : await context.workspaceFence.beginDeletion(workspaceId);
+    const deleteAnyway = parsed.value.deleteAnyway === true;
     try {
       const deleted = await deletion(workspaceId, userId, async () => {
         // This runs after the workspace lock and the transactional admin recheck, so a demoted
@@ -889,33 +846,23 @@ export async function handleWorkspaces(call: RouteCall): Promise<void> {
         for (const row of (await context.meetings?.list(workspaceId)) ?? []) {
           if (row.status === 'ended') continue;
           try {
-            const outcome = await context.meetingCalendar?.cancelMeeting(row, {
-              workspaceName: workspace.name,
-              requestedBy: userId,
-            });
-            if (outcome?.warning !== null && outcome?.warning !== undefined) {
-              calendarWarnings.push(`${row.title}: ${outcome.warning}`);
-            }
+            await context.meetingCalendar?.cancelMeeting(row);
           } catch (error) {
-            calendarWarnings.push(
-              `${row.title}: the calendar event could not be cancelled: ${
-                error instanceof Error ? error.message : 'the calendar could not be reached'
-              }`,
+            if (!deleteAnyway) throw error;
+            // Delete anyway: this event may stay on the calendar.
+            console.warn(
+              `kaki workspaces: leaving the calendar event of ${row.id} behind while deleting ${workspaceId}`,
+              error,
             );
           }
         }
         try {
-          calendarWarnings.push(
-            ...((await context.taskCalendar?.cancelForWorkspace(workspaceId, {
-              workspaceName: workspace.name,
-              requestedBy: userId,
-            })) ?? []),
-          );
+          await context.taskCalendar?.cancelForWorkspace(workspaceId, { deleteAnyway });
         } catch (error) {
-          calendarWarnings.push(
-            `Approved follow-up events could not be cancelled: ${
-              error instanceof Error ? error.message : 'the calendar could not be reached'
-            }`,
+          if (!deleteAnyway) throw error;
+          console.warn(
+            `kaki workspaces: leaving approved follow-up events behind while deleting ${workspaceId}`,
+            error,
           );
         }
         try {
@@ -928,9 +875,22 @@ export async function handleWorkspaces(call: RouteCall): Promise<void> {
         sendJson(response, 404, { error: 'Workspace not found' });
         return;
       }
-      sendJson(response, 200, { ok: true, calendarWarnings });
-    } finally {
-      release?.();
+      sendJson(response, 200, {
+        ok: true,
+        ...(deleteAnyway ? { calendarEventsMayRemain: true } : {}),
+      });
+    } catch (error) {
+      if (error instanceof CalendarUnreachableError) {
+        console.warn(
+          `kaki workspaces: refusing to delete ${workspaceId} because the calendar could not be reached: ${error.detail}`,
+        );
+        sendJson(response, 502, {
+          error: "The team calendar can't be reached, so the workspace wasn't deleted. Try again.",
+          canDeleteAnyway: true,
+        });
+        return;
+      }
+      throw error;
     }
     return;
   }
@@ -983,7 +943,7 @@ export async function handleWorkspaces(call: RouteCall): Promise<void> {
     const meetings = rows.map((row) => ({
       id: row.id,
       title: row.title,
-      status: meetingStatusNow(row),
+      status: row.status,
       scheduledFor: row.scheduledFor,
       createdAt: row.createdAt,
       endedAt: row.endedAt,

@@ -12,6 +12,7 @@ import {
   getWorkspaceInvite,
   leaveWorkspace,
   listWorkspaces,
+  ProductApiError,
   removeWorkspaceMember,
   renameWorkspace,
   resetWorkspaceInvite,
@@ -46,12 +47,23 @@ function whenText(iso: string): string {
   return Number.isNaN(when.getTime()) ? iso : when.toLocaleString();
 }
 
+/** A scheduled meeting whose time has passed was never started: the clock never makes it open. */
+function hasNotStarted(meeting: MeetingSummary): boolean {
+  return (
+    meeting.status === 'scheduled' &&
+    meeting.scheduledFor !== null &&
+    Date.parse(meeting.scheduledFor) < Date.now()
+  );
+}
+
 function meetingWhenText(meeting: MeetingSummary): string {
   if (meeting.status === 'ended') {
     return `Ended ${whenText(meeting.endedAt ?? meeting.createdAt)}`;
   }
   if (meeting.status === 'scheduled' && meeting.scheduledFor !== null) {
-    return `Scheduled for ${whenText(meeting.scheduledFor)}`;
+    return hasNotStarted(meeting)
+      ? `Didn't start · was scheduled for ${whenText(meeting.scheduledFor)}`
+      : `Scheduled for ${whenText(meeting.scheduledFor)}`;
   }
   if (meeting.scheduledFor !== null) {
     return `Open now · was scheduled for ${whenText(meeting.scheduledFor)}`;
@@ -125,6 +137,7 @@ export function WorkspacePage() {
   const [deleteConfirm, setDeleteConfirm] = useState('');
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleteAnywayOffered, setDeleteAnywayOffered] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -321,7 +334,7 @@ export function WorkspacePage() {
     setMeetingActionBusy(meeting.id);
     setMeetingActionError(null);
     try {
-      const calendarWarning = await cancelMeeting(meeting.id);
+      await cancelMeeting(meeting.id);
       setDetail((current) =>
         current === null
           ? current
@@ -331,7 +344,6 @@ export function WorkspacePage() {
             },
       );
       if (meetingEdit?.id === meeting.id) setMeetingEdit(null);
-      if (calendarWarning !== null) setMeetingActionError(calendarWarning);
     } catch (error) {
       setMeetingActionError(
         error instanceof Error ? error.message : 'Could not cancel the meeting.',
@@ -384,19 +396,21 @@ export function WorkspacePage() {
     }
   }
 
-  async function deleteThisWorkspace(): Promise<void> {
+  async function deleteThisWorkspace(deleteAnyway = false): Promise<void> {
     if (detail === null || deleting || deleteConfirm !== detail.name) return;
     setDeleting(true);
     setDeleteError(null);
+    setDeleteAnywayOffered(false);
     try {
-      const warnings = await deleteWorkspace(detail.id, deleteConfirm);
-      if (warnings.length > 0) {
+      const result = await deleteWorkspace(detail.id, deleteConfirm, deleteAnyway);
+      if (result.mayRemain) {
         window.alert(
-          `The workspace was deleted. These calendar events could not be cancelled:\n\n${warnings.join('\n')}`,
+          'The workspace was deleted. The calendar events for upcoming meetings may remain.',
         );
       }
       navigate('/new', { replace: true });
     } catch (error) {
+      setDeleteAnywayOffered(error instanceof ProductApiError && error.canDeleteAnyway);
       setDeleteError(error instanceof Error ? error.message : 'Could not delete the workspace.');
       setDeleting(false);
     }
@@ -869,7 +883,11 @@ export function WorkspacePage() {
                             <div className="product-tile-head">
                               <p className="product-row-title">{meeting.title}</p>
                               <span className="product-pill">
-                                {meeting.status === 'scheduled' ? 'Scheduled' : 'Open'}
+                                {meeting.status === 'scheduled'
+                                  ? hasNotStarted(meeting)
+                                    ? "Didn't start"
+                                    : 'Scheduled'
+                                  : 'Open'}
                               </span>
                             </div>
                             <p className="product-hint">{meetingWhenText(meeting)}</p>
@@ -1241,6 +1259,11 @@ export function WorkspacePage() {
                     <ErrorText text={deleteError} />
                   </p>
                 )}
+                {deleteAnywayOffered ? (
+                  <p className="product-note">
+                    Delete anyway? The calendar events for upcoming meetings may remain.
+                  </p>
+                ) : null}
                 <div className="product-row-actions">
                   <Button
                     variant="ghost"
@@ -1249,6 +1272,15 @@ export function WorkspacePage() {
                   >
                     {deleting ? 'Deleting…' : 'Delete workspace'}
                   </Button>
+                  {deleteAnywayOffered ? (
+                    <Button
+                      variant="ghost"
+                      disabled={deleting || deleteConfirm !== detail.name}
+                      onClick={() => void deleteThisWorkspace(true)}
+                    >
+                      {deleting ? 'Deleting…' : 'Delete anyway'}
+                    </Button>
+                  ) : null}
                 </div>
               </section>
             ) : null}

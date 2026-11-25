@@ -125,11 +125,14 @@ export function createTaskStore({
   hub,
   scenario,
   seatIsGuest,
+  isHostSeat,
 }: {
   hub: Hub;
   scenario: Scenario | (() => Scenario);
-  /** Whether the person in this role is a guest in a real meeting, for tool actions. */
+  /** Whether the person in this role is a guest in a real meeting. */
   seatIsGuest?: (role: Role) => boolean | undefined;
+  /** Whether this role is the meeting's host, the one exception to the guest rule for tool actions. */
+  isHostSeat?: (role: Role) => boolean;
 }): TaskStore {
   const active = typeof scenario === 'function' ? scenario : () => scenario;
   const tasks = new Map<string, Task>();
@@ -317,7 +320,11 @@ export function createTaskStore({
    * approval is what authorises an external write, and a guest is not a workspace member.
    */
   function requireToolActionAllowed(sender: ClientAudience): void {
-    if (sender.kind === 'role' && seatIsGuest?.(sender.role) === true) {
+    if (
+      sender.kind === 'role' &&
+      seatIsGuest?.(sender.role) === true &&
+      isHostSeat?.(sender.role) !== true
+    ) {
       throw new CommandError(
         "Guests can't run or approve tool actions. Accept the task and do it yourself.",
       );

@@ -5,8 +5,8 @@ import type { RouteCall } from '../routeCall';
 import type { AuthStore } from '../../auth/store';
 import { parseAgendaInput } from '../../meeting/agenda';
 import { MeetingBusyError, MeetingOpenError } from '../../meeting/registry';
-import { WorkspaceFencedError } from '../../workspace/fence';
-import { meetingStatusNow, type AgendaItem, type MeetingRow } from '../../meeting/types';
+import { CalendarUnreachableError } from '../../meeting/calendarEvent';
+import type { AgendaItem, MeetingRow } from '../../meeting/types';
 import { fetchCalendarEvents, calendarFileIdForUid } from '../../action/calendar';
 import { SAMPLE_WORKSPACE_ID } from '../../workspace/constants';
 import { SAMPLE_WORKSPACE } from '../../workspace/sample';
@@ -247,10 +247,6 @@ export async function handleCreateMeeting(call: RouteCall): Promise<void> {
       sendJson(response, 503, { error: 'busy', message: error.message });
       return;
     }
-    if (error instanceof WorkspaceFencedError) {
-      sendJson(response, 409, { error: 'This workspace is being deleted.' });
-      return;
-    }
     throw error;
   }
 }
@@ -289,7 +285,7 @@ export async function handleMeetingInfo(call: RouteCall): Promise<void> {
     title: row.title,
     workspaceName,
     scheduledFor: row.scheduledFor,
-    status: meetingStatusNow(row),
+    status: row.status,
     ownerName: owner === undefined ? null : (owner.name ?? owner.email),
     historyWorkspaceId,
   });
@@ -399,7 +395,7 @@ export async function handleUpdateMeeting(call: RouteCall): Promise<void> {
     sendJson(response, 500, { error: 'Meeting storage is unavailable.' });
     return;
   }
-  const status = meetingStatusNow(row);
+  const status = row.status;
   if (status !== 'scheduled') {
     sendJson(response, 409, {
       error:
@@ -504,7 +500,7 @@ export async function handleCancelMeeting(call: RouteCall): Promise<void> {
   }
   const row = await meetingForManagement(call, id);
   if (row === undefined) return;
-  const status = meetingStatusNow(row);
+  const status = row.status;
   if (status !== 'scheduled') {
     sendJson(response, 409, {
       error:
@@ -519,26 +515,23 @@ export async function handleCancelMeeting(call: RouteCall): Promise<void> {
     sendJson(response, 500, { error: 'Meeting storage is unavailable.' });
     return;
   }
-  const actorId = accountUserId(call.principal);
-  const workspace =
-    row.workspaceId === SAMPLE_WORKSPACE_ID
-      ? undefined
-      : await context.authStore?.getWorkspace(row.workspaceId);
-  let calendarWarning: string | null = null;
   try {
-    const outcome = await registry.cancel(id, {
-      workspaceName: workspace?.name ?? null,
-      requestedBy: actorId ?? null,
-    });
-    calendarWarning = outcome?.calendarWarning ?? null;
+    await registry.cancel(id);
   } catch (error) {
     if (error instanceof MeetingOpenError) {
       sendJson(response, 409, { error: error.message });
       return;
     }
+    if (error instanceof CalendarUnreachableError) {
+      console.warn(`kaki meetings: refusing to cancel ${id}: ${error.detail}`);
+      sendJson(response, 502, {
+        error: "The team calendar can't be reached, so the meeting wasn't cancelled. Try again.",
+      });
+      return;
+    }
     throw error;
   }
-  sendJson(response, 200, { ok: true, calendarWarning });
+  sendJson(response, 200, { ok: true });
 }
 
 /** End an open meeting from the list, writing its minutes as the room would. */
@@ -552,7 +545,7 @@ export async function handleEndMeeting(call: RouteCall): Promise<void> {
   }
   const row = await meetingForManagement(call, id);
   if (row === undefined) return;
-  const status = meetingStatusNow(row);
+  const status = row.status;
   if (status === 'ended') {
     sendJson(response, 409, { error: 'This meeting has already ended.' });
     return;

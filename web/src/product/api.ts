@@ -137,11 +137,14 @@ export interface MeetingMinutes {
 /** A failed API call, carrying the server's sentence and HTTP status when there was one. */
 export class ProductApiError extends Error {
   readonly status: number;
+  /** The server offers an explicit "Delete anyway" for this refusal. */
+  readonly canDeleteAnyway: boolean;
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, canDeleteAnyway = false) {
     super(message);
     this.name = 'ProductApiError';
     this.status = status;
+    this.canDeleteAnyway = canDeleteAnyway;
   }
 }
 
@@ -173,6 +176,7 @@ async function failure(response: Response): Promise<ProductApiError> {
   return new ProductApiError(
     plainFailureMessage(response.status, serverText, signInEnded),
     response.status,
+    body?.canDeleteAnyway === true,
   );
 }
 
@@ -562,10 +566,8 @@ export async function updateMeeting(id: string, input: UpdateMeetingInput): Prom
   });
 }
 
-export async function cancelMeeting(id: string): Promise<string | null> {
-  const response = await request(`/api/meetings/${encodeURIComponent(id)}`, { method: 'DELETE' });
-  const body = await readJson(response);
-  return typeof body?.calendarWarning === 'string' ? body.calendarWarning : null;
+export async function cancelMeeting(id: string): Promise<void> {
+  await request(`/api/meetings/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }
 
 export async function endMeetingFromList(id: string): Promise<void> {
@@ -679,17 +681,19 @@ export async function syncMeetingCalendar(
   };
 }
 
-/** Delete a team workspace and everything in it; the calendar warnings say what stayed behind. */
-export async function deleteWorkspace(id: string, confirm: string): Promise<string[]> {
+/** Delete a team workspace and everything in it; the answer says when calendar events may remain. */
+export async function deleteWorkspace(
+  id: string,
+  confirm: string,
+  deleteAnyway = false,
+): Promise<{ mayRemain: boolean }> {
   const response = await request(`/api/workspaces/${encodeURIComponent(id)}`, {
     method: 'DELETE',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ confirm }),
+    body: JSON.stringify({ confirm, ...(deleteAnyway ? { deleteAnyway: true } : {}) }),
   });
   const body = await readJson(response);
-  return Array.isArray(body?.calendarWarnings)
-    ? body.calendarWarnings.filter((warning): warning is string => typeof warning === 'string')
-    : [];
+  return { mayRemain: body?.calendarEventsMayRemain === true };
 }
 
 export async function getMeetingInfo(id: string): Promise<MeetingInfo> {

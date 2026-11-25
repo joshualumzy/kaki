@@ -3,7 +3,6 @@ import type { AuthStore } from '../auth/store';
 import type { MeetingStore } from '../meeting/registry';
 import type { WorkspaceToolStore } from './tools';
 import { deleteWorkspaceKnowledge } from '../wingman/knowledge/indexer';
-import { lockWorkspaceForDeletion, recordWorkspaceDeletion } from './gate';
 
 /** Delete one team workspace and everything stored for it. */
 export interface WorkspaceDataDeletion {
@@ -55,10 +54,6 @@ export function createPostgresWorkspaceDataDeletion(
       const client = await input.pool.connect();
       try {
         await client.query('begin');
-        // Hold the workspace's exclusive gate across the whole deletion. A create, tool save or
-        // indexer that is already inside finishes first; one that starts afterwards waits and then
-        // sees the tombstone (or the missing workspace row) instead of recreating deleted data.
-        await lockWorkspaceForDeletion(client, workspaceId);
         const deleted = await input.auth.deleteWorkspace(
           {
             id: workspaceId,
@@ -79,7 +74,6 @@ export function createPostgresWorkspaceDataDeletion(
         await deleteMeetings(workspaceId, client);
         await deleteTools([workspaceId], client);
         await deleteWorkspaceKnowledge({ db: client, workspaceIds: [workspaceId] });
-        await recordWorkspaceDeletion(client, workspaceId);
         await client.query('commit');
         return true;
       } catch (error) {
