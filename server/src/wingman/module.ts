@@ -18,7 +18,7 @@ import { CommandError } from '../core/hub';
 import type { KakiContext, KakiModule } from '../core/modules';
 import { notetakerLlmFromEnv, type LlmClient } from '../services/llm';
 import { SAMPLE_WORKSPACE_ID } from '../workspace/constants';
-import { isoDay } from './knowledge/dates';
+import { meetingDay } from './knowledge/dates';
 import { gatewayConfigFromEnv, missingGatewayEnv } from './knowledge/gateway';
 import { indexMeetingRecord } from './knowledge/indexer';
 import { createCompanySearchFromEnv } from './knowledge/search';
@@ -31,6 +31,8 @@ import {
   askedMessages,
   catchupMessages,
   groundedLine,
+  matchRecordFact,
+  mergeAnswerEvidence,
   parseAskedReply,
   parseAskReply,
   parseCatchupReply,
@@ -715,7 +717,9 @@ export function createWingmanModule(options: WingmanModuleOptions = {}): KakiMod
           if (askedKeys.has(key)) return;
           askedKeys.add(key);
 
-          const facts = await workspaceFacts(verdict.question, person.role, MAX_ASKED_FACTS);
+          const searched = await workspaceFacts(verdict.question, person.role, MAX_ASKED_FACTS);
+          // One cited record per fact, and a company record wins over a past meeting's minutes.
+          const facts = mergeAnswerEvidence([], searched).facts;
           publishNote(
             person.role,
             {
@@ -794,11 +798,13 @@ export function createWingmanModule(options: WingmanModuleOptions = {}): KakiMod
           if (stopped || startedIn !== generation) return;
           const verdict = parseRecordReply(raw);
           if (verdict === undefined) return;
-          const fact = usable.find(
-            (candidate) => candidate.source === verdict.source && candidate.text.includes(verdict.snippet),
-          );
+          const fact = matchRecordFact(verdict.source, verdict.snippet, usable);
           if (fact === undefined) {
-            console.warn('kaki wingman: ignored a record note whose snippet is not verbatim from that record');
+            console.warn(
+              `kaki wingman: ignored a record note whose snippet is not in an offered record (snippet: ${JSON.stringify(verdict.snippet)}; records: ${
+                usable.map((record) => `${record.source} (${record.date})`).join(', ') || 'none'
+              })`,
+            );
             return;
           }
           const key = recordKey(person.role, fact);
@@ -811,7 +817,7 @@ export function createWingmanModule(options: WingmanModuleOptions = {}): KakiMod
               kind: 'record',
               urgency: 'quiet',
               title: 'Records on this',
-              text: `${verdict.verdict === 'answers' ? 'This record answers what you are discussing' : 'This record contradicts what you are discussing'}: ${verdict.snippet} (${fact.source}, ${fact.date})`,
+              text: `${verdict.verdict === 'answers' ? 'This record answers what you are discussing' : 'This record contradicts what you are discussing'}: ${fact.text} (${fact.source}, ${fact.date})`,
               facts: [fact],
               sources: [factSource(fact)],
             },
@@ -869,15 +875,17 @@ export function createWingmanModule(options: WingmanModuleOptions = {}): KakiMod
           }
         }
 
-        const linesOut: string[] = parts.map((part) => part.text);
-        linesOut.push(...facts.map((fact) => fact.text));
+        // One statement per point: a record that restates a meeting answer is shown once, with the
+        // record as its source, and duplicate facts from two records are folded into one.
+        const merged = mergeAnswerEvidence(parts, facts);
+        const linesOut: string[] = merged.statements.map((statement) => statement.text);
         if (searchFailed) linesOut.push(SEARCH_FAILED_TEXT);
-        if (meetingFailed && parts.length === 0 && facts.length === 0 && !searchFailed) {
+        if (meetingFailed && merged.statements.length === 0 && !searchFailed) {
           linesOut.push(MEETING_FAILED_TEXT);
         }
         if (stopped || startedIn !== generation) return;
         const text = linesOut.length === 0 ? NOTHING_TEXT : linesOut.join('\n');
-        const sources = [...parts.map((part) => part.source), ...facts.map(factSource)];
+        const sources = [...new Set(merged.statements.map((statement) => statement.source))];
         publishNote(
           person.role,
           {
@@ -886,8 +894,8 @@ export function createWingmanModule(options: WingmanModuleOptions = {}): KakiMod
             urgency: 'quiet',
             title: 'Wingman',
             text,
-            ...(facts.length === 0 ? {} : { facts }),
-            ...(sources.length === 0 ? {} : { sources: [...new Set(sources)] }),
+            ...(merged.facts.length === 0 ? {} : { facts: merged.facts }),
+            ...(sources.length === 0 ? {} : { sources }),
             questionText: question,
             questionFrom: 'you',
           },
@@ -923,7 +931,7 @@ export function createWingmanModule(options: WingmanModuleOptions = {}): KakiMod
         if (db === undefined || gateway === undefined || stopped) return;
         const meetingId = ctx.meetingId();
         const scenario = ctx.activeScenario();
-        const date = isoDay(new Date());
+        const date = meetingDay();
         const text = meetingKnowledgeText({
           title: scenario.meetingTitle,
           date,

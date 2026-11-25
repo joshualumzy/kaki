@@ -395,10 +395,12 @@ function sourceNamesRecord(source: string, fact: Fact): boolean {
 }
 
 /**
- * The record a workspace point cites. A matching source label wins; otherwise the quoted words
+ * The record a model quote cites. A matching source label wins; otherwise the quoted words
  * must appear in exactly one offered record. In every case the quote itself must be real.
+ * Shared by catch-up points and record notes so both accept the same harmless differences
+ * (case, punctuation, spacing, a copied source/date header) without guessing at invented words.
  */
-function workspaceFact(
+export function matchRecordFact(
   source: string | undefined,
   evidence: string,
   facts: readonly Fact[],
@@ -456,7 +458,7 @@ export function parseCatchupReply(
     source: `${record.source} (${record.date})`,
     fact: record,
   });
-  const fact = workspaceFact(source, evidence, facts);
+  const fact = matchRecordFact(source, evidence, facts);
   if (json.basis === 'meeting') {
     if (meetingLine !== undefined) return meetingVerdict(meetingLine);
     if (fact !== undefined) return factVerdict(fact);
@@ -468,6 +470,64 @@ export function parseCatchupReply(
     return reject('the point is not word for word from a transcript line or a record we offered it');
   }
   return reject('the point had an unknown basis');
+}
+
+/** True when two statements say the same thing, allowing case, punctuation and a little extra text. */
+function sameStatement(left: string, right: string): boolean {
+  const first = normalise(left);
+  const second = normalise(right);
+  if (first === '' || second === '') return false;
+  if (first === second) return true;
+  const [shorter, longer] = first.length <= second.length ? [first, second] : [second, first];
+  // A short fragment inside a much longer sentence may be a different point, so only merge when
+  // the two are close in size; this still absorbs a copied header or a missing trailing clause.
+  if (shorter.length / longer.length < 0.8) return false;
+  return ` ${longer} `.includes(` ${shorter} `);
+}
+
+/** A fact sourced from a past meeting's minutes rather than a company tool. */
+function isMeetingSource(source: string): boolean {
+  return /^meeting\b/i.test(source.trim());
+}
+
+/**
+ * Turn the meeting's answer parts and the workspace facts into one statement per point. A record
+ * that restates a meeting answer wins, so the shown sentence comes from the record with its source
+ * and is never printed twice. A company record also wins over a past meeting's minutes, and the
+ * first (best-ranked) fact wins when two records say the same thing.
+ */
+export function mergeAnswerEvidence(
+  parts: readonly AnswerPart[],
+  facts: readonly Fact[],
+): { statements: AnswerPart[]; facts: Fact[] } {
+  const merged: Array<AnswerPart & { fact?: Fact }> = [];
+  const add = (candidate: AnswerPart & { fact?: Fact }): void => {
+    const index = merged.findIndex((existing) => sameStatement(existing.text, candidate.text));
+    if (index === -1) {
+      merged.push(candidate);
+      return;
+    }
+    const existing = merged[index]!;
+    if (existing.fact === undefined && candidate.fact !== undefined) {
+      // The record is the better citation for a statement the meeting also made.
+      merged[index] = candidate;
+      return;
+    }
+    if (
+      existing.fact !== undefined &&
+      candidate.fact !== undefined &&
+      isMeetingSource(existing.fact.source) &&
+      !isMeetingSource(candidate.fact.source)
+    ) {
+      merged[index] = candidate;
+    }
+  };
+  for (const part of parts) add({ text: part.text, source: part.source });
+  for (const fact of facts) add({ text: fact.text, source: `${fact.source} (${fact.date})`, fact });
+  return {
+    statements: merged.map(({ text, source }) => ({ text, source })),
+    facts: merged.flatMap((entry) => (entry.fact === undefined ? [] : [entry.fact])),
+  };
 }
 
 /** The strict schema for the support judgement of one catch-up suggestion. */

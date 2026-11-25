@@ -330,6 +330,84 @@ describe('wingman module', () => {
     }
   });
 
+  it('shows a fact once when the meeting answer already states it, and cites the record', async () => {
+    const fake = fakeHub();
+    const llm = createFakeLlm(() =>
+      JSON.stringify({
+        parts: [{ text: factA.text, evidence: factA.text, taskId: null }],
+      }),
+    );
+    const stop = start({ hub: fake, llm, search: async () => [factA] });
+    try {
+      fake.emit(transcriptLine(factA.text));
+      await fake.runCommand(
+        { type: 'ASK_WINGMAN', question: 'What is the delivery window?' },
+        roleAudience('chef'),
+      );
+
+      const note = wingmanNotes(fake.published).find((event) => event.payload.kind === 'answer');
+      expect(note?.payload.text.split(factA.text)).toHaveLength(2);
+      expect(note?.payload.sources).toEqual(['Wiki: Delivery (2026-11-01)']);
+      expect(note?.payload.facts).toEqual([factA]);
+    } finally {
+      stop();
+    }
+  });
+
+  it('folds two records that state the same fact into one answer, preferring the company record', async () => {
+    const fake = fakeHub();
+    const meetingFact: Fact = {
+      text: factA.text,
+      source: 'Meeting: Weekly chat',
+      date: '2026-11-25',
+    };
+    const llm = createFakeLlm(() => JSON.stringify({ parts: [] }));
+    const stop = start({ hub: fake, llm, search: async () => [meetingFact, factA] });
+    try {
+      fake.emit(transcriptLine('What is the delivery window?'));
+      await fake.runCommand(
+        { type: 'ASK_WINGMAN', question: 'What is the delivery window?' },
+        roleAudience('chef'),
+      );
+
+      const note = wingmanNotes(fake.published).find((event) => event.payload.kind === 'answer');
+      expect(note?.payload.text).toBe(factA.text);
+      expect(note?.payload.sources).toEqual(['Wiki: Delivery (2026-11-01)']);
+      expect(note?.payload.facts).toEqual([factA]);
+    } finally {
+      stop();
+    }
+  });
+
+  it('cites the company record on an asked-you card when a meeting record repeats it', async () => {
+    const fake = fakeHub();
+    const meetingFact: Fact = {
+      text: factA.text,
+      source: 'Meeting: Weekly chat',
+      date: '2026-11-25',
+    };
+    const llm = createFakeLlm(() =>
+      JSON.stringify({
+        direct: true,
+        question: 'When is the delivery?',
+        evidence: 'Bao, when is the delivery?',
+      }),
+    );
+    const stop = start({ hub: fake, llm, search: async () => [meetingFact, factA] });
+    try {
+      fake.emit(transcriptLine('Bao, when is the delivery?', { speaker: 'Bao', role: 'cashier' }));
+
+      const note = await waitFor(
+        () => wingmanNotes(fake.published).find((event) => event.payload.kind === 'asked_you'),
+        'the direct-question note',
+      );
+      expect(note.payload.sources).toEqual(['Wiki: Delivery (2026-11-01)']);
+      expect(note.payload.facts).toEqual([factA]);
+    } finally {
+      stop();
+    }
+  });
+
   it('lets the host ask from a real meeting screen as their own facilitator seat', async () => {
     const fake = fakeHub();
     const llm = createFakeLlm(() =>
@@ -691,6 +769,70 @@ describe('wingman module', () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
       expect(wingmanNotes(fake.published).filter((event) => event.payload.kind === 'record')).toHaveLength(2);
     } finally {
+      stop();
+    }
+  });
+
+  it('keeps a record note whose snippet differs from the record only in harmless ways', async () => {
+    const fake = fakeHub();
+    const llm = createFakeLlm((messages) => {
+      expect(messages[0]?.content).toContain('[KAKI_WINGMAN_RECORD]');
+      return JSON.stringify({
+        verdict: 'answers',
+        snippet: 'the delivery window is 10 00 to 16 00',
+        source: 'Wiki: Delivery 2026-11-01',
+      });
+    });
+    const stop = start({
+      hub: fake,
+      llm,
+      search: async () => [factA],
+      holders: [{ name: 'Ada', seat: 'chef' }],
+    });
+    try {
+      fake.emit(transcriptLine('What is the delivery window?', { speaker: 'Bao', role: 'cashier' }));
+      fake.emit(recordUpdate());
+      const note = await waitFor(
+        () => wingmanNotes(fake.published).find((event) => event.payload.kind === 'record'),
+        'the record note',
+      );
+      expect(note.payload.facts).toEqual([factA]);
+      expect(note.payload.sources).toEqual(['Wiki: Delivery (2026-11-01)']);
+      expect(note.payload.text).toContain(factA.text);
+    } finally {
+      stop();
+    }
+  });
+
+  it('drops an invented record snippet and logs it with the records it checked', async () => {
+    const fake = fakeHub();
+    const llm = createFakeLlm(() =>
+      JSON.stringify({
+        verdict: 'answers',
+        snippet: 'We have 500 large trays.',
+        source: 'Wiki: Delivery',
+      }),
+    );
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const stop = start({
+      hub: fake,
+      llm,
+      search: async () => [factA],
+      holders: [{ name: 'Ada', seat: 'chef' }],
+    });
+    try {
+      fake.emit(transcriptLine('What is the delivery window?', { speaker: 'Bao', role: 'cashier' }));
+      fake.emit(recordUpdate());
+      await new Promise((resolve) => setTimeout(resolve, 20));
+
+      expect(wingmanNotes(fake.published).filter((event) => event.payload.kind === 'record')).toHaveLength(0);
+      const message = warn.mock.calls
+        .map((call) => String(call[0]))
+        .find((text) => text.includes('ignored a record note'));
+      expect(message).toContain('We have 500 large trays.');
+      expect(message).toContain('Wiki: Delivery (2026-11-01)');
+    } finally {
+      warn.mockRestore();
       stop();
     }
   });

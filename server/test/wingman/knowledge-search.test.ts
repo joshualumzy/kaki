@@ -84,6 +84,24 @@ describe('company search', () => {
     expect(facts[0]?.source).toContain('Anchor');
   });
 
+  it('prefers a company record over a past meeting and asks for each fact once', async () => {
+    let prompt = '';
+    const search = createSearchCompanyData(
+      deps({
+        chat: async (value) => {
+          prompt = value;
+          return '{"facts":[]}';
+        },
+      }),
+    );
+
+    await search('How many large trays do we have?', 'operations_director');
+
+    expect(prompt).toContain('past meeting');
+    expect(prompt).toContain('cite that company record instead');
+    expect(prompt).toContain('Return each fact once');
+  });
+
   it('allows an empty fact list when nothing is relevant', async () => {
     const search = createSearchCompanyData(deps({ chat: async () => '{"facts":[]}' }));
     expect(await search('What is for lunch?', 'operations_director')).toEqual([]);

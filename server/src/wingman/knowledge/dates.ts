@@ -49,6 +49,16 @@ export function isoDay(value: string | Date): string {
   return `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 }
 
+/**
+ * The calendar day in the meeting's time zone (Asia/Singapore), whatever the server's own zone.
+ * A late-evening UTC instant is already the next day in Singapore, and that is the day a meeting
+ * citation must show.
+ */
+export function meetingDay(value: Date = new Date()): string {
+  if (Number.isNaN(value.getTime())) throw new Error('Cannot format an invalid date');
+  return value.toLocaleDateString('en-CA', { timeZone: 'Asia/Singapore' });
+}
+
 /** Format a date-like value for a chunk header, for example "10 Nov 2026". */
 export function shortDay(value: string | Date): string {
   const iso = isoDay(value);
