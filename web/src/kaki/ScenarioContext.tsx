@@ -8,7 +8,7 @@ import {
   type ReactNode,
 } from 'react';
 import { parseScenario, type Scenario } from '@kaki/shared';
-import { plainFailureMessage, plainServerText } from '../net/plainFailure';
+import { SERVER_TROUBLE, plainFailureMessage, plainServerText } from '../net/plainFailure';
 import { fetchWithTimeout } from '../net/withTimeout';
 import { Button, Card } from '../ui';
 import { meetingApiPath } from './meetingScope';
@@ -83,9 +83,9 @@ async function attemptScenario(
     if (typeof payload?.error === 'string') {
       throw new Error(plainFailureMessage(response.status, payload.message ?? payload.error));
     }
-    console.error(`kaki web: GET ${scenarioUrl(view, meetingId)} failed (${response.status})`);
     const error = new Error(plainFailureMessage(response.status));
     if (SERVER_STARTING_STATUSES.has(response.status)) return { status: 'starting', error };
+    console.error(`kaki web: GET ${scenarioUrl(view, meetingId)} failed (${response.status})`);
     throw error;
   }
   return {
@@ -184,7 +184,7 @@ export function ScenarioProvider({
         }
         setState({
           status: 'error',
-          message: error instanceof Error ? error.message : 'Could not load the scenario',
+          message: error instanceof Error ? error.message : SERVER_TROUBLE,
           notFound: error instanceof MeetingNotFoundError,
         });
       });
@@ -197,7 +197,8 @@ export function ScenarioProvider({
     return (
       <main className="page">
         <p className="empty-state">
-          {starting ? 'Starting up… this can take a few seconds.' : 'Loading scenario…'}
+          {starting             ? 'Starting up… this can take a few seconds.'
+            : 'Getting the meeting ready…'}
         </p>
       </main>
     );

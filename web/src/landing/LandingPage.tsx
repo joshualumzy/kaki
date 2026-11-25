@@ -3,11 +3,12 @@ import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { useMe } from '../auth/useMe';
 import { SERVER_TROUBLE } from '../net/plainFailure';
 import { findMeetingByCode } from '../product/api';
-import { Button, Card } from '../ui';
+import { Button, Card, useDocumentTitle } from '../ui';
 import './landing.css';
 
 /** Kaki's front door: choose a team meeting or a practice meeting, or enter an invite code. */
 export function LandingPage() {
+  useDocumentTitle('Kaki — Meeting Assistant');
   const [reloadKey, setReloadKey] = useState(0);
   const auth = useMe(reloadKey);
   const navigate = useNavigate();

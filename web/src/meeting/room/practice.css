@@ -35,7 +35,7 @@ select.kd-field { appearance: none; cursor: pointer; background-image: linear-gr
 .kd-go-secondary, .kd-go-secondary:not(:disabled):hover { background: var(--color-surface); color: var(--color-text); border: 1px solid var(--color-border-strong); box-shadow: none; }
 .kd-go-secondary:not(:disabled):hover { background: var(--color-bg-raised); }
 .kd-go-secondary + .kd-go-secondary { margin-top: 8px; }
-.kd-hint { color: var(--color-faint); font-size: 12.5px; margin: 12px 0 0; }
+.kd-hint { color: var(--color-muted); font-size: 12.5px; margin: 12px 0 0; }
 .kd-join .kd-hint { color: var(--color-muted); font-size: 13px; }
 
 /* Over the stage until the person has read their briefing and starts the meeting. */
@@ -88,8 +88,8 @@ select.kd-field { appearance: none; cursor: pointer; background-image: linear-gr
 .kd-who-role { font-weight: 500; font-size: 10.5px; color: var(--color-muted); overflow: hidden; text-overflow: ellipsis; }
 .kd-who-stance { font-size: 10.5px; font-weight: 500; color: var(--color-accent-strong, var(--color-accent)); opacity: 0.92; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .kd-state { position: absolute; right: 12px; top: 12px; z-index: 3; font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--color-muted); padding: 4px 9px; border-radius: 999px; background: var(--color-surface); border: 1px solid var(--color-border); }
-.kd-tile[data-state="speaking"] .kd-state { color: var(--c); }
-.kd-tile[data-state="thinking"] .kd-state { color: var(--color-host); animation: kd-blink 1s infinite; }
+.kd-tile[data-state="speaking"] .kd-state { color: var(--color-text); }
+.kd-tile[data-state="thinking"] .kd-state { color: var(--color-host-text); animation: kd-blink 1s infinite; }
 .kd-caption { position: absolute; left: 12px; right: 12px; bottom: 12px; padding: 9px 13px; border-radius: 14px; background: color-mix(in srgb, var(--color-surface) 90%, transparent); backdrop-filter: blur(10px); border: 1px solid var(--color-border); color: var(--color-text); font-size: 14px; font-weight: 500; line-height: 1.4; pointer-events: none; z-index: 3; animation: kd-word 260ms ease both; }
 /* A person's tile also carries LiveKit's bottom-left name chip: sit above it and below the top-left who tag. */
 .kd-tile[data-ai="false"] .kd-caption { bottom: 34px; max-height: calc(100% - 86px); overflow-y: auto; }

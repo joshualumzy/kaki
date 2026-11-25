@@ -2,7 +2,10 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { AgendaItem, Scenario, ScenarioRole } from '@kaki/shared';
 import { useScenario } from '../../kaki';
 import { meetingApiPath } from '../../kaki/meetingScope';
+import { plainFailureMessage } from '../../net/plainFailure';
 import './practice.css';
+
+const COULD_NOT_START = "Couldn't start the meeting. Check your connection, then try again.";
 
 interface StartPromptProps {
   /** The person pressed the button: the meeting should begin. */
@@ -243,7 +246,6 @@ export function ConnectedStartPrompt({
   const start = useCallback(() => {
     if (request.current !== undefined) return;
     if (scenario === undefined) {
-      console.warn('[kaki:start] Start rejected in browser: scenario is not loaded yet');
       setError('The meeting is not ready yet. Wait a moment and try again.');
       setPhase('failed');
       return;
@@ -253,16 +255,17 @@ export function ConnectedStartPrompt({
     setError(undefined);
     setPhase('waiting');
     const timer = setTimeout(() => controller.abort(), START_TIMEOUT_MS);
-    console.info('[kaki:start] browser asking the server to start the meeting');
     void fetch(meetingApiPath(meetingId, '/api/meeting/start'), { method: 'POST', signal: controller.signal })
       .then(async (response) => {
-        const body = (await response.json().catch(() => ({}))) as { error?: unknown; started?: unknown };
-        if (!response.ok || body.started !== true) {
-          throw new Error(
-            typeof body.error === 'string' ? body.error : `Could not start the meeting (HTTP ${response.status}).`,
-          );
-        }
+        const body = (await response.json().catch(() => ({}))) as { error?: unknown; message?: unknown; started?: unknown };
         if (request.current !== controller) return;
+        if (!response.ok || body.started !== true) {
+          request.current = undefined;
+          if (!mounted.current) return;
+          setPhase('failed');
+          setError(plainFailureMessage(response.status, body.message ?? body.error));
+          return;
+        }
         request.current = undefined;
         if (!mounted.current) return;
         setPhase('idle');
@@ -273,13 +276,13 @@ export function ConnectedStartPrompt({
         request.current = undefined;
         if (!mounted.current) return;
         const timedOut = cause instanceof DOMException && cause.name === 'AbortError';
-        const reason = cause instanceof Error ? cause.message : String(cause);
-        const message = timedOut
-          ? 'The meeting server did not confirm the start. Check your connection, then try again.'
-          : `${reason} Check your connection, then try again.`;
-        console.warn(`[kaki:start] server Start failed: ${reason}`);
+        if (!timedOut) console.error('kaki web: starting the meeting failed', cause);
         setPhase('failed');
-        setError(message);
+        setError(
+          timedOut
+            ? 'The meeting server did not confirm the start. Check your connection, then try again.'
+            : COULD_NOT_START,
+        );
       })
       .finally(() => clearTimeout(timer));
   }, [scenario, onStarted, meetingId]);

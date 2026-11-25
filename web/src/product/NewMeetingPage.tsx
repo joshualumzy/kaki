@@ -4,7 +4,12 @@ import { Link, Navigate, useNavigate } from 'react-router-dom';
 import type { MeetingPace } from '@kaki/shared';
 import { useMe } from '../auth/useMe';
 import { SIGN_IN_ENDED } from '../net/plainFailure';
-import { Button, Card } from '../ui';
+import {
+  Button,
+  Card,
+  localZoneAbbreviation,
+  useDocumentTitle,
+} from '../ui';
 import {
   createMeeting,
   createWorkspace,
@@ -155,26 +160,19 @@ function localClock(iso: string): { date: string; time: string } {
   };
 }
 
-/** The viewer's own zone name, shown beside a time converted from another zone. */
-function localTimeZone(): string {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'your local time';
-  } catch {
-    return 'your local time';
-  }
-}
-
 /** A picker row's time: the event's own clock, or the viewer's clock when it carries an instant. */
 function calendarEventWhen(event: WorkspaceCalendarEvent): string {
   if (event.start === undefined) {
     return `${event.date}, ${event.time}${event.endTime === undefined ? '' : `–${event.endTime}`}`;
   }
   const local = localClock(event.start);
-  return `${local.date}, ${local.time} (${localTimeZone()})`;
+  const zone = localZoneAbbreviation(new Date(event.start));
+  return `${local.date}, ${local.time}${zone === '' ? '' : ` (${zone})`}`;
 }
 
 /** New meeting: only the title is required; the agenda is optional and can come three ways. */
 export function NewMeetingPage() {
+  useDocumentTitle('New meeting · Kaki');
   const navigate = useNavigate();
   const [reloadKey, setReloadKey] = useState(0);
   const auth = useMe(reloadKey);
@@ -393,13 +391,13 @@ export function NewMeetingPage() {
       setAgenda(lines.map((line) => ({ id: makeAgendaId(), title: line, minutes: '' })));
     }
     setMethod(null);
-    const zone = localTimeZone();
+    const zone = localZoneAbbreviation(event.start === undefined ? new Date() : new Date(event.start));
     setNote(
       event.start === undefined
         ? 'Loaded from the workspace calendar. Check the title, time and agenda before scheduling.'
-        : `Loaded from the workspace calendar. Times are shown in your time zone (${zone})${
-            event.timeZone === undefined ? '.' : `; the event is in ${event.timeZone}.`
-          }`,
+        : `Loaded from the workspace calendar. Times are shown in your time zone (${
+            zone === '' ? 'your local time' : zone
+          })${event.timeZone === undefined ? '.' : `; the event is in ${event.timeZone}.`}`,
     );
   }
 
@@ -1003,6 +1001,9 @@ export function NewMeetingPage() {
 
                 <fieldset className="product-schedule-group">
                   <legend>Schedule for later</legend>
+                  <p className="product-hint">
+                    {`Times are in your local zone (${localZoneAbbreviation() || 'your local time'}).`}
+                  </p>
                   <div className="product-schedule">
                     <label className="product-field">
                       <span>Date</span>

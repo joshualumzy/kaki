@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, Navigate, useSearchParams } from 'react-router-dom';
 import { useMe } from '../auth/useMe';
-import { Button, Card } from '../ui';
+import { Button, Card, useDocumentTitle } from '../ui';
 import './product.css';
 
 /** The white Google "G" as inline SVG, so the button needs no external image. */
@@ -48,6 +48,7 @@ function safeNext(value: string | null): string {
 
 /** Google sign-in for the product; a signed-in person goes on to where they were headed. */
 export function SignInPage() {
+  useDocumentTitle('Sign in · Kaki');
   const [reloadKey, setReloadKey] = useState(0);
   const auth = useMe(reloadKey);
   const [search, setSearch] = useSearchParams();

@@ -112,6 +112,7 @@ describe('WorkspacePage', () => {
     renderPage('ws-1');
 
     expect(await screen.findByRole('heading', { name: 'Team workspace' })).toBeTruthy();
+    expect(document.title).toBe('Team workspace · Kaki');
     expect(screen.getAllByText('Ada Lovelace').length).toBeGreaterThan(0);
     expect(screen.getByRole('button', { name: 'Rename' })).toBeTruthy();
     expect(screen.getByText('Scheduled sync')).toBeTruthy();
@@ -326,7 +327,6 @@ describe('WorkspacePage', () => {
   });
 
   it('reschedules and cancels a scheduled meeting', async () => {
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
     const fetchMock = installFetch({
       'GET /api/workspaces': () => reply(workspaces),
       'GET /api/workspaces/ws-1': () =>
@@ -377,15 +377,16 @@ describe('WorkspacePage', () => {
     cleanup();
     renderPage('ws-1');
     fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }));
+    expect(
+      await screen.findByRole('dialog', { name: 'Cancel Scheduled sync?' }),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel meeting' }));
     await waitFor(() =>
       expect(fetchMock.mock.calls.some(([url, init]) => String(url) === '/api/meetings/mtg-1' && init?.method === 'DELETE')).toBe(true),
     );
-    expect(confirm).toHaveBeenCalled();
-    confirm.mockRestore();
   });
 
   it('ends an open meeting from the list', async () => {
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
     const fetchMock = installFetch({
       'GET /api/workspaces': () => reply(workspaces),
       'GET /api/workspaces/ws-1': () =>
@@ -426,11 +427,13 @@ describe('WorkspacePage', () => {
     expect(await screen.findByText(/^Open now · created /)).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'End' }));
+    expect(
+      await screen.findByRole('dialog', { name: 'End Open sync for everyone?' }),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'End meeting' }));
     await waitFor(() =>
       expect(fetchMock.mock.calls.some(([url, init]) => String(url) === '/api/meetings/mtg-1/end' && init?.method === 'POST')).toBe(true),
     );
-    expect(confirm).toHaveBeenCalled();
-    confirm.mockRestore();
   });
 
   it('keeps a member read-only on meetings they do not own', async () => {

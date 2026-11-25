@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { Link, Navigate, useParams } from 'react-router-dom';
 import { useMe } from '../auth/useMe';
 import { SIGN_IN_ENDED } from '../net/plainFailure';
-import { Button, Card } from '../ui';
+import { Button, Card, formatMeetingTime, useDocumentTitle } from '../ui';
 import {
   getMeetingMinutes,
   getWorkspace,
@@ -17,8 +17,7 @@ import { AppBar } from './AppBar';
 import './product.css';
 
 function whenText(iso: string): string {
-  const when = new Date(iso);
-  return Number.isNaN(when.getTime()) ? iso : when.toLocaleString();
+  return formatMeetingTime(iso);
 }
 
 function downloadMarkdown(title: string, minutes: string): void {
@@ -47,6 +46,9 @@ export function MeetingHistoryPage() {
   const [savingTodo, setSavingTodo] = useState<string | null>(null);
   const [todoError, setTodoError] = useState<string | null>(null);
   const [minutesAttempts, setMinutesAttempts] = useState(0);
+  useDocumentTitle(
+    minutes === null ? 'Meeting history · Kaki' : `${minutes.title} · Kaki`,
+  );
 
   useEffect(() => {
     let cancelled = false;

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { MeetingScopeProvider, ScenarioProvider } from '../kaki';
 import { plainFailureMessage } from '../net/plainFailure';
+import { useDocumentTitle } from '../ui';
 import Meeting from './room/Meeting';
 
 interface Resolved {
@@ -15,6 +16,8 @@ interface Resolved {
  */
 export function PracticePage() {
   const [resolved, setResolved] = useState<Resolved | undefined>();
+  // The room names itself once its scenario is in; until then this page owns the tab.
+  useDocumentTitle(resolved === undefined ? 'Practice meeting · Kaki' : undefined);
   const [problem, setProblem] = useState<string | undefined>();
   const [busy, setBusy] = useState(true);
   const [attempt, setAttempt] = useState(0);

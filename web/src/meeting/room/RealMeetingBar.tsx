@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { failureText } from '../../net/failureText';
 import { useLocalParticipant, useRoomContext } from '@livekit/components-react';
-import { Avatar } from '../../ui';
+import { Avatar, Card, Dialog } from '../../ui';
 import { QrCode } from '../QrCode';
 import { useRealRoom } from './realRoom';
 import { distinctDisplayNames } from './people';
@@ -209,9 +209,12 @@ export function RealMeetingBar({
         </div>
       ) : null}
 
-      {confirmEnd && isHost ? (
-        <div className="kd-real-pop" role="dialog" aria-label="End the meeting for everyone">
-          <p className="kd-label">End for everyone?</p>
+      <Dialog
+        open={confirmEnd && isHost}
+        onClose={() => setConfirmEnd(false)}
+        label="End the meeting for everyone"
+      >
+        <Card title="End for everyone?">
           <p className="kd-hint">
             This ends the meeting for every person and freezes its minutes. It cannot be undone.
           </p>
@@ -234,8 +237,8 @@ export function RealMeetingBar({
               Cancel
             </button>
           </div>
-        </div>
-      ) : null}
+        </Card>
+      </Dialog>
     </div>
   );
 }
