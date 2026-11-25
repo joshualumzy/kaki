@@ -856,6 +856,64 @@ describe('wingman real-meeting pace cues', () => {
     }
   });
 
+  it('leaves the host out of the quiet line and never sends the host a catch-up', async () => {
+    const fake = fakeHub();
+    const stop = start({
+      hub: fake,
+      llm: catchupLlm(noPointReply),
+      search: async () => [],
+      holders: cueHolders,
+      meetingKind: 'real',
+      scenario: cueScenario,
+      sealed: sealedCue(),
+    });
+    try {
+      // Mei has spoken; only the host and Raj are quiet.
+      fake.emit(cueRecord({ elapsedSeconds: 120, speakerTalkSeconds: { mei: 6 } }));
+
+      const leads = activeNotes(fake.published, 'lead');
+      expect(leads).toHaveLength(1);
+      expect(leads[0]?.audience).toEqual({ kind: 'role', role: 'host' });
+      expect(leads[0]?.payload.text).toBe('Not heard from yet: Raj');
+
+      // Raj still gets his catch-up; the host never gets one.
+      await waitFor(
+        () => wingmanNotes(fake.published).find((event) => event.payload.id === 'catchup:raj:0'),
+        'the guest catch-up',
+      );
+      expect(
+        wingmanNotes(fake.published).some((event) => event.payload.id === 'catchup:host:0'),
+      ).toBe(false);
+    } finally {
+      stop();
+    }
+  });
+
+  it('shows no quiet line and sends no catch-up when only the host is silent', async () => {
+    const fake = fakeHub();
+    const stop = start({
+      hub: fake,
+      llm: catchupLlm(noPointReply),
+      search: async () => [],
+      holders: cueHolders,
+      meetingKind: 'real',
+      scenario: cueScenario,
+      sealed: sealedCue(),
+    });
+    try {
+      fake.emit(cueRecord({ elapsedSeconds: 120, speakerTalkSeconds: { raj: 10, mei: 6 } }));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+
+      expect(activeNotes(fake.published, 'lead')).toEqual([]);
+      expect(activeNotes(fake.published, 'nudge')).toEqual([]);
+      expect(
+        wingmanNotes(fake.published).some((event) => event.payload.id === 'catchup:host:0'),
+      ).toBe(false);
+    } finally {
+      stop();
+    }
+  });
+
   it('sends one catch-up with the item, open question and a meeting-grounded point, then removes it when they speak', async () => {
     const fake = fakeHub();
     const stop = start({

@@ -372,14 +372,19 @@ export function createWingmanModule(options: WingmanModuleOptions = {}): KakiMod
 
       type RecordPayload = Extract<KakiEvent, { type: 'MEETING_RECORD_UPDATED' }>['payload'];
 
-      /** People in the room who have not spoken on the current item, from the notetaker's talk time. */
-      function silentPeople(record: RecordPayload): Person[] {
-        return presentPeople().filter((person) => (record.speakerTalkSeconds[person.role] ?? 0) <= 0);
+      /**
+       * People in the room who have not spoken on the current item, from the notetaker's talk time.
+       * The host seat is never among them: the lead runs the meeting and is never nudged.
+       */
+      function silentPeople(record: RecordPayload, hostRole: Role | undefined): Person[] {
+        return presentPeople().filter(
+          (person) => person.role !== hostRole && (record.speakerTalkSeconds[person.role] ?? 0) <= 0,
+        );
       }
 
       /** Show the owner who has not spoken yet, updating the one line as people start. */
       function updateLead(record: RecordPayload, hostRole: Role, agendaIndex: number): void {
-        const silent = silentPeople(record);
+        const silent = silentPeople(record, hostRole);
         if (silent.length === 0) {
           clearLead();
           return;
@@ -588,8 +593,7 @@ export function createWingmanModule(options: WingmanModuleOptions = {}): KakiMod
           const hostRole = hostSeat();
           if (hostRole !== undefined) updateLead(payload, hostRole, agendaIndex);
           const question = payload.openQuestions.find((entry) => entry.agendaIndex === agendaIndex)?.text;
-          for (const person of presentPeople()) {
-            if ((payload.speakerTalkSeconds[person.role] ?? 0) > 0) continue;
+          for (const person of silentPeople(payload, hostRole)) {
             const key = catchupKey(person.role, agendaIndex);
             if (catchupSent.has(key) || catchupInFlight.has(key)) continue;
             // Each request owns a token. Only the request that still holds the key may clear it, so
