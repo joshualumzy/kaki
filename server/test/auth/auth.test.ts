@@ -217,6 +217,34 @@ describe('auth', () => {
     expect(await afterLogout.json()).toEqual({ authEnabled: true, kind: null });
   });
 
+  it('signs out every session of the account and clears this browser', async () => {
+    const user = await signInGoogle(store, 'Ada');
+    const secondToken = randomUUID();
+    await store.createSession({
+      tokenHash: hashToken(secondToken),
+      kind: 'user',
+      role: null,
+      meetingCode: null,
+      meetingId: null,
+      displayName: 'Ada',
+      userId: user.user.id,
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    const secondCookie = `kaki_session=${secondToken}`;
+    expect((await get('/api/auth/me', user.cookie)).status).toBe(200);
+    expect((await get('/api/auth/me', secondCookie)).status).toBe(200);
+
+    const everywhere = await post('/api/auth/logout-all', {}, user.cookie);
+    expect(everywhere.status).toBe(200);
+    expect(everywhere.headers.get('set-cookie')).toContain('Max-Age=0');
+
+    for (const cookie of [user.cookie, secondCookie]) {
+      const after = await get('/api/auth/me', cookie);
+      expect(after.status).toBe(200);
+      expect(await after.json()).toEqual({ authEnabled: true, kind: null });
+    }
+  });
+
   it('rate-limits five login failures per minute per address and email', async () => {
     for (let attempt = 0; attempt < 5; attempt += 1) {
       const response = await post('/api/auth/login', {

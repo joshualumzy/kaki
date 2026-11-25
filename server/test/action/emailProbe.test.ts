@@ -45,6 +45,27 @@ describe('email probe', () => {
     expect(close).toHaveBeenCalledTimes(1);
   });
 
+  it('uses the saved username and password separately from the addresses', async () => {
+    const fetchImpl = mailboxFetch();
+    const seen: EmailSettings[] = [];
+    const factory: EmailTransportFactory = (target) => {
+      seen.push(target);
+      return { verify: async () => true as const };
+    };
+
+    const result = await probeEmail(
+      { ...settings, user: 'mailer', password: 'mail-secret' },
+      { fetchImpl, createTransport: factory },
+    );
+
+    expect(result).toMatchObject({ ok: true });
+    expect(seen[0]).toMatchObject({ user: 'mailer', password: 'mail-secret' });
+    const headers = fetchImpl.mock.calls[0]?.[1]?.headers as Record<string, string>;
+    expect(headers.authorization).toBe(
+      `Basic ${Buffer.from('mailer:mail-secret').toString('base64')}`,
+    );
+  });
+
   it('names the sending side when SMTP refuses the connection', async () => {
     const { factory, sendMail } = fakeTransport(async () => {
       throw smtpError('connect ECONNREFUSED 127.0.0.1:1025', { code: 'ECONNREFUSED' });

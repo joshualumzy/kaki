@@ -117,6 +117,8 @@ export interface Hub {
   endPracticeSessions?(reason: string): void;
   /** Close every socket authorized by one session that has been replaced or signed out. */
   endSession?(sessionTokenHash: string): void;
+  /** Close every socket authorized by this signed-in account, after it loses workspace access. */
+  endUser?(userId: string): void;
   /** Close the WebSocket server and drop every client. */
   close(): void;
 }
@@ -174,6 +176,7 @@ export function createHub(
       runner: boolean;
       practice: boolean;
       seat?: string;
+      userId?: string;
     }
   >();
   const verifyClient = (info: { req: IncomingMessage }, done: (ok: boolean, code?: number, message?: string) => void): void => {
@@ -200,12 +203,17 @@ export function createHub(
               : principal?.kind === 'host'
                 ? principal.seat
                 : undefined);
+          const userId =
+            principal?.kind === 'host' || principal?.kind === 'seat' || principal?.kind === 'user'
+              ? principal.userId
+              : undefined;
           pendingAuthorizations.set(info.req, {
             generation,
             participant: decision.participant === true || principal?.kind === 'seat',
             runner: decision.runner === true,
             practice: principal?.kind === 'practice',
             ...(seat === undefined ? {} : { seat }),
+            ...(userId === undefined ? {} : { userId }),
             ...(decision.sessionTokenHash === undefined
               ? {}
               : { sessionTokenHash: decision.sessionTokenHash }),
@@ -246,6 +254,8 @@ export function createHub(
   const practiceSockets = new Set<WebSocket>();
   /** The session each person's socket was authorized by, so replacing it can close the socket. */
   const socketSessions = new Map<WebSocket, string>();
+  /** The account each signed-in socket belongs to, so losing workspace access can close it. */
+  const socketUsers = new Map<WebSocket, string>();
   /** The seat a participant projection or practice screen belongs to, for redacting private work. */
   const socketSeats = new Map<WebSocket, string>();
   /** Sockets a person opened. The runner's service channel and token-opened sockets stay out. */
@@ -281,6 +291,7 @@ export function createHub(
     participantSockets.delete(socket);
     practiceSockets.delete(socket);
     socketSessions.delete(socket);
+    socketUsers.delete(socket);
     socketSeats.delete(socket);
     if (wasPerson) options.onPersonDisconnected?.();
     if (wasService) notifyServicePresence();
@@ -550,6 +561,7 @@ export function createHub(
     if (authorization?.sessionTokenHash !== undefined) {
       socketSessions.set(socket, authorization.sessionTokenHash);
     }
+    if (authorization?.userId !== undefined) socketUsers.set(socket, authorization.userId);
     // The runner opens both the service channel and token-authorized role/screen sockets; neither
     // is a person, so only the rest affect the VM's people count.
     if (audience.kind !== 'service' && authorization?.runner !== true) {
@@ -702,6 +714,11 @@ export function createHub(
         if (session === sessionTokenHash) revokeSocket(socket, 4001, 'Signed in again elsewhere');
       }
     },
+    endUser(userId) {
+      for (const [socket, owner] of [...socketUsers]) {
+        if (owner === userId) revokeSocket(socket, 4001, 'You are no longer a member of this workspace');
+      }
+    },
     handleUpgrade(request, socket, head) {
       wss.handleUpgrade(request, socket, head, (websocket) => {
         wss.emit('connection', websocket, request);
@@ -719,6 +736,7 @@ export function createHub(
       participantSockets.clear();
       practiceSockets.clear();
       socketSessions.clear();
+      socketUsers.clear();
       socketSeats.clear();
       revokedSessions.clear();
       serviceHandlers.clear();

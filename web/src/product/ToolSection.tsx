@@ -63,20 +63,23 @@ const TOOLS: ToolSpec[] = [
   {
     kind: 'email',
     label: 'Email',
+    tokenLabel: 'Password',
     fields: [
       { name: 'smtpHost', label: 'SMTP host' },
       { name: 'smtpPort', label: 'SMTP port', type: 'number' },
       { name: 'from', label: 'From address' },
       { name: 'mailpitUrl', label: 'Mailbox URL' },
+      { name: 'user', label: 'Username', optional: true },
     ],
   },
   {
     kind: 'calendar',
     label: 'Calendar',
+    tokenLabel: 'Password',
     fields: [
       { name: 'caldavUrl', label: 'CalDAV URL' },
       { name: 'viewBaseUrl', label: 'View base URL', optional: true },
-      { name: 'user', label: 'User', optional: true },
+      { name: 'user', label: 'Username', optional: true },
       { name: 'calendar', label: 'Calendar', optional: true },
     ],
   },
@@ -280,7 +283,11 @@ function ToolRow({
                 onChange={(event) => setToken(event.target.value)}
               />
               {connected ? (
-                <span className="product-field-hint">Leave blank to keep the saved token.</span>
+                <span className="product-field-hint">
+                  {tool?.hasSecret === true
+                    ? `Leave blank to keep the saved ${(spec.tokenLabel ?? 'secret').toLowerCase()}.`
+                    : `No ${(spec.tokenLabel ?? 'secret').toLowerCase()} is saved yet.`}
+                </span>
               ) : null}
             </label>
           )}

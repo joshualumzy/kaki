@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
 import type { PoolClient } from 'pg';
 
 /** Who a session belongs to. */
@@ -53,6 +53,36 @@ export interface WorkspaceMember {
   name: string | null;
   email: string;
   role: WorkspaceRole;
+}
+
+/** The one reusable invite link a team workspace has. */
+export interface WorkspaceInvite {
+  workspaceId: string;
+  token: string;
+  createdBy: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/** Why a workspace membership change was refused. */
+export type WorkspaceMemberProblem = 'last-admin';
+
+/** A workspace change that cannot be made; the route turns this into a clear refusal. */
+export class WorkspaceMemberError extends Error {
+  constructor(
+    readonly problem: WorkspaceMemberProblem,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'WorkspaceMemberError';
+  }
+}
+
+/** Compare an invite token without leaking its content through timing. */
+function sameToken(given: string, stored: string): boolean {
+  const a = Buffer.from(given);
+  const b = Buffer.from(stored);
+  return a.length === b.length && timingSafeEqual(a, b);
 }
 
 /** One role's seat holder in one meeting generation, whoever they are. */
@@ -114,6 +144,48 @@ export interface AuthStore {
     userId: string;
     role: WorkspaceRole;
   }): Promise<void>;
+  /** The workspace's invite link, or undefined before an admin has viewed or reset it. */
+  getWorkspaceInvite(workspaceId: string): Promise<WorkspaceInvite | undefined>;
+  /** Return the workspace's invite, creating the first one; a link is never silently rotated. */
+  ensureWorkspaceInvite(input: {
+    workspaceId: string;
+    token: string;
+    createdBy: string;
+  }): Promise<WorkspaceInvite>;
+  /** Create the invite link, or replace the old one so it stops admitting people at once. */
+  saveWorkspaceInvite(input: {
+    workspaceId: string;
+    token: string;
+    createdBy: string;
+  }): Promise<WorkspaceInvite>;
+  /**
+   * Add the account as a member of the team workspace this token belongs to. An existing member
+   * keeps their role, so opening the link never changes an admin into a member. Undefined when the
+   * token is unknown, or belongs to a workspace that is not a team.
+   */
+  joinWorkspaceByInvite(input: {
+    token: string;
+    userId: string;
+  }): Promise<WorkspaceMembership | undefined>;
+  /**
+   * Remove one member. Returns their old role; undefined when they were not a member. Refuses to
+   * remove the workspace's last admin.
+   */
+  removeWorkspaceMember(input: {
+    workspaceId: string;
+    userId: string;
+  }): Promise<WorkspaceRole | undefined>;
+  /**
+   * Change one member's role. Returns the new role; undefined when they were not a member. Refuses
+   * to demote the workspace's last admin.
+   */
+  setWorkspaceMemberRole(input: {
+    workspaceId: string;
+    userId: string;
+    role: WorkspaceRole;
+  }): Promise<WorkspaceRole | undefined>;
+  /** Delete every session this account holds; returns the token hashes so their sockets can close. */
+  deleteSessionsForUser(userId: string): Promise<string[]>;
   renameWorkspace(input: { id: string; name: string }): Promise<WorkspaceRecord | undefined>;
 
   /**
@@ -137,7 +209,10 @@ export function createMemoryAuthStore(now: () => number = Date.now): AuthStore {
   const seats = new Map<string, SeatClaim & { expiresAt: number }>();
   const workspaces = new Map<string, WorkspaceRecord>();
   const members = new Map<string, Map<string, WorkspaceRole>>();
+  const invites = new Map<string, WorkspaceInvite>();
   const seatKey = (meetingId: string, role: string): string => `${meetingId}\u0000${role}`;
+  const countAdmins = (roles: Map<string, WorkspaceRole>): number =>
+    [...roles.values()].filter((role) => role === 'admin').length;
 
   function rememberUser(user: UserRecord): UserRecord {
     usersById.set(user.id, user);
@@ -351,6 +426,89 @@ export function createMemoryAuthStore(now: () => number = Date.now): AuthStore {
       if (roles === undefined) throw new Error('That workspace does not exist.');
       roles.set(userId, role);
     },
+    async getWorkspaceInvite(workspaceId) {
+      const invite = invites.get(workspaceId);
+      return invite === undefined ? undefined : { ...invite };
+    },
+    async ensureWorkspaceInvite({ workspaceId, token, createdBy }) {
+      const existing = invites.get(workspaceId);
+      if (existing !== undefined) return { ...existing };
+      const at = new Date(now());
+      const invite: WorkspaceInvite = {
+        workspaceId,
+        token,
+        createdBy,
+        createdAt: at,
+        updatedAt: at,
+      };
+      invites.set(workspaceId, invite);
+      return { ...invite };
+    },
+    async saveWorkspaceInvite({ workspaceId, token, createdBy }) {
+      const previous = invites.get(workspaceId);
+      const at = new Date(now());
+      const invite: WorkspaceInvite = {
+        workspaceId,
+        token,
+        createdBy,
+        createdAt: previous?.createdAt ?? at,
+        updatedAt: at,
+      };
+      invites.set(workspaceId, invite);
+      return { ...invite };
+    },
+    async joinWorkspaceByInvite({ token, userId }) {
+      for (const [workspaceId, invite] of invites) {
+        if (!sameToken(token, invite.token)) continue;
+        const workspace = workspaces.get(workspaceId);
+        if (workspace === undefined || workspace.kind !== 'team') return undefined;
+        const roles = members.get(workspaceId);
+        if (roles === undefined) return undefined;
+        // Never downgrade an existing admin; only add someone who is not a member yet.
+        const role = roles.get(userId) ?? 'member';
+        roles.set(userId, role);
+        return { workspace: { ...workspace }, role };
+      }
+      return undefined;
+    },
+    async removeWorkspaceMember({ workspaceId, userId }) {
+      const roles = members.get(workspaceId);
+      const role = roles?.get(userId);
+      if (roles === undefined || role === undefined) return undefined;
+      if (role === 'admin' && countAdmins(roles) <= 1) {
+        throw new WorkspaceMemberError(
+          'last-admin',
+          'A workspace needs at least one admin. Make someone else an admin first.',
+        );
+      }
+      roles.delete(userId);
+      return role;
+    },
+    async setWorkspaceMemberRole({ workspaceId, userId, role }) {
+      const roles = members.get(workspaceId);
+      const current = roles?.get(userId);
+      if (roles === undefined || current === undefined) return undefined;
+      if (current === 'admin' && role === 'member' && countAdmins(roles) <= 1) {
+        throw new WorkspaceMemberError(
+          'last-admin',
+          'A workspace needs at least one admin. Make someone else an admin first.',
+        );
+      }
+      roles.set(userId, role);
+      return role;
+    },
+    async deleteSessionsForUser(userId) {
+      const hashes: string[] = [];
+      for (const [tokenHash, session] of sessions) {
+        if (session.userId === userId) hashes.push(tokenHash);
+      }
+      // No awaits below: the sessions and the seats they hold go together.
+      for (const tokenHash of hashes) sessions.delete(tokenHash);
+      for (const [key, seat] of seats) {
+        if (hashes.includes(seat.holder)) seats.delete(key);
+      }
+      return hashes;
+    },
     async renameWorkspace({ id, name }) {
       const workspace = workspaces.get(id);
       if (workspace === undefined) return undefined;
@@ -374,6 +532,7 @@ export function createMemoryAuthStore(now: () => number = Date.now): AuthStore {
       for (const workspaceId of ownedIds) {
         members.delete(workspaceId);
         workspaces.delete(workspaceId);
+        invites.delete(workspaceId);
       }
       for (const roles of members.values()) roles.delete(userId);
       const user = usersById.get(userId);
@@ -392,6 +551,7 @@ export function createMemoryAuthStore(now: () => number = Date.now): AuthStore {
       seats.clear();
       workspaces.clear();
       members.clear();
+      invites.clear();
     },
   };
 }

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import type { MeUser } from '../auth/api';
 import { Button, Card } from '../ui';
-import { deleteAccount, logout, type WorkspaceSummary } from './api';
+import { deleteAccount, logout, logoutEverywhere, type WorkspaceSummary } from './api';
 
 interface AppBarProps {
   user: MeUser;
@@ -13,6 +13,7 @@ interface AppBarProps {
 export function AppBar({ user, workspaces }: AppBarProps) {
   const [open, setOpen] = useState(false);
   const [leaving, setLeaving] = useState(false);
+  const [leavingEverywhere, setLeavingEverywhere] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [confirmText, setConfirmText] = useState('');
@@ -55,6 +56,23 @@ export function AppBar({ user, workspaces }: AppBarProps) {
       setError(signOutError instanceof Error ? signOutError.message : 'Could not sign out.');
     } finally {
       setLeaving(false);
+    }
+  }
+
+  async function signOutEverywhere(): Promise<void> {
+    if (leavingEverywhere) return;
+    setLeavingEverywhere(true);
+    setError(null);
+    try {
+      await logoutEverywhere();
+      setOpen(false);
+      navigate('/signin', { replace: true });
+    } catch (signOutError) {
+      setError(
+        signOutError instanceof Error ? signOutError.message : 'Could not sign out everywhere.',
+      );
+    } finally {
+      setLeavingEverywhere(false);
     }
   }
 
@@ -146,6 +164,15 @@ export function AppBar({ user, workspaces }: AppBarProps) {
               disabled={leaving}
             >
               {leaving ? 'Signing out…' : 'Sign out'}
+            </button>
+            <button
+              type="button"
+              className="product-menu-item"
+              role="menuitem"
+              onClick={() => void signOutEverywhere()}
+              disabled={leavingEverywhere}
+            >
+              {leavingEverywhere ? 'Signing out everywhere…' : 'Sign out everywhere'}
             </button>
             <button
               type="button"

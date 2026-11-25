@@ -360,6 +360,26 @@ export function createAuth({
     sendJson(response, 200, { ok: true });
   }
 
+  async function handleLogoutEverywhere(
+    request: IncomingMessage,
+    response: ServerResponse,
+  ): Promise<void> {
+    const session = await currentSession(request);
+    if (session !== undefined) {
+      if (session.userId === null || session.userId === undefined) {
+        // A guest or password host has no account-wide sessions; signing out this one is all there is.
+        await store.releaseSeats({ holder: session.tokenHash });
+        await store.deleteSession(session.tokenHash);
+        notifySessionEnded(session.tokenHash, 'revoked');
+      } else {
+        const hashes = await store.deleteSessionsForUser(session.userId);
+        for (const tokenHash of hashes) notifySessionEnded(tokenHash, 'revoked');
+      }
+    }
+    response.setHeader('set-cookie', clearSessionCookie(secureCookies));
+    sendJson(response, 200, { ok: true });
+  }
+
   async function handleMe(request: IncomingMessage, response: ServerResponse): Promise<void> {
     const session = await currentSession(request);
     if (session === undefined) {
@@ -572,6 +592,10 @@ export function createAuth({
       }
       if (request.method === 'POST' && path === '/api/auth/logout') {
         await handleLogout(request, response);
+        return true;
+      }
+      if (request.method === 'POST' && path === '/api/auth/logout-all') {
+        await handleLogoutEverywhere(request, response);
         return true;
       }
       if (request.method === 'GET' && path === '/api/auth/me') {

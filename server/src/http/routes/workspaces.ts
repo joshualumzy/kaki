@@ -1,8 +1,14 @@
+import { randomBytes } from 'node:crypto';
 import { isObject } from '@kaki/shared';
 import { accountUserId } from '../access';
 import { readJsonBody, sendJson } from '../http';
 import type { RouteCall } from '../routeCall';
-import type { WorkspaceMember, WorkspaceRecord } from '../../auth/store';
+import {
+  WorkspaceMemberError,
+  type WorkspaceMember,
+  type WorkspaceRecord,
+  type WorkspaceRole,
+} from '../../auth/store';
 import { SAMPLE_WORKSPACE } from '../../workspace/sample';
 import { SAMPLE_WORKSPACE_ID } from '../../workspace/constants';
 import { connectorFor, ConnectorError } from '../../workspace/connector';
@@ -42,6 +48,7 @@ function toolStatuses(records: WorkspaceToolRecord[]) {
     return {
       kind,
       connected: record !== undefined,
+      hasSecret: false,
       settings: record?.settings ?? {},
       lastOkAt: record?.lastOkAt ?? null,
     };
@@ -55,6 +62,57 @@ function sendSecretProblem(response: Parameters<typeof sendJson>[0], error: Secr
 
 function tokenForKindRequired(kind: WorkspaceToolKind): boolean {
   return kind === 'mattermost' || kind === 'gitea' || kind === 'wiki';
+}
+
+function settingText(settings: Record<string, unknown>, name: string): string {
+  const value = settings[name];
+  return typeof value === 'string' ? value : '';
+}
+
+/** Whether the saved secret still belongs to the address and login in these settings. */
+function savedSecretApplies(
+  kind: WorkspaceToolKind,
+  next: Record<string, unknown>,
+  saved: Record<string, unknown>,
+): boolean {
+  switch (kind) {
+    case 'email':
+      return (
+        settingText(next, 'smtpHost') === settingText(saved, 'smtpHost') &&
+        Number(next.smtpPort) === Number(saved.smtpPort) &&
+        settingText(next, 'user') === settingText(saved, 'user')
+      );
+    case 'calendar':
+      return (
+        settingText(next, 'caldavUrl') === settingText(saved, 'caldavUrl') &&
+        settingText(next, 'user') === settingText(saved, 'user')
+      );
+    default:
+      return settingText(next, 'url') === settingText(saved, 'url');
+  }
+}
+
+/** A fresh, unguessable invite token: 32 random bytes, safe in a URL. */
+function newInviteToken(): string {
+  return randomBytes(32).toString('base64url');
+}
+
+function invitePath(token: string): string {
+  return `/join-workspace/${encodeURIComponent(token)}`;
+}
+
+function workspaceRoleValue(value: unknown): WorkspaceRole | undefined {
+  return value === 'admin' || value === 'member' ? value : undefined;
+}
+
+/** Whether this member owns a meeting that is live in the workspace right now. */
+async function memberHasOpenMeeting(
+  context: RouteCall['context'],
+  workspaceId: string,
+  userId: string,
+): Promise<boolean> {
+  const rows = (await context.meetings?.list(workspaceId)) ?? [];
+  return rows.some((row) => row.status === 'open' && row.ownerUserId === userId);
 }
 
 interface ToolTestValues {
@@ -104,17 +162,8 @@ async function readToolTest(
 
   let token = typeof body.token === 'string' ? body.token : undefined;
   if (token === undefined) {
-    if (!tokenForKindRequired(kind)) {
-      token = '';
-    } else {
-      const saved = await store.get(workspaceId, kind);
-      if (saved === undefined) {
-        return { error: 'Connect this tool first, or send its token with the test.', status: 400 };
-      }
-      // The saved token only ever goes to the address it was saved for.
-      if (normalized.settings.url !== saved.settings.url) {
-        return { error: 'A new address needs its token. Enter the token again.', status: 400 };
-      }
+    const saved = await store.get(workspaceId, kind);
+    if (saved !== undefined && savedSecretApplies(kind, normalized.settings, saved.settings)) {
       try {
         token = decryptSecret(saved, parseSecretKey(env.KAKI_SECRET_KEY));
       } catch (error) {
@@ -123,6 +172,13 @@ async function readToolTest(
         }
         throw error;
       }
+    } else if (tokenForKindRequired(kind)) {
+      if (saved === undefined) {
+        return { error: 'Connect this tool first, or send its token with the test.', status: 400 };
+      }
+      return { error: 'A new address needs its token. Enter the token again.', status: 400 };
+    } else {
+      token = '';
     }
   }
   if (tokenForKindRequired(kind) && token.trim() === '') {
@@ -143,6 +199,199 @@ export async function handleWorkspaces(call: RouteCall): Promise<void> {
   const userId = accountUserId(principal);
   if (userId === undefined) {
     sendJson(response, 403, { error: 'Sign in with Google to use workspaces.' });
+    return;
+  }
+
+  const joinInviteMatch = /^\/api\/workspace-invites\/([^/]+)$/.exec(path);
+  if (joinInviteMatch !== null) {
+    if (method !== 'POST') {
+      sendJson(response, 404, { error: 'Not found' });
+      return;
+    }
+    const token = decodeURIComponent(joinInviteMatch[1] ?? '');
+    const joined = await store.joinWorkspaceByInvite({ token, userId });
+    if (joined === undefined) {
+      sendJson(response, 404, { error: 'This invite link is not valid.' });
+      return;
+    }
+    sendJson(response, 200, summary(joined.workspace, joined.role));
+    return;
+  }
+
+  const inviteMatch = /^\/api\/workspaces\/([^/]+)\/invite(?:\/(reset))?$/.exec(path);
+  if (inviteMatch !== null) {
+    const inviteWorkspaceId = decodeURIComponent(inviteMatch[1] ?? '');
+    const isReset = inviteMatch[2] === 'reset';
+    if (inviteWorkspaceId === SAMPLE_WORKSPACE_ID) {
+      sendJson(response, 403, { error: "The sample workspace has no invite link." });
+      return;
+    }
+    const membership = await store.getMembership({ workspaceId: inviteWorkspaceId, userId });
+    if (membership === undefined) {
+      sendJson(response, 404, { error: 'Workspace not found' });
+      return;
+    }
+    if (membership !== 'admin') {
+      sendJson(response, 403, { error: 'Only a workspace admin can manage the invite link.' });
+      return;
+    }
+    const workspace = await store.getWorkspace(inviteWorkspaceId);
+    if (workspace === undefined) {
+      sendJson(response, 404, { error: 'Workspace not found' });
+      return;
+    }
+    if (workspace.kind !== 'team') {
+      sendJson(response, 403, { error: 'Personal workspaces do not use invite links.' });
+      return;
+    }
+    if (method === 'GET' && !isReset) {
+      const invite = await store.ensureWorkspaceInvite({
+        workspaceId: inviteWorkspaceId,
+        token: newInviteToken(),
+        createdBy: userId,
+      });
+      sendJson(response, 200, {
+        token: invite.token,
+        path: invitePath(invite.token),
+        workspace: { id: workspace.id, name: workspace.name },
+      });
+      return;
+    }
+    if (method === 'POST' && isReset) {
+      const invite = await store.saveWorkspaceInvite({
+        workspaceId: inviteWorkspaceId,
+        token: newInviteToken(),
+        createdBy: userId,
+      });
+      sendJson(response, 200, {
+        token: invite.token,
+        path: invitePath(invite.token),
+        workspace: { id: workspace.id, name: workspace.name },
+      });
+      return;
+    }
+    sendJson(response, 404, { error: 'Not found' });
+    return;
+  }
+
+  const memberMatch = /^\/api\/workspaces\/([^/]+)\/members\/([^/]+)$/.exec(path);
+  if (memberMatch !== null) {
+    const memberWorkspaceId = decodeURIComponent(memberMatch[1] ?? '');
+    const memberId = decodeURIComponent(memberMatch[2] ?? '');
+    if (memberWorkspaceId === SAMPLE_WORKSPACE_ID) {
+      sendJson(response, 403, { error: "The sample workspace's people are built in." });
+      return;
+    }
+    const membership = await store.getMembership({ workspaceId: memberWorkspaceId, userId });
+    if (membership === undefined) {
+      sendJson(response, 404, { error: 'Workspace not found' });
+      return;
+    }
+    if (membership !== 'admin') {
+      sendJson(response, 403, { error: 'Only a workspace admin can change members.' });
+      return;
+    }
+    const targetRole = await store.getMembership({ workspaceId: memberWorkspaceId, userId: memberId });
+    if (targetRole === undefined) {
+      sendJson(response, 404, { error: 'That person is not in this workspace.' });
+      return;
+    }
+    if (method === 'DELETE') {
+      if (await memberHasOpenMeeting(context, memberWorkspaceId, memberId)) {
+        sendJson(response, 409, {
+          error:
+            'This person owns an open meeting in this workspace. End it before removing them.',
+        });
+        return;
+      }
+      try {
+        await store.removeWorkspaceMember({ workspaceId: memberWorkspaceId, userId: memberId });
+      } catch (error) {
+        if (error instanceof WorkspaceMemberError && error.problem === 'last-admin') {
+          sendJson(response, 409, {
+            error: "This is the workspace's last admin. Make someone else an admin first.",
+          });
+          return;
+        }
+        throw error;
+      }
+      // Their live sockets in this workspace's meetings go now; a reconnect re-checks membership.
+      context.registry?.endWorkspaceMember?.(memberWorkspaceId, memberId);
+      sendJson(response, 200, { ok: true });
+      return;
+    }
+    if (method === 'PATCH') {
+      const body = await readJsonBody(request, MAX_BODY_BYTES);
+      if (!body.ok) {
+        sendJson(response, body.status, { error: body.error });
+        return;
+      }
+      const role = isObject(body.value) ? workspaceRoleValue(body.value.role) : undefined;
+      if (role === undefined) {
+        sendJson(response, 400, { error: 'Choose admin or member.' });
+        return;
+      }
+      try {
+        const updated = await store.setWorkspaceMemberRole({
+          workspaceId: memberWorkspaceId,
+          userId: memberId,
+          role,
+        });
+        if (updated === undefined) {
+          sendJson(response, 404, { error: 'That person is not in this workspace.' });
+          return;
+        }
+        sendJson(response, 200, { role: updated });
+      } catch (error) {
+        if (error instanceof WorkspaceMemberError && error.problem === 'last-admin') {
+          sendJson(response, 409, {
+            error: "This is the workspace's last admin. Make someone else an admin first.",
+          });
+          return;
+        }
+        throw error;
+      }
+      return;
+    }
+    sendJson(response, 404, { error: 'Not found' });
+    return;
+  }
+
+  const leaveMatch = /^\/api\/workspaces\/([^/]+)\/leave$/.exec(path);
+  if (leaveMatch !== null) {
+    if (method !== 'POST') {
+      sendJson(response, 404, { error: 'Not found' });
+      return;
+    }
+    const leaveWorkspaceId = decodeURIComponent(leaveMatch[1] ?? '');
+    if (leaveWorkspaceId === SAMPLE_WORKSPACE_ID) {
+      sendJson(response, 403, { error: "You cannot leave the sample workspace." });
+      return;
+    }
+    const membership = await store.getMembership({ workspaceId: leaveWorkspaceId, userId });
+    if (membership === undefined) {
+      sendJson(response, 404, { error: 'Workspace not found' });
+      return;
+    }
+    if (await memberHasOpenMeeting(context, leaveWorkspaceId, userId)) {
+      sendJson(response, 409, {
+        error: 'You own an open meeting in this workspace. End it before leaving.',
+      });
+      return;
+    }
+    try {
+      await store.removeWorkspaceMember({ workspaceId: leaveWorkspaceId, userId });
+    } catch (error) {
+      if (error instanceof WorkspaceMemberError && error.problem === 'last-admin') {
+        sendJson(response, 409, {
+          error: "You are the workspace's last admin. Make someone else an admin first.",
+        });
+        return;
+      }
+      throw error;
+    }
+    context.registry?.endWorkspaceMember?.(leaveWorkspaceId, userId);
+    sendJson(response, 200, { ok: true });
     return;
   }
 
@@ -277,6 +526,7 @@ export async function handleWorkspaces(call: RouteCall): Promise<void> {
       const statuses: Array<{
         kind: WorkspaceToolKind;
         connected: boolean;
+        hasSecret: boolean;
         settings: Record<string, unknown>;
         lastOkAt: Date | null;
         error?: string;
@@ -288,7 +538,7 @@ export async function handleWorkspaces(call: RouteCall): Promise<void> {
             const record = records.find((entry) => entry.kind === status.kind);
             if (record === undefined) continue;
             try {
-              decryptSecret(record, key);
+              status.hasSecret = decryptSecret(record, key).trim() !== '';
             } catch (error) {
               if (!(error instanceof SecretKeyError)) throw error;
               status.error = error.message;
@@ -405,6 +655,7 @@ export async function handleWorkspaces(call: RouteCall): Promise<void> {
       sendJson(response, 200, {
         kind,
         connected: true,
+        hasSecret: test.token.trim() !== '',
         settings: test.settings,
         lastOkAt: now,
       });
@@ -463,6 +714,7 @@ export async function handleWorkspaces(call: RouteCall): Promise<void> {
       sendJson(response, 200, {
         id: SAMPLE_WORKSPACE.id,
         name: SAMPLE_WORKSPACE.name,
+        kind: SAMPLE_WORKSPACE.kind,
         readOnly: true,
         people: [],
         tools: [],
@@ -486,6 +738,7 @@ export async function handleWorkspaces(call: RouteCall): Promise<void> {
       return;
     }
     const people = (await store.listWorkspaceMembers(workspaceId)).map((member) => ({
+      id: member.userId,
       name: memberName(member),
       role: member.role,
     }));
@@ -508,6 +761,7 @@ export async function handleWorkspaces(call: RouteCall): Promise<void> {
     sendJson(response, 200, {
       id: workspace.id,
       name: workspace.name,
+      kind: workspace.kind,
       readOnly: false,
       people,
       tools: toolStatuses(toolRecords),

@@ -9,6 +9,7 @@ import {
 import type { ChatMessage, LlmClient } from '../services/llm';
 import type { KakiModule } from '../core/modules';
 import type { WorkspaceTools } from '../workspace/tools';
+import { basicAuthHeaders } from './basicAuth';
 import { draftString, parseDraftObject } from './draft';
 import { acceptedDecisionBlock, memorySourceBlock } from './draftGrounding';
 import { DEFAULT_PROBE_TIMEOUT_MS, probeFailed, probeFetch, probeOk, responseProblem, type ToolProbeResult } from './probe';
@@ -27,6 +28,8 @@ export interface CalendarSettings {
   /** Where this server is reached by people, e.g. http://127.0.0.1:3001 */
   viewBaseUrl: string;
   user?: string;
+  /** The CalDAV password, kept apart from the URL and never sent back to a browser. */
+  password?: string;
   calendar?: string;
 }
 
@@ -53,6 +56,10 @@ function collectionUrl({ caldavUrl, user = 'user', calendar = 'calendar' }: Cale
   return `${caldavUrl.replace(/\/+$/, '')}/${user}/${calendar}/`;
 }
 
+function calendarHeaders(settings: CalendarSettings): Record<string, string> {
+  return basicAuthHeaders(settings.user, settings.password);
+}
+
 /** A calendar read failed in a way the setup import can report as 404 (missing) or 502 (unreachable). */
 export class CalendarFetchError extends Error {
   constructor(
@@ -75,7 +82,10 @@ export async function fetchCalendarIcs(
 ): Promise<string> {
   let response: Response;
   try {
-    response = await fetchImpl(collectionUrl(settings), { signal: AbortSignal.timeout(timeoutMs) });
+    response = await fetchImpl(collectionUrl(settings), {
+      headers: calendarHeaders(settings),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
   } catch {
     throw new CalendarFetchError(502, 'The calendar server is not answering. Check that it is running, then try again.');
   }
@@ -94,7 +104,13 @@ export async function probeCalendar(
   fetchImpl: typeof fetch = fetch,
   timeoutMs = DEFAULT_PROBE_TIMEOUT_MS,
 ): Promise<ToolProbeResult> {
-  const outcome = await probeFetch(fetchImpl, collectionUrl(settings), { method: 'GET' }, 'The calendar', timeoutMs);
+  const outcome = await probeFetch(
+    fetchImpl,
+    collectionUrl(settings),
+    { method: 'GET', headers: calendarHeaders(settings) },
+    'The calendar',
+    timeoutMs,
+  );
   if (!outcome.ok) return outcome.result;
   if (!outcome.response.ok) return responseProblem(outcome.response, 'The calendar');
   const ics = await outcome.response.text().catch(() => undefined);
@@ -310,7 +326,11 @@ export async function viewEvent(
 ): Promise<EventView> {
   const plain = (status: number, body: string): EventView => ({ status, contentType: 'text/plain; charset=utf-8', body });
   if (!ID_PATTERN.test(id)) return plain(404, 'No such event');
-  const get = async (url: string): Promise<Response> => fetchImpl(url, { signal: AbortSignal.timeout(DEFAULT_TIMEOUT_MS) });
+  const get = async (url: string): Promise<Response> =>
+    fetchImpl(url, {
+      headers: calendarHeaders(settings),
+      signal: AbortSignal.timeout(DEFAULT_TIMEOUT_MS),
+    });
 
   let response: Response;
   try {
@@ -386,10 +406,22 @@ export function createCalendarModule({
     return settings;
   }
 
-  async function call(url: string, init: RequestInit, signal: AbortSignal): Promise<Response> {
+  async function call(
+    settings: CalendarSettings,
+    url: string,
+    init: RequestInit,
+    signal: AbortSignal,
+  ): Promise<Response> {
     const timeout = AbortSignal.timeout(timeoutMs);
     try {
-      return await fetchImpl(url, { ...init, signal: AbortSignal.any([timeout, signal]) });
+      return await fetchImpl(url, {
+        ...init,
+        headers: {
+          ...calendarHeaders(settings),
+          ...(init.headers as Record<string, string> | undefined),
+        },
+        signal: AbortSignal.any([timeout, signal]),
+      });
     } catch (error) {
       throw new ActionError(
         timeout.aborted
@@ -445,11 +477,12 @@ export function createCalendarModule({
 
       // Make sure the calendar exists; "already there" answers are fine, real failures show up on the PUT.
       const root = collection.replace(/[^/]+\/$/, '');
-      await call(root, { method: 'MKCOL' }, signal).catch(() => undefined);
-      await call(collection, { method: 'MKCALENDAR' }, signal).catch(() => undefined);
+      await call(settings, root, { method: 'MKCOL' }, signal).catch(() => undefined);
+      await call(settings, collection, { method: 'MKCALENDAR' }, signal).catch(() => undefined);
 
       // The file name is the task id, so a retry overwrites the same event instead of adding a second one.
       const response = await call(
+        settings,
         `${collection}${task.id}.ics`,
         { method: 'PUT', headers: { 'content-type': 'text/calendar; charset=utf-8' }, body: ics },
         signal,

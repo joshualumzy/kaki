@@ -144,6 +144,10 @@ export function settingsForRecord(
         smtpPort: Number(record.settings.smtpPort),
         from: stringSetting(record.settings, 'from'),
         mailpitUrl: stringSetting(record.settings, 'mailpitUrl'),
+        ...(stringSetting(record.settings, 'user') === ''
+          ? {}
+          : { user: stringSetting(record.settings, 'user') }),
+        ...(token === '' ? {} : { password: token }),
       };
     case 'calendar':
       return {
@@ -152,6 +156,7 @@ export function settingsForRecord(
         ...(stringSetting(record.settings, 'user') === ''
           ? {}
           : { user: stringSetting(record.settings, 'user') }),
+        ...(token === '' ? {} : { password: token }),
         ...(stringSetting(record.settings, 'calendar') === ''
           ? {}
           : { calendar: stringSetting(record.settings, 'calendar') }),

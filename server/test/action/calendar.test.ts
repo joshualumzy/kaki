@@ -99,6 +99,26 @@ describe('calendar action module', () => {
     expect(String(put?.[1]?.body)).toContain('Posted by Kaki for Ada\\, approved in Lunch service readiness.');
   });
 
+  it('sends calendar credentials as Basic auth, never in the URL', async () => {
+    const expected = `Basic ${Buffer.from('cal-user:cal-secret').toString('base64')}`;
+    const fetchImpl = vi.fn<typeof fetch>(async (url, init) => {
+      expect(String(url)).not.toContain('cal-secret');
+      expect((init?.headers as Record<string, string>).authorization).toBe(expected);
+      return new Response('', { status: init?.method === 'PUT' ? 201 : 405 });
+    });
+    const tasks = setup({
+      llm: createFakeLlm(() => reply),
+      calendar: { ...settings, user: 'cal-user', password: 'cal-secret' },
+      fetchImpl,
+    });
+    const task = startTask(tasks);
+    tasks.transition(task.id, 'CLAIMED', { mode: 'ACTION_AGENT' });
+    const ready = await waitForStatus(tasks, task.id, 'DRAFT_READY');
+    tasks.transition(ready.id, 'RUNNING');
+    await waitForStatus(tasks, ready.id, 'COMPLETED');
+    expect(fetchImpl.mock.calls.length).toBeGreaterThan(0);
+  });
+
   it('links the saved event on the server-provided public calendar base', async () => {
     const tasks = setup({
       llm: createFakeLlm(() => reply),

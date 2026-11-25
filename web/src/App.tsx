@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import { LandingPage } from './landing/LandingPage';
 import { PracticePage } from './meeting/PracticePage';
 import { JoinPage } from './product/JoinPage';
+import { JoinWorkspacePage } from './product/JoinWorkspacePage';
 import { NewMeetingPage } from './product/NewMeetingPage';
 import { RealMeetingRoom } from './product/RealMeetingRoom';
 import { SignInPage } from './product/SignInPage';
@@ -16,6 +17,7 @@ export function App() {
       <Routes>
         <Route path="/signin" element={<SignInPage />} />
         <Route path="/new" element={<NewMeetingPage />} />
+        <Route path="/join-workspace/:token" element={<JoinWorkspacePage />} />
         <Route path="/workspaces/:id" element={<WorkspacePage />} />
         <Route path="/workspaces/:id/meetings/:meetingId" element={<MeetingHistoryPage />} />
         <Route path="/m/:id/room" element={<RealMeetingRoom />} />

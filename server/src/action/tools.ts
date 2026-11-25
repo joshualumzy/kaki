@@ -1,4 +1,5 @@
 import type { ActionKind } from '@kaki/shared';
+import { urlHasCredentials } from './basicAuth';
 import { probeCalendar, type CalendarSettings } from './calendar';
 import { probeEmail, type EmailSettings, type EmailTransportFactory } from './email';
 import { probeGitea, type GiteaSettings } from './gitea';
@@ -109,11 +110,15 @@ export function emailFromEnv(env: NodeJS.ProcessEnv = process.env): EmailSetting
   if (values === undefined) return undefined;
   const smtpPort = emailPort(values.MAILPIT_SMTP_PORT);
   if (smtpPort === undefined) return undefined;
+  const user = env.MAILPIT_SMTP_USER?.trim();
+  const password = env.MAILPIT_SMTP_PASSWORD;
   return {
     smtpHost: values.MAILPIT_SMTP_HOST,
     smtpPort,
     from: values.EMAIL_FROM,
     mailpitUrl: values.MAILPIT_URL,
+    ...(user === undefined || user === '' ? {} : { user }),
+    ...(password === undefined || password === '' ? {} : { password }),
     publicUrl: publicToolUrls(env).email,
   };
 }
@@ -134,7 +139,19 @@ export function wikiFromEnv(env: NodeJS.ProcessEnv = process.env): WikiSettings 
 export function calendarFromEnv(env: NodeJS.ProcessEnv = process.env): CalendarSettings | undefined {
   const values = envFor('calendar_event', env);
   if (values === undefined) return undefined;
-  return { caldavUrl: values.CALDAV_URL, viewBaseUrl: publicToolUrls(env).calendar };
+  if (urlHasCredentials(values.CALDAV_URL)) {
+    throw new Error(
+      'kaki calendar: remove the username and password from CALDAV_URL; set CALDAV_USER and CALDAV_PASSWORD instead.',
+    );
+  }
+  const user = env.CALDAV_USER?.trim();
+  const password = env.CALDAV_PASSWORD;
+  return {
+    caldavUrl: values.CALDAV_URL,
+    viewBaseUrl: publicToolUrls(env).calendar,
+    ...(user === undefined || user === '' ? {} : { user }),
+    ...(password === undefined || password === '' ? {} : { password }),
+  };
 }
 
 /** The required setting names each unconfigured action tool is missing, keyed by kind. */

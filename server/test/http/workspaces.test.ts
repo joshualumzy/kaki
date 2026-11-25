@@ -163,8 +163,8 @@ describe('workspaces API', () => {
     expect(detail.name).toBe('Ada team');
     expect(detail.people).toEqual(
       expect.arrayContaining([
-        { name: 'Ada', role: 'admin' },
-        { name: 'Ben', role: 'member' },
+        expect.objectContaining({ name: 'Ada', role: 'admin' }),
+        expect.objectContaining({ name: 'Ben', role: 'member' }),
       ]),
     );
   });

@@ -7,6 +7,7 @@ import {
   createMemoryWorkspaceToolStore,
   createPostgresWorkspaceToolStore,
   createWorkspaceToolSource,
+  settingsForRecord,
   type WorkspaceToolRecord,
   type WorkspaceToolStore,
 } from '../../src/workspace/tools';
@@ -77,6 +78,49 @@ describe('workspace tool source', () => {
       repo: 'pos',
     });
     expect(tools.mattermost).toBeUndefined();
+  });
+
+  it('builds email and calendar credentials from their saved fields, not their URLs', () => {
+    const email = settingsForRecord(
+      {
+        workspaceId: 'workspace-real',
+        kind: 'email',
+        settings: {
+          smtpHost: 'smtp.test',
+          smtpPort: 1025,
+          from: 'kaki@test',
+          mailpitUrl: 'http://mail.test',
+          user: 'mailer',
+        },
+        secret: Buffer.from('secret'),
+        iv: Buffer.from('iv'),
+        tag: Buffer.from('tag'),
+        keyId: 'key-1',
+        connectedBy: 'user-1',
+        connectedAt: new Date(),
+        lastOkAt: null,
+      },
+      'mail-secret',
+    );
+    expect(email).toMatchObject({ user: 'mailer', password: 'mail-secret' });
+
+    const calendar = settingsForRecord(
+      {
+        workspaceId: 'workspace-real',
+        kind: 'calendar',
+        settings: { caldavUrl: 'http://cal.test', viewBaseUrl: 'http://kaki.test', user: 'cal-user' },
+        secret: Buffer.from('secret'),
+        iv: Buffer.from('iv'),
+        tag: Buffer.from('tag'),
+        keyId: 'key-1',
+        connectedBy: 'user-1',
+        connectedAt: new Date(),
+        lastOkAt: null,
+      },
+      'cal-secret',
+    );
+    expect(calendar).toMatchObject({ user: 'cal-user', password: 'cal-secret' });
+    expect(JSON.stringify(calendar)).not.toContain('cal-secret@');
   });
 
   it('gives the sample workspace the environment tools and marks it read-only', async () => {

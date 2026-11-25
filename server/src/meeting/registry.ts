@@ -113,6 +113,8 @@ export interface MeetingRegistry {
   noteEnded(id: string): void;
   /** Every open meeting, for a runner connecting (or reconnecting) to the control channel. */
   openMeetings(): OpenMeeting[];
+  /** Close one removed member's sockets in every loaded meeting of that workspace. */
+  endWorkspaceMember(workspaceId: string, userId: string): void;
   close(): Promise<void>;
 }
 
@@ -520,6 +522,13 @@ export function createMeetingRegistry(deps: MeetingRegistryDeps): MeetingRegistr
 
     openMeetings() {
       return [...loaded.values()].map(openMeeting);
+    },
+
+    endWorkspaceMember(workspaceId, userId) {
+      for (const instance of loaded.values()) {
+        if (instance.workspaceId !== workspaceId) continue;
+        instance.hub.endUser?.(userId);
+      }
     },
 
     async close() {

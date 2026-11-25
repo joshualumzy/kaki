@@ -1,14 +1,16 @@
-import { randomUUID } from 'node:crypto';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
 import type { Pool, PoolClient } from 'pg';
-import type {
-  AuthStore,
-  SessionKind,
-  SessionRecord,
-  UserRecord,
-  WorkspaceKind,
-  WorkspaceMember,
-  WorkspaceRecord,
-  WorkspaceRole,
+import {
+  WorkspaceMemberError,
+  type AuthStore,
+  type SessionKind,
+  type SessionRecord,
+  type UserRecord,
+  type WorkspaceInvite,
+  type WorkspaceKind,
+  type WorkspaceMember,
+  type WorkspaceRecord,
+  type WorkspaceRole,
 } from './store';
 
 interface UserRow {
@@ -45,6 +47,30 @@ interface MemberRow {
   name: string | null;
   email: string;
   role: string;
+}
+
+interface WorkspaceInviteRow {
+  workspace_id: string;
+  token: string;
+  created_by: string | null;
+  created_at: Date | string;
+  updated_at: Date | string;
+}
+
+function toWorkspaceInvite(row: WorkspaceInviteRow): WorkspaceInvite {
+  return {
+    workspaceId: row.workspace_id,
+    token: row.token,
+    createdBy: row.created_by,
+    createdAt: new Date(row.created_at),
+    updatedAt: new Date(row.updated_at),
+  };
+}
+
+function sameToken(given: string, stored: string): boolean {
+  const a = Buffer.from(given);
+  const b = Buffer.from(stored);
+  return a.length === b.length && timingSafeEqual(a, b);
 }
 
 const SESSION_KINDS: readonly SessionKind[] = ['host', 'participant', 'user', 'guest'];
@@ -474,6 +500,208 @@ export function createPostgresAuthStore(pool: Pool): AuthStore {
          on conflict (workspace_id, user_id) do update set role = excluded.role`,
         [workspaceId, userId, role],
       );
+    },
+
+    async getWorkspaceInvite(workspaceId) {
+      const result = await pool.query<WorkspaceInviteRow>(
+        `select workspace_id, token, created_by, created_at, updated_at
+           from workspace_invites where workspace_id = $1`,
+        [workspaceId],
+      );
+      const row = result.rows[0];
+      return row === undefined ? undefined : toWorkspaceInvite(row);
+    },
+
+    async ensureWorkspaceInvite({ workspaceId, token, createdBy }) {
+      const created = await pool.query<WorkspaceInviteRow>(
+        `insert into workspace_invites (workspace_id, token, created_by)
+         values ($1, $2, $3)
+         on conflict (workspace_id) do nothing
+         returning workspace_id, token, created_by, created_at, updated_at`,
+        [workspaceId, token, createdBy],
+      );
+      const createdRow = created.rows[0];
+      if (createdRow !== undefined) return toWorkspaceInvite(createdRow);
+      const existing = await pool.query<WorkspaceInviteRow>(
+        `select workspace_id, token, created_by, created_at, updated_at
+           from workspace_invites where workspace_id = $1`,
+        [workspaceId],
+      );
+      const row = existing.rows[0];
+      if (row === undefined) throw new Error('The workspace invite was not saved');
+      return toWorkspaceInvite(row);
+    },
+
+    async saveWorkspaceInvite({ workspaceId, token, createdBy }) {
+      const result = await pool.query<WorkspaceInviteRow>(
+        `insert into workspace_invites (workspace_id, token, created_by)
+         values ($1, $2, $3)
+         on conflict (workspace_id) do update
+           set token = excluded.token, created_by = excluded.created_by, updated_at = now()
+         returning workspace_id, token, created_by, created_at, updated_at`,
+        [workspaceId, token, createdBy],
+      );
+      const row = result.rows[0];
+      if (row === undefined) throw new Error('Postgres did not return the workspace invite');
+      return toWorkspaceInvite(row);
+    },
+
+    async joinWorkspaceByInvite({ token, userId }) {
+      const client = await pool.connect();
+      try {
+        await client.query('begin');
+        const found = await client.query<WorkspaceRow & { token: string }>(
+          `select w.id, w.name, w.kind, w.created_by, w.created_at, i.token
+             from workspace_invites i
+             join workspaces w on w.id = i.workspace_id
+            where i.token = $1 and w.kind = 'team'
+            for update of i`,
+          [token],
+        );
+        const row = found.rows[0];
+        if (row === undefined || !sameToken(token, row.token)) {
+          await client.query('rollback');
+          return undefined;
+        }
+        await client.query(
+          `insert into workspace_members (workspace_id, user_id, role)
+           values ($1, $2, 'member')
+           on conflict (workspace_id, user_id) do nothing`,
+          [row.id, userId],
+        );
+        const member = await client.query<{ role: string }>(
+          'select role from workspace_members where workspace_id = $1 and user_id = $2',
+          [row.id, userId],
+        );
+        await client.query('commit');
+        const roleRow = member.rows[0];
+        if (roleRow === undefined) throw new Error('The invite did not add a workspace member');
+        return { workspace: toWorkspace(row), role: workspaceRole(roleRow.role) };
+      } catch (error) {
+        await client.query('rollback').catch(() => undefined);
+        throw error;
+      } finally {
+        client.release();
+      }
+    },
+
+    async removeWorkspaceMember({ workspaceId, userId }) {
+      const client = await pool.connect();
+      try {
+        await client.query('begin');
+        // Lock the workspace itself, so two admins changing members at once take turns and the
+        // last-admin count cannot be read by both before either removes the other.
+        const workspace = await client.query('select id from workspaces where id = $1 for update', [
+          workspaceId,
+        ]);
+        if ((workspace.rowCount ?? 0) === 0) {
+          await client.query('rollback');
+          return undefined;
+        }
+        const current = await client.query<{ role: string }>(
+          'select role from workspace_members where workspace_id = $1 and user_id = $2',
+          [workspaceId, userId],
+        );
+        const currentRow = current.rows[0];
+        if (currentRow === undefined) {
+          await client.query('rollback');
+          return undefined;
+        }
+        const role = workspaceRole(currentRow.role);
+        if (role === 'admin') {
+          const admins = await client.query<{ count: string }>(
+            `select count(*)::text as count from workspace_members
+              where workspace_id = $1 and role = 'admin'`,
+            [workspaceId],
+          );
+          if (Number(admins.rows[0]?.count ?? '0') <= 1) {
+            throw new WorkspaceMemberError(
+              'last-admin',
+              'A workspace needs at least one admin. Make someone else an admin first.',
+            );
+          }
+        }
+        await client.query(
+          'delete from workspace_members where workspace_id = $1 and user_id = $2',
+          [workspaceId, userId],
+        );
+        await client.query('commit');
+        return role;
+      } catch (error) {
+        await client.query('rollback').catch(() => undefined);
+        throw error;
+      } finally {
+        client.release();
+      }
+    },
+
+    async setWorkspaceMemberRole({ workspaceId, userId, role }) {
+      const client = await pool.connect();
+      try {
+        await client.query('begin');
+        const workspace = await client.query('select id from workspaces where id = $1 for update', [
+          workspaceId,
+        ]);
+        if ((workspace.rowCount ?? 0) === 0) {
+          await client.query('rollback');
+          return undefined;
+        }
+        const current = await client.query<{ role: string }>(
+          'select role from workspace_members where workspace_id = $1 and user_id = $2',
+          [workspaceId, userId],
+        );
+        const currentRow = current.rows[0];
+        if (currentRow === undefined) {
+          await client.query('rollback');
+          return undefined;
+        }
+        if (workspaceRole(currentRow.role) === 'admin' && role === 'member') {
+          const admins = await client.query<{ count: string }>(
+            `select count(*)::text as count from workspace_members
+              where workspace_id = $1 and role = 'admin'`,
+            [workspaceId],
+          );
+          if (Number(admins.rows[0]?.count ?? '0') <= 1) {
+            throw new WorkspaceMemberError(
+              'last-admin',
+              'A workspace needs at least one admin. Make someone else an admin first.',
+            );
+          }
+        }
+        await client.query(
+          'update workspace_members set role = $3 where workspace_id = $1 and user_id = $2',
+          [workspaceId, userId, role],
+        );
+        await client.query('commit');
+        return role;
+      } catch (error) {
+        await client.query('rollback').catch(() => undefined);
+        throw error;
+      } finally {
+        client.release();
+      }
+    },
+
+    async deleteSessionsForUser(userId) {
+      const client = await pool.connect();
+      try {
+        await client.query('begin');
+        const deleted = await client.query<{ token_hash: string }>(
+          'delete from sessions where user_id = $1 returning token_hash',
+          [userId],
+        );
+        const hashes = deleted.rows.map((row) => row.token_hash);
+        if (hashes.length > 0) {
+          await client.query('delete from seat_claims where holder = any($1::text[])', [hashes]);
+        }
+        await client.query('commit');
+        return hashes;
+      } catch (error) {
+        await client.query('rollback').catch(() => undefined);
+        throw error;
+      } finally {
+        client.release();
+      }
     },
 
     async renameWorkspace({ id, name }) {

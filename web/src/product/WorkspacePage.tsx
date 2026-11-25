@@ -1,15 +1,21 @@
 import { ErrorText } from './ErrorText';
 import { useEffect, useState } from 'react';
-import { Link, Navigate, useParams } from 'react-router-dom';
+import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
 import { useMe } from '../auth/useMe';
 import { SIGN_IN_ENDED } from '../net/plainFailure';
 import { Button, Card } from '../ui';
 import {
   getWorkspace,
+  getWorkspaceInvite,
+  leaveWorkspace,
   listWorkspaces,
+  removeWorkspaceMember,
   renameWorkspace,
+  resetWorkspaceInvite,
+  setWorkspaceMemberRole,
   type ToolStatus,
   type WorkspaceDetail,
+  type WorkspaceInvite,
   type WorkspaceSummary,
 } from './api';
 import { AppBar } from './AppBar';
@@ -37,6 +43,7 @@ function whenText(iso: string): string {
 /** One workspace: people, counts, meetings and the tools Kaki can use there. */
 export function WorkspacePage() {
   const { id = '' } = useParams();
+  const navigate = useNavigate();
   const [authKey, setAuthKey] = useState(0);
   const auth = useMe(authKey);
   const [reloadKey, setReloadKey] = useState(0);
@@ -50,6 +57,12 @@ export function WorkspacePage() {
   const [renaming, setRenaming] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [copyNote, setCopyNote] = useState<string | null>(null);
+  const [invite, setInvite] = useState<WorkspaceInvite | null>(null);
+  const [inviteError, setInviteError] = useState<string | null>(null);
+  const [inviteNote, setInviteNote] = useState<string | null>(null);
+  const [inviteBusy, setInviteBusy] = useState<'reset' | 'copy' | null>(null);
+  const [memberError, setMemberError] = useState<string | null>(null);
+  const [memberBusy, setMemberBusy] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -82,6 +95,30 @@ export function WorkspacePage() {
       cancelled = true;
     };
   }, [id, reloadKey]);
+
+  useEffect(() => {
+    setInvite(null);
+    setInviteError(null);
+    setInviteNote(null);
+    if (detail === null || detail.readOnly || detail.kind !== 'team') return undefined;
+    const role = workspaces?.find((workspace) => workspace.id === detail.id)?.role;
+    if (role !== 'admin') return undefined;
+    let cancelled = false;
+    getWorkspaceInvite(detail.id)
+      .then((loaded) => {
+        if (!cancelled) setInvite(loaded);
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setInviteError(
+            error instanceof Error ? error.message : 'Could not load the invite link.',
+          );
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [detail, workspaces]);
 
   if (auth.status === 'loading') {
     return (
@@ -165,6 +202,109 @@ export function WorkspacePage() {
       setCopyNote('Link copied.');
     } catch {
       setCopyNote('Could not copy automatically. Select the link to copy it.');
+    }
+  }
+
+  async function copyInvite(): Promise<void> {
+    if (invite === null || inviteBusy !== null) return;
+    setInviteBusy('copy');
+    setInviteNote(null);
+    try {
+      await navigator.clipboard.writeText(
+        new URL(invite.path, window.location.origin).toString(),
+      );
+      setInviteNote('Invite link copied.');
+    } catch {
+      setInviteNote('Could not copy automatically. Select the link to copy it.');
+    } finally {
+      setInviteBusy(null);
+    }
+  }
+
+  async function resetInvite(): Promise<void> {
+    if (detail === null || inviteBusy !== null) return;
+    if (!window.confirm('Reset the invite link? The old link will stop working.')) return;
+    setInviteBusy('reset');
+    setInviteError(null);
+    setInviteNote(null);
+    try {
+      const next = await resetWorkspaceInvite(detail.id);
+      setInvite(next);
+      setInviteNote('The old invite link no longer works.');
+    } catch (error) {
+      setInviteError(error instanceof Error ? error.message : 'Could not reset the invite link.');
+    } finally {
+      setInviteBusy(null);
+    }
+  }
+
+  async function changeMemberRole(
+    person: { id: string; name: string; role: string },
+    role: 'admin' | 'member',
+  ): Promise<void> {
+    if (detail === null || memberBusy !== null || person.id === '') return;
+    setMemberBusy(person.id);
+    setMemberError(null);
+    try {
+      await setWorkspaceMemberRole(detail.id, person.id, role);
+      setDetail((current) =>
+        current === null
+          ? current
+          : {
+              ...current,
+              people: current.people.map((member) =>
+                member.id === person.id ? { ...member, role } : member,
+              ),
+            },
+      );
+      if (person.id === user?.id) {
+        setWorkspaces((current) =>
+          current === null
+            ? current
+            : current.map((workspace) =>
+                workspace.id === detail.id ? { ...workspace, role } : workspace,
+              ),
+        );
+      }
+    } catch (error) {
+      setMemberError(
+        error instanceof Error ? error.message : 'Could not change that person’s role.',
+      );
+    } finally {
+      setMemberBusy(null);
+    }
+  }
+
+  async function removeMember(person: { id: string; name: string }): Promise<void> {
+    if (detail === null || memberBusy !== null || person.id === '') return;
+    if (!window.confirm(`Remove ${person.name} from this workspace?`)) return;
+    setMemberBusy(person.id);
+    setMemberError(null);
+    try {
+      await removeWorkspaceMember(detail.id, person.id);
+      setDetail((current) =>
+        current === null
+          ? current
+          : { ...current, people: current.people.filter((member) => member.id !== person.id) },
+      );
+    } catch (error) {
+      setMemberError(error instanceof Error ? error.message : 'Could not remove that person.');
+    } finally {
+      setMemberBusy(null);
+    }
+  }
+
+  async function leaveThisWorkspace(): Promise<void> {
+    if (detail === null || memberBusy !== null) return;
+    if (!window.confirm(`Leave ${detail.name}?`)) return;
+    setMemberBusy(user?.id ?? 'leave');
+    setMemberError(null);
+    try {
+      await leaveWorkspace(detail.id);
+      navigate('/new', { replace: true });
+    } catch (error) {
+      setMemberError(error instanceof Error ? error.message : 'Could not leave the workspace.');
+      setMemberBusy(null);
     }
   }
 
@@ -290,17 +430,130 @@ export function WorkspacePage() {
                   </p>
                 ) : (
                   <ul className="product-people">
-                    {detail.people.map((person, index) => (
-                      <li key={`${person.name}-${person.role}-${index}`} className="product-person">
-                        <span className="product-avatar" aria-hidden="true">
-                          {initials(person.name)}
-                        </span>
-                        <span className="product-row-title">{person.name}</span>
-                        <span className="product-pill">{person.role}</span>
-                      </li>
-                    ))}
+                    {detail.people.map((person, index) => {
+                      const self = person.id !== '' && person.id === user?.id;
+                      const adminCount = detail.people.filter(
+                        (member) => member.role === 'admin',
+                      ).length;
+                      const lastAdmin = person.role === 'admin' && adminCount <= 1;
+                      const busy = memberBusy !== null;
+                      return (
+                        <li key={`${person.id}-${person.name}-${index}`} className="product-person">
+                          <span className="product-avatar" aria-hidden="true">
+                            {initials(person.name)}
+                          </span>
+                          <span className="product-row-title">{person.name}</span>
+                          <span className="product-pill">{person.role}</span>
+                          {detail.readOnly || person.id === '' || (!canEdit && !self) ? null : (
+                            <span className="product-person-actions">
+                              {canEdit && !self ? (
+                                <>
+                                  <button
+                                    type="button"
+                                    className="product-link"
+                                    disabled={busy || lastAdmin}
+                                    title={
+                                      lastAdmin
+                                        ? 'A workspace needs at least one admin.'
+                                        : undefined
+                                    }
+                                    onClick={() =>
+                                      void changeMemberRole(
+                                        person,
+                                        person.role === 'admin' ? 'member' : 'admin',
+                                      )
+                                    }
+                                  >
+                                    {person.role === 'admin' ? 'Make member' : 'Make admin'}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="product-link product-link-danger"
+                                    disabled={busy || lastAdmin}
+                                    onClick={() => void removeMember(person)}
+                                  >
+                                    {memberBusy === person.id ? 'Removing…' : 'Remove'}
+                                  </button>
+                                </>
+                              ) : null}
+                              {self ? (
+                                <button
+                                  type="button"
+                                  className="product-link"
+                                  disabled={busy || lastAdmin}
+                                  title={
+                                    lastAdmin
+                                      ? 'Make someone else an admin before you leave.'
+                                      : undefined
+                                  }
+                                  onClick={() => void leaveThisWorkspace()}
+                                >
+                                  {memberBusy === user?.id ? 'Leaving…' : 'Leave workspace'}
+                                </button>
+                              ) : null}
+                            </span>
+                          )}
+                        </li>
+                      );
+                    })}
                   </ul>
                 )}
+                {memberError === null ? null : (
+                  <p className="product-error" role="alert">
+                    <ErrorText text={memberError} />
+                  </p>
+                )}
+                {canEdit && detail.kind === 'team' ? (
+                  <div className="product-invite-block">
+                    <h3 className="product-section-subtitle">Invite people</h3>
+                    <p className="product-hint">
+                      Anyone signed in who opens this link joins as a member, never as an admin.
+                    </p>
+                    {inviteError === null ? null : (
+                      <p className="product-error" role="alert">
+                        <ErrorText text={inviteError} />
+                      </p>
+                    )}
+                    {invite === null ? (
+                      inviteError === null ? (
+                        <p className="product-hint" role="status">
+                          Loading the invite link…
+                        </p>
+                      ) : null
+                    ) : (
+                      <>
+                        <div className="product-invite-row">
+                          <p className="product-invite-link">
+                            <a href={invite.path}>
+                              {new URL(invite.path, window.location.origin)
+                                .toString()
+                                .replace(/^https?:\/\//, '')}
+                            </a>
+                          </p>
+                          <Button
+                            variant="ghost"
+                            onClick={() => void copyInvite()}
+                            disabled={inviteBusy !== null}
+                          >
+                            {inviteBusy === 'copy' ? 'Copying…' : 'Copy'}
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            onClick={() => void resetInvite()}
+                            disabled={inviteBusy !== null}
+                          >
+                            {inviteBusy === 'reset' ? 'Resetting…' : 'Reset link'}
+                          </Button>
+                        </div>
+                        {inviteNote === null ? null : (
+                          <p className="product-note" role="status">
+                            {inviteNote}
+                          </p>
+                        )}
+                      </>
+                    )}
+                  </div>
+                ) : null}
               </section>
 
               <section className="card product-section" aria-label="Activity">

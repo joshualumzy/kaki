@@ -55,6 +55,24 @@
   outline-offset: 2px;
 }
 
+.product-link-danger {
+  color: var(--color-danger);
+}
+
+.product-person-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.product-invite-block {
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-border);
+}
+
 .product-open {
   display: inline-flex;
   align-items: center;

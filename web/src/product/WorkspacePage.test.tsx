@@ -77,8 +77,9 @@ describe('WorkspacePage', () => {
         reply({
           id: 'ws-1',
           name: 'Team workspace',
+          kind: 'team',
           readOnly: false,
-          people: [{ name: 'Ada Lovelace', role: 'admin' }],
+          people: [{ id: 'user-1', name: 'Ada Lovelace', role: 'admin' }],
           tools: [
             { kind: 'mattermost', connected: false, settings: {}, lastOkAt: null },
             { kind: 'gitea', connected: true, settings: { url: 'https://gitea.example.com' }, lastOkAt: null },
@@ -100,6 +101,12 @@ describe('WorkspacePage', () => {
             },
           ],
           counts: { meetings: 1, todos: 2, records: 3 },
+        }),
+      'GET /api/workspaces/ws-1/invite': () =>
+        reply({
+          token: 'invite-token',
+          path: '/join-workspace/invite-token',
+          workspace: { id: 'ws-1', name: 'Team workspace' },
         }),
     });
     renderPage('ws-1');
@@ -128,11 +135,18 @@ describe('WorkspacePage', () => {
         reply({
           id: 'ws-1',
           name: 'Team workspace',
+          kind: 'team',
           readOnly: false,
-          people: [{ name: 'Ada Lovelace', role: 'admin' }],
+          people: [{ id: 'user-1', name: 'Ada Lovelace', role: 'admin' }],
           tools: [],
           meetings: [],
           counts: { meetings: 0, todos: 0, records: 0 },
+        }),
+      'GET /api/workspaces/ws-1/invite': () =>
+        reply({
+          token: 'invite-token',
+          path: '/join-workspace/invite-token',
+          workspace: { id: 'ws-1', name: 'Team workspace' },
         }),
     });
     renderPage('ws-1');
@@ -143,6 +157,43 @@ describe('WorkspacePage', () => {
     ).toBeTruthy();
     expect(screen.getByRole('link', { name: 'New meeting' }).getAttribute('href')).toBe('/new');
     expect(screen.getByText(/share its link or QR code so people can join/)).toBeTruthy();
+  });
+
+  it('shows members, their roles, and the reusable invite link to an admin', async () => {
+    installFetch({
+      'GET /api/workspaces': () => reply(workspaces),
+      'GET /api/workspaces/ws-1': () =>
+        reply({
+          id: 'ws-1',
+          name: 'Team workspace',
+          kind: 'team',
+          readOnly: false,
+          people: [
+            { id: 'user-1', name: 'Ada Lovelace', role: 'admin' },
+            { id: 'user-2', name: 'Ben Bitdiddle', role: 'member' },
+          ],
+          tools: [],
+          meetings: [],
+          counts: { meetings: 0, todos: 0, records: 0 },
+        }),
+      'GET /api/workspaces/ws-1/invite': () =>
+        reply({
+          token: 'invite-token',
+          path: '/join-workspace/invite-token',
+          workspace: { id: 'ws-1', name: 'Team workspace' },
+        }),
+    });
+    renderPage('ws-1');
+
+    expect(await screen.findByText('Invite people')).toBeTruthy();
+    expect(screen.getByText(/joins as a member, never as an admin/)).toBeTruthy();
+    expect(
+      await screen.findByRole('link', { name: /join-workspace\/invite-token/ }),
+    ).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Make admin' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Remove' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Leave workspace' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Reset link' })).toBeTruthy();
   });
 
   it('shows the sample workspace as read-only with built-in tools', async () => {

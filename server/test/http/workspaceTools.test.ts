@@ -135,6 +135,21 @@ async function giteaServer(): Promise<{ url: string }> {
   return { url: await listen(server) };
 }
 
+async function calendarServer(): Promise<{ url: string; auth: string[] }> {
+  const auth: string[] = [];
+  const server = createServer((req, res) => {
+    auth.push(String(req.headers.authorization ?? ''));
+    if (req.method === 'GET') {
+      res.setHeader('content-type', 'text/calendar; charset=utf-8');
+      res.end('BEGIN:VCALENDAR\r\nVERSION:2.0\r\nEND:VCALENDAR\r\n');
+      return;
+    }
+    res.statusCode = 405;
+    res.end();
+  });
+  return { url: await listen(server), auth };
+}
+
 async function createTeam(base: string, cookie: string): Promise<string> {
   const response = await request(base, '/api/workspaces', {
     method: 'POST',
@@ -333,6 +348,64 @@ describe('workspace tools API', () => {
       for (const spy of spies) spy.mockRestore();
     }
     expect(logged.join('\n')).not.toContain('bot-token');
+  });
+
+  it('saves a calendar password separately, never echoes it, and refuses credentials in the URL', async () => {
+    process.env.KAKI_SECRET_KEY = newKey();
+    const store = createMemoryAuthStore();
+    const workspaceTools = createMemoryWorkspaceToolStore();
+    const { base } = await buildApp(store, workspaceTools);
+    const ada = await signIn(store, 'Ada');
+    const workspaceId = await createTeam(base, ada.cookie);
+    const calendar = await calendarServer();
+    const expected = `Basic ${Buffer.from('cal-user:cal-secret').toString('base64')}`;
+
+    const saved = await request(base, `/api/workspaces/${workspaceId}/tools/calendar`, {
+      method: 'PUT',
+      cookie: ada.cookie,
+      body: {
+        settings: { caldavUrl: calendar.url, viewBaseUrl: 'http://kaki.test', user: 'cal-user' },
+        token: 'cal-secret',
+      },
+    });
+    expect(saved.status).toBe(200);
+    const savedBody = await saved.text();
+    expect(savedBody).not.toContain('cal-secret');
+    expect(JSON.parse(savedBody)).toMatchObject({
+      kind: 'calendar',
+      connected: true,
+      hasSecret: true,
+      settings: { user: 'cal-user' },
+    });
+    expect(calendar.auth).toContain(expected);
+
+    const record = await workspaceTools.get(workspaceId, 'calendar');
+    expect(record).toBeDefined();
+    expect(decryptSecret(record!, parseSecretKey(process.env.KAKI_SECRET_KEY))).toBe('cal-secret');
+
+    const listed = await request(base, `/api/workspaces/${workspaceId}/tools`, { cookie: ada.cookie });
+    const listedBody = await listed.text();
+    expect(listedBody).not.toContain('cal-secret');
+    expect(JSON.parse(listedBody)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'calendar', connected: true, hasSecret: true }),
+      ]),
+    );
+
+    const embedded = await request(base, `/api/workspaces/${workspaceId}/tools/calendar`, {
+      method: 'PUT',
+      cookie: ada.cookie,
+      body: {
+        settings: {
+          caldavUrl: `http://cal-user:cal-secret@${calendar.url.replace(/^http:\/\//, '')}`,
+          user: 'cal-user',
+        },
+        token: 'cal-secret',
+      },
+    });
+    expect(embedded.status).toBe(400);
+    expect(await embedded.text()).toContain('not in the URL');
+    expect(calendar.auth).toHaveLength(1);
   });
 
   it('refuses the sample workspace, members and non-members', async () => {

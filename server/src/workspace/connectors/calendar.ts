@@ -1,11 +1,20 @@
 import { isObject } from '@kaki/shared';
+import { credentialsInUrlMessage, urlHasCredentials } from '../../action/basicAuth';
 import { probeCalendar, type CalendarSettings } from '../../action/calendar';
 import { ConnectorError, type ToolConnector } from '../connector';
 
-function typed(settings: Record<string, unknown>): CalendarSettings {
+function typed(settings: Record<string, unknown>, password = ''): CalendarSettings {
   const caldavUrl = settings.caldavUrl;
   if (typeof caldavUrl !== 'string' || caldavUrl.trim() === '') {
     throw new ConnectorError('The calendar needs its CalDAV URL.');
+  }
+  if (urlHasCredentials(caldavUrl)) {
+    throw new ConnectorError(credentialsInUrlMessage('calendar'));
+  }
+  const user = typeof settings.user === 'string' ? settings.user.trim() : '';
+  const secret = password.trim();
+  if (secret !== '' && user === '') {
+    throw new ConnectorError('Enter the calendar username for its password.');
   }
   const viewBaseUrl =
     typeof settings.viewBaseUrl === 'string' && settings.viewBaseUrl.trim() !== ''
@@ -14,14 +23,15 @@ function typed(settings: Record<string, unknown>): CalendarSettings {
   return {
     caldavUrl: caldavUrl.trim(),
     viewBaseUrl,
-    ...(typeof settings.user === 'string' && settings.user.trim() !== '' ? { user: settings.user.trim() } : {}),
+    ...(user === '' ? {} : { user }),
+    ...(secret === '' ? {} : { password: secret }),
     ...(typeof settings.calendar === 'string' && settings.calendar.trim() !== ''
       ? { calendar: settings.calendar.trim() }
       : {}),
   };
 }
 
-/** A CalDAV calendar; it takes no token of its own. */
+/** A CalDAV calendar; its password is the saved secret, never part of its URL. */
 export const calendarConnector: ToolConnector = {
   kind: 'calendar',
   normalizeSettings(value) {
@@ -41,8 +51,8 @@ export const calendarConnector: ToolConnector = {
       return { ok: false, error: error instanceof Error ? error.message : 'Calendar settings are incomplete.' };
     }
   },
-  test(settings) {
-    return probeCalendar(typed(settings));
+  test(settings, token) {
+    return probeCalendar(typed(settings, token));
   },
   async listTargets() {
     return [];

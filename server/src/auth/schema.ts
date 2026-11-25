@@ -94,6 +94,18 @@ export async function ensureAuthSchema(pool: Pool): Promise<void> {
     )
   `);
 
+  // One reusable invite link per team workspace. The token is random and compared in constant
+  // time when someone opens it; resetting replaces the row.
+  await pool.query(`
+    create table if not exists workspace_invites (
+      workspace_id text primary key references workspaces(id) on delete cascade,
+      token text not null unique,
+      created_by text references users(id),
+      created_at timestamptz not null default now(),
+      updated_at timestamptz not null default now()
+    )
+  `);
+
   await ensureWorkspaceToolsSchema(pool);
 
   await ensureMeetingsSchema(pool);

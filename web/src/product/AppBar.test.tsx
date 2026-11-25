@@ -6,11 +6,13 @@ import { AppBar } from './AppBar';
 
 const mocks = vi.hoisted(() => ({
   logout: vi.fn(),
+  logoutEverywhere: vi.fn(),
   deleteAccount: vi.fn(),
 }));
 
 vi.mock('./api', () => ({
   logout: mocks.logout,
+  logoutEverywhere: mocks.logoutEverywhere,
   deleteAccount: mocks.deleteAccount,
 }));
 
@@ -39,8 +41,10 @@ function openDeleteDialog(): void {
 
 beforeEach(() => {
   mocks.logout.mockReset();
+  mocks.logoutEverywhere.mockReset();
   mocks.deleteAccount.mockReset();
   mocks.logout.mockResolvedValue(undefined);
+  mocks.logoutEverywhere.mockResolvedValue(undefined);
   mocks.deleteAccount.mockResolvedValue(undefined);
 });
 
@@ -107,6 +111,15 @@ describe('AppBar delete account', () => {
       'Could not delete the account. Nothing was lost — try again.',
     );
     expect(screen.getByRole('dialog', { name: 'Delete your account' })).toBeTruthy();
+  });
+
+  it('signs out every session and goes to the sign-in page', async () => {
+    renderBar();
+    fireEvent.click(screen.getByRole('button', { name: 'Ada Lovelace' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Sign out everywhere' }));
+
+    await waitFor(() => expect(mocks.logoutEverywhere).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByTestId('location').textContent).toBe('/signin'));
   });
 
   it('cancels without deleting anything', () => {

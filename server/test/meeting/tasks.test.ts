@@ -2,8 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { KakiEvent, TaskStatus } from '@kaki/shared';
 import { roleAudience } from '../../src/core/audience';
 import { CommandError } from '../../src/core/hub';
-import { TASK_UNDECIDED_ERROR } from '../../src/meeting/tasks';
+import { createTaskStore, TASK_UNDECIDED_ERROR } from '../../src/meeting/tasks';
 import { createPracticeTestApp } from '../helpers';
+import { testScenario } from '../fixtures/scenario';
 
 describe('task store change handlers', () => {
   let app: Awaited<ReturnType<typeof createPracticeTestApp>>;
@@ -305,5 +306,88 @@ describe('returning a dispatched task undecided', () => {
     app.tasks.transition(task.id, 'DISPATCHED', { assignee: 'chef' });
     expect(() => app.tasks.handleCommand({ type: 'RETURN_TASK_UNDECIDED', taskId: task.id }, roleAudience('cashier'))).toThrow(CommandError);
     expect(() => app.tasks.handleCommand({ type: 'RETURN_TASK_UNDECIDED', taskId: task.id }, { kind: 'screen' })).toThrow(CommandError);
+  });
+});
+
+describe('guest task actions', () => {
+  let app: Awaited<ReturnType<typeof createPracticeTestApp>>;
+  beforeEach(async () => {
+    app = await createPracticeTestApp();
+  });
+  afterEach(async () => {
+    await app.close();
+  });
+
+  function guestTasks() {
+    return createTaskStore({
+      hub: app.hub,
+      scenario: testScenario,
+      seatIsGuest: (role) => role === 'chef',
+    });
+  }
+
+  it('blocks running, approving and retrying a tool action, but allows manual work', () => {
+    const tasks = guestTasks();
+    const task = tasks.suggest({
+      title: 'Fix the oven',
+      context: 'Trips the fuse.',
+      suggestedAssignee: 'chef',
+      actionKind: 'gitea_issue',
+    });
+    tasks.transition(task.id, 'DISPATCHED', { assignee: 'chef' });
+
+    expect(() =>
+      tasks.handleCommand(
+        { type: 'CLAIM_TASK', taskId: task.id, mode: 'ACTION_AGENT' },
+        roleAudience('chef'),
+      ),
+    ).toThrow(/Guests can't run or approve tool actions/);
+
+    tasks.handleCommand({ type: 'CLAIM_TASK', taskId: task.id, mode: 'MANUAL' }, roleAudience('chef'));
+    expect(tasks.get(task.id)?.status).toBe('CLAIMED');
+    expect(tasks.get(task.id)?.mode).toBe('MANUAL');
+
+    tasks.transition(task.id, 'FAILED', { error: 'boom' });
+    expect(() =>
+      tasks.handleCommand({ type: 'RETRY_ACTION', taskId: task.id }, roleAudience('chef')),
+    ).toThrow(/Guests can't run or approve tool actions/);
+
+    const draft = { target: 'kopitiam/kopitiam-pos', subject: 'Fix the oven', body: 'The fuse trips.' };
+    const approval = tasks.suggest({
+      title: 'Post the rota',
+      context: 'The rota changed.',
+      suggestedAssignee: 'chef',
+      actionKind: 'gitea_issue',
+    });
+    tasks.transition(approval.id, 'DISPATCHED', { assignee: 'chef' });
+    tasks.transition(approval.id, 'CLAIMED', { mode: 'ACTION_AGENT' });
+    tasks.transition(approval.id, 'DRAFT_READY', { draft });
+    expect(() =>
+      tasks.handleCommand(
+        { type: 'APPROVE_ACTION', taskId: approval.id, draft },
+        roleAudience('chef'),
+      ),
+    ).toThrow(/Guests can't run or approve tool actions/);
+  });
+
+  it('still lets a signed-in member run the tool action', () => {
+    const tasks = createTaskStore({
+      hub: app.hub,
+      scenario: testScenario,
+      seatIsGuest: () => false,
+    });
+    const task = tasks.suggest({
+      title: 'Fix the oven',
+      context: 'Trips the fuse.',
+      suggestedAssignee: 'chef',
+      actionKind: 'gitea_issue',
+    });
+    tasks.transition(task.id, 'DISPATCHED', { assignee: 'chef' });
+    expect(() =>
+      tasks.handleCommand(
+        { type: 'CLAIM_TASK', taskId: task.id, mode: 'ACTION_AGENT' },
+        roleAudience('chef'),
+      ),
+    ).not.toThrow();
   });
 });

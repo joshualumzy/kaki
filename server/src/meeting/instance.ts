@@ -474,6 +474,8 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
    * socket. A seat's own ask always arrives over such a socket, so the map is current when read.
    */
   const seatGuests = new Map<string, boolean>();
+  /** Whether a tool action from this seat must be refused: a host is never a guest for its own meeting. */
+  const seatToolGuests = new Map<string, boolean>();
   const runnerMayUseAudience = (audience: ClientAudience): boolean => {
     const role = audienceRole(audience);
     return role !== undefined && aiVoiceRoles().has(role) && !isHumanSeat(role);
@@ -572,9 +574,19 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
             }
           }
           seatGuests.set(seat, guest);
+          // A host is the meeting's owner or a workspace admin, so they may always decide about the
+          // meeting's tool actions even when a workspace record cannot be read. A plain seat holder
+          // only may when their membership is proven.
+          seatToolGuests.set(seat, principal?.kind === 'host' ? false : guest);
+        } else if (decision.runner === true || principal?.kind === 'practice') {
+          // The AI runner and a practice visitor are not workspace guests: the runner acts for an
+          // AI colleague inside the pack, and a practice visitor never reaches real workspace data.
+          seatGuests.set(seat, false);
+          seatToolGuests.set(seat, false);
         } else {
-          // A guest principal is a guest; an unidentified or practice principal fails closed too.
+          // An unidentified principal fails closed as a guest.
           seatGuests.set(seat, true);
+          seatToolGuests.set(seat, true);
         }
       }
     }
@@ -612,7 +624,11 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
   const stopSessionEnded = auth?.onSessionEnded((sessionTokenHash, reason) => {
     if (reason === 'revoked') hub.endSession?.(sessionTokenHash);
   });
-  const tasks = createTaskStore({ hub, scenario: () => session.active() });
+  const tasks = createTaskStore({
+    hub,
+    scenario: () => session.active(),
+    seatIsGuest: (role) => seatToolGuests.get(role),
+  });
   hub.onCommand(tasks.handleCommand);
   // The ended team meeting is the owner's until the minutes are published or dismissed. Any other
   // task moving says nothing about that review, so leave the protection alone.

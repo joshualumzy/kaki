@@ -15,6 +15,8 @@ export interface WorkspaceSummary {
 export interface ToolStatus {
   kind: string;
   connected: boolean;
+  /** True when a password is saved; the password itself is never sent back. */
+  hasSecret: boolean;
   settings: Record<string, unknown>;
   lastOkAt: string | null;
   error?: string;
@@ -32,8 +34,9 @@ export interface MeetingSummary {
 export interface WorkspaceDetail {
   id: string;
   name: string;
+  kind: WorkspaceKind;
   readOnly: boolean;
-  people: Array<{ name: string; role: string }>;
+  people: Array<{ id: string; name: string; role: string }>;
   tools: ToolStatus[];
   meetings: MeetingSummary[];
   counts: { meetings: number; todos: number; records: number };
@@ -179,6 +182,7 @@ function toolStatusFrom(value: unknown): ToolStatus | undefined {
   return {
     kind: record.kind,
     connected: record.connected,
+    hasSecret: record.hasSecret === true,
     settings:
       typeof record.settings === 'object' && record.settings !== null && !Array.isArray(record.settings)
         ? (record.settings as Record<string, unknown>)
@@ -210,7 +214,7 @@ function detailFrom(body: Record<string, unknown> | null): WorkspaceDetail {
         if (typeof entry !== 'object' || entry === null) return [];
         const record = entry as Record<string, unknown>;
         return typeof record.name === 'string' && typeof record.role === 'string'
-          ? [{ name: record.name, role: record.role }]
+          ? [{ id: typeof record.id === 'string' ? record.id : '', name: record.name, role: record.role }]
           : [];
       })
     : [];
@@ -233,6 +237,11 @@ function detailFrom(body: Record<string, unknown> | null): WorkspaceDetail {
   return {
     id: body.id,
     name: body.name,
+    kind: isWorkspaceKind(body.kind)
+      ? body.kind
+      : body.readOnly === true
+        ? 'sample'
+        : 'team',
     readOnly: body.readOnly === true,
     people,
     tools,
@@ -280,6 +289,88 @@ export async function getWorkspace(id: string): Promise<WorkspaceDetail> {
     {},
   );
   return detailFrom(await readJson(response));
+}
+
+export interface WorkspaceInvite {
+  token: string;
+  path: string;
+  workspace: { id: string; name: string };
+}
+
+function inviteFrom(value: unknown): WorkspaceInvite | undefined {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  const workspace =
+    typeof record.workspace === 'object' && record.workspace !== null && !Array.isArray(record.workspace)
+      ? (record.workspace as Record<string, unknown>)
+      : undefined;
+  if (
+    typeof record.token !== 'string' ||
+    typeof record.path !== 'string' ||
+    workspace === undefined ||
+    typeof workspace.id !== 'string' ||
+    typeof workspace.name !== 'string'
+  ) {
+    return undefined;
+  }
+  return { token: record.token, path: record.path, workspace: { id: workspace.id, name: workspace.name } };
+}
+
+export async function getWorkspaceInvite(id: string): Promise<WorkspaceInvite> {
+  const response = await request(`/api/workspaces/${encodeURIComponent(id)}/invite`, {});
+  const invite = inviteFrom(await readJson(response));
+  if (invite === undefined) {
+    throw new ProductApiError('Could not load the invite link. The server sent no link.', 502);
+  }
+  return invite;
+}
+
+export async function resetWorkspaceInvite(id: string): Promise<WorkspaceInvite> {
+  const response = await request(`/api/workspaces/${encodeURIComponent(id)}/invite/reset`, {
+    method: 'POST',
+  });
+  const invite = inviteFrom(await readJson(response));
+  if (invite === undefined) {
+    throw new ProductApiError('Could not reset the invite link. The server sent no link.', 502);
+  }
+  return invite;
+}
+
+export async function joinWorkspace(token: string): Promise<WorkspaceSummary> {
+  const response = await request(`/api/workspace-invites/${encodeURIComponent(token)}`, {
+    method: 'POST',
+  });
+  const workspace = summaryFrom(await readJson(response));
+  if (workspace === undefined) {
+    throw new ProductApiError('Could not join the workspace. The server sent no workspace.', 502);
+  }
+  return workspace;
+}
+
+export async function removeWorkspaceMember(workspaceId: string, userId: string): Promise<void> {
+  await request(
+    `/api/workspaces/${encodeURIComponent(workspaceId)}/members/${encodeURIComponent(userId)}`,
+    { method: 'DELETE' },
+  );
+}
+
+export async function setWorkspaceMemberRole(
+  workspaceId: string,
+  userId: string,
+  role: 'admin' | 'member',
+): Promise<void> {
+  await request(
+    `/api/workspaces/${encodeURIComponent(workspaceId)}/members/${encodeURIComponent(userId)}`,
+    {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ role }),
+    },
+  );
+}
+
+export async function leaveWorkspace(workspaceId: string): Promise<void> {
+  await request(`/api/workspaces/${encodeURIComponent(workspaceId)}/leave`, { method: 'POST' });
 }
 
 export async function renameWorkspace(id: string, name: string): Promise<WorkspaceSummary> {
@@ -467,6 +558,10 @@ export async function joinMeeting(id: string, name?: string): Promise<{ name: st
 
 export async function logout(): Promise<void> {
   await request('/api/auth/logout', { method: 'POST' });
+}
+
+export async function logoutEverywhere(): Promise<void> {
+  await request('/api/auth/logout-all', { method: 'POST' });
 }
 
 export async function deleteAccount(confirm: string): Promise<void> {

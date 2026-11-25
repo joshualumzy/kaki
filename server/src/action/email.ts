@@ -5,6 +5,7 @@ import type SMTPTransport from 'nodemailer/lib/smtp-transport';
 import type { ChatMessage, LlmClient } from '../services/llm';
 import type { KakiModule } from '../core/modules';
 import type { WorkspaceTools } from '../workspace/tools';
+import { basicAuthHeaders } from './basicAuth';
 import { draftString, parseDraftObject } from './draft';
 import { acceptedDecisionBlock, draftSourceText, memorySourceBlock, unsupportedDraftDetails } from './draftGrounding';
 import { DEFAULT_PROBE_TIMEOUT_MS, probeFailed, probeFetch, probeOk, responseProblem, type ToolProbeResult } from './probe';
@@ -21,6 +22,10 @@ export interface EmailSettings {
   smtpPort: number;
   from: string;
   mailpitUrl: string;
+  /** The mail account's username, kept apart from its password. */
+  user?: string;
+  /** The mail password, encrypted at rest and never sent back to a browser. */
+  password?: string;
   /** Where a browser opens the inbox; absent when `mailpitUrl` is already the browser's address. */
   publicUrl?: string;
 }
@@ -114,7 +119,14 @@ function smtpOptions(settings: EmailSettings, timeoutMs: number): SMTPTransport.
     connectionTimeout: timeoutMs,
     greetingTimeout: timeoutMs,
     socketTimeout: timeoutMs,
+    ...(settings.user === undefined || settings.user === '' || settings.password === undefined
+      ? {}
+      : { auth: { user: settings.user, pass: settings.password } }),
   };
+}
+
+function mailboxHeaders(settings: EmailSettings): Record<string, string> {
+  return basicAuthHeaders(settings.user, settings.password);
 }
 
 const SENDING_SIDE = "The mail server's sending side";
@@ -137,7 +149,7 @@ async function probeMailbox(
   const outcome = await probeFetch(
     fetchImpl,
     `${baseUrl(settings)}/api/v1/messages?limit=1`,
-    { method: 'GET' },
+    { method: 'GET', headers: mailboxHeaders(settings) },
     'The mail server',
     timeoutMs,
   );
@@ -247,6 +259,7 @@ export function createEmailModule({
       const timeout = AbortSignal.timeout(timeoutMs);
       const response = await fetchImpl(`${inbox}/api/v1/search?query=message-id:${id}`, {
         method: 'GET',
+        headers: mailboxHeaders(settings),
         signal: AbortSignal.any([timeout, signal]),
       });
       if (!response.ok) return inbox;

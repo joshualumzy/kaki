@@ -124,9 +124,12 @@ function wasBeingWorkedOn(task: Task): boolean {
 export function createTaskStore({
   hub,
   scenario,
+  seatIsGuest,
 }: {
   hub: Hub;
   scenario: Scenario | (() => Scenario);
+  /** Whether the person in this role is a guest in a real meeting, for tool actions. */
+  seatIsGuest?: (role: Role) => boolean | undefined;
 }): TaskStore {
   const active = typeof scenario === 'function' ? scenario : () => scenario;
   const tasks = new Map<string, Task>();
@@ -309,6 +312,18 @@ export function createTaskStore({
     }
   }
 
+  /**
+   * A guest may tick off manual work, but may never make Kaki act on the workspace's tools: the
+   * approval is what authorises an external write, and a guest is not a workspace member.
+   */
+  function requireToolActionAllowed(sender: ClientAudience): void {
+    if (sender.kind === 'role' && seatIsGuest?.(sender.role) === true) {
+      throw new CommandError(
+        "Guests can't run or approve tool actions. Accept the task and do it yourself.",
+      );
+    }
+  }
+
   function handleCommand(command: KakiCommand, sender: ClientAudience): void {
     switch (command.type) {
       case 'DISPATCH_TASK': {
@@ -350,6 +365,7 @@ export function createTaskStore({
         const task = requireTask(command.taskId);
         requireAssignee(task, sender);
         if (command.mode === 'ACTION_AGENT') {
+          requireToolActionAllowed(sender);
           // A cached judgement that is not ready means no connected tool fits: the model decided
           // from the to-do's meaning, so there is no button to run and no kind to guess.
           if (task.fit !== undefined && task.fit.status !== 'ready') {
@@ -367,12 +383,14 @@ export function createTaskStore({
       case 'APPROVE_ACTION': {
         const task = requireTask(command.taskId);
         requireAssignee(task, sender);
+        requireToolActionAllowed(sender);
         transition(command.taskId, 'RUNNING', { draft: command.draft });
         return;
       }
       case 'RETRY_ACTION': {
         const task = requireTask(command.taskId);
         requireAssignee(task, sender);
+        requireToolActionAllowed(sender);
         const patch = command.draft === undefined ? {} : { draft: command.draft };
         // Without a draft there is nothing to post, so claim again and let the action re-draft.
         const hasDraft = command.draft !== undefined || task.draft !== undefined;

@@ -177,6 +177,78 @@ describe.skipIf(connectionString === undefined)('postgres auth store', () => {
     );
   });
 
+  it('stores one reusable invite, joins as a member, and protects the last admin', async () => {
+    const owner = await store.createGoogleUser({
+      googleSub: `google-${randomUUID()}`,
+      name: 'Owner',
+      email: `owner-${randomUUID()}@example.test`,
+    });
+    const guest = await store.createGoogleUser({
+      googleSub: `google-${randomUUID()}`,
+      name: 'Guest',
+      email: `guest-${randomUUID()}@example.test`,
+    });
+    const team = await store.createWorkspace({ name: 'Kitchen', createdBy: owner.id });
+
+    const invite = await store.saveWorkspaceInvite({
+      workspaceId: team.workspace.id,
+      token: `invite-${randomUUID()}`,
+      createdBy: owner.id,
+    });
+    expect((await store.getWorkspaceInvite(team.workspace.id))?.token).toBe(invite.token);
+    expect(
+      (
+        await store.ensureWorkspaceInvite({
+          workspaceId: team.workspace.id,
+          token: `unused-${randomUUID()}`,
+          createdBy: owner.id,
+        })
+      ).token,
+    ).toBe(invite.token);
+
+    const joined = await store.joinWorkspaceByInvite({ token: invite.token, userId: guest.id });
+    expect(joined?.role).toBe('member');
+    expect(await store.getMembership({ workspaceId: team.workspace.id, userId: guest.id })).toBe(
+      'member',
+    );
+
+    const reset = await store.saveWorkspaceInvite({
+      workspaceId: team.workspace.id,
+      token: `invite-${randomUUID()}`,
+      createdBy: owner.id,
+    });
+    expect(await store.joinWorkspaceByInvite({ token: invite.token, userId: guest.id })).toBeUndefined();
+    expect(reset.token).not.toBe(invite.token);
+
+    await expect(
+      store.removeWorkspaceMember({ workspaceId: team.workspace.id, userId: owner.id }),
+    ).rejects.toThrow(/at least one admin/);
+    expect(await store.getMembership({ workspaceId: team.workspace.id, userId: owner.id })).toBe(
+      'admin',
+    );
+
+    expect(
+      await store.setWorkspaceMemberRole({
+        workspaceId: team.workspace.id,
+        userId: guest.id,
+        role: 'admin',
+      }),
+    ).toBe('admin');
+    expect(
+      await store.setWorkspaceMemberRole({
+        workspaceId: team.workspace.id,
+        userId: owner.id,
+        role: 'member',
+      }),
+    ).toBe('member');
+    await expect(
+      store.removeWorkspaceMember({ workspaceId: team.workspace.id, userId: guest.id }),
+    ).rejects.toThrow(/at least one admin/);
+    expect(
+      await store.removeWorkspaceMember({ workspaceId: team.workspace.id, userId: owner.id }),
+    ).toBe('member');
+  });
+
   it('records a meeting status and reads it back', async () => {
     const owner = await store.createGoogleUser({
       googleSub: `google-${randomUUID()}`,
