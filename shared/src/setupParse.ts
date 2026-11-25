@@ -256,6 +256,33 @@ function readSeats(
   return { list, personCount, aiCount };
 }
 
+/** Validate a pace on its own, for a meeting created or rescheduled before it has a full setup. */
+export function parseMeetingPaceInput(
+  value: unknown,
+): { ok: true; pace: MeetingPace } | { ok: false; error: string } {
+  if (!isObject(value)) {
+    return { ok: false, error: 'Enter both pace warnings as whole seconds.' };
+  }
+  const pace: MeetingPace = { ...DEFAULT_MEETING_PACE };
+  const fields: Array<keyof MeetingPace> = ['quietCheckAfter', 'comingUpBefore'];
+  for (const field of fields) {
+    const seconds = value[field];
+    if (
+      typeof seconds !== 'number' ||
+      !Number.isInteger(seconds) ||
+      seconds < MIN_PACE_SECONDS ||
+      seconds > MAX_PACE_SECONDS
+    ) {
+      return {
+        ok: false,
+        error: `Pace warnings must be whole seconds between ${MIN_PACE_SECONDS} and ${MAX_PACE_SECONDS}.`,
+      };
+    }
+    pace[field] = seconds;
+  }
+  return { ok: true, pace };
+}
+
 function readPace(value: unknown, errors: SetupFieldError[]): MeetingPace {
   const pace: MeetingPace = { ...DEFAULT_MEETING_PACE };
   if (!isObject(value)) {

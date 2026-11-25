@@ -128,6 +128,7 @@ export default function Meeting({
   meetingId,
   practiceMeetingId,
   onNewPractice,
+  autoStart = false,
 }: {
   variant?: MeetingVariant;
   initialCode?: string;
@@ -139,6 +140,8 @@ export default function Meeting({
   signedIn?: boolean;
   /** Asks the practice page for a fresh practice meeting, without reloading the page. */
   onNewPractice?: () => void;
+  /** "Start now": the owner's real meeting starts as soon as they are in the room. */
+  autoStart?: boolean;
 }) {
   const scenario = useScenario();
   const practice = variant === 'practice';
@@ -645,6 +648,7 @@ export default function Meeting({
               onKakiBadgeChange={setKakiBadgeCount}
               {...(mediaProblem === undefined ? {} : { mediaProblem })}
               onMediaProblemCleared={() => setMediaProblem(undefined)}
+              autoStart={autoStart}
             />
           </ErrorBoundary>
           <CleanDisconnectOnUnload />

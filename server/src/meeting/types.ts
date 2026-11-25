@@ -1,3 +1,4 @@
+import type { MeetingPace } from '@kaki/shared';
 import type { AgendaItem } from './agenda';
 
 export type { AgendaItem } from './agenda';
@@ -32,10 +33,25 @@ export interface MeetingRow {
   status: MeetingStatus;
   scheduledFor: string | null;
   agenda: AgendaItem[];
+  /** The nudge timings the owner chose in setup; absent means the shipped default. */
+  pace?: MeetingPace | null;
   createdAt: string;
   endedAt: string | null;
   /** Kaki's own copy of the minutes, once the meeting has ended and they were written. */
   minutes?: MeetingMinutesArchive | null;
+}
+
+/**
+ * The state a meeting is in now. A scheduled meeting whose time has passed is open: its room can be
+ * entered and started, so it must never still be shown as scheduled.
+ */
+export function meetingStatusNow(
+  row: Pick<MeetingRow, 'status' | 'scheduledFor'>,
+  at: number = Date.now(),
+): MeetingStatus {
+  if (row.status !== 'scheduled' || row.scheduledFor === null) return row.status;
+  const when = Date.parse(row.scheduledFor);
+  return Number.isNaN(when) || when > at ? 'scheduled' : 'open';
 }
 
 /** How a meeting is opened at the runner: the practice instance runs everything, a real one listens. */

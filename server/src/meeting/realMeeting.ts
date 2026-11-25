@@ -24,7 +24,9 @@ export function realBaseScenario(
     minutes: item.minutes ?? 10,
     canWait: true,
     deadline: 'today',
-    ownerRole: REAL_BASE_ROLE,
+    // The owner is a stable account id, never a name: the same identity the person joins with.
+    ownerRole:
+      item.ownerUserId === undefined ? REAL_BASE_ROLE : userRoomIdentity(item.ownerUserId),
   }));
   // The owner chairs a real meeting, so their plain seat is the facilitator. Without that identity
   // the shared screen has no seat to speak from, and Start could never end the meeting either.

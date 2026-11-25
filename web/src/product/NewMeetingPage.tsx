@@ -1,6 +1,7 @@
 import { ErrorText } from './ErrorText';
 import { useEffect, useState, type FormEvent } from 'react';
-import { Link, Navigate } from 'react-router-dom';
+import { Link, Navigate, useNavigate } from 'react-router-dom';
+import type { MeetingPace } from '@kaki/shared';
 import { useMe } from '../auth/useMe';
 import { SIGN_IN_ENDED } from '../net/plainFailure';
 import { Button, Card } from '../ui';
@@ -8,6 +9,7 @@ import {
   agendaFromCalendar,
   createMeeting,
   createWorkspace,
+  getWorkspace,
   listWorkspaces,
   tellKaki,
   type AgendaPayload,
@@ -24,13 +26,17 @@ interface DraftAgendaItem {
   id: string;
   title: string;
   minutes: string;
+  ownerUserId?: string;
 }
 
 interface StoredDraft {
   workspaceId?: string;
   title?: string;
   agenda?: DraftAgendaItem[];
+  pace?: MeetingPace;
 }
+
+const DEFAULT_PACE: MeetingPace = { quietCheckAfter: 120, comingUpBefore: 60 };
 
 type Method = 'type' | 'calendar' | 'kaki';
 
@@ -57,14 +63,25 @@ function readDraft(): StoredDraft {
               id: item.id,
               title: item.title,
               minutes: typeof item.minutes === 'string' ? item.minutes : '',
+              ...(typeof item.ownerUserId === 'string' ? { ownerUserId: item.ownerUserId } : {}),
             },
           ];
         })
       : [];
+    const pace = record.pace;
+    let storedPace: MeetingPace | undefined;
+    if (typeof pace === 'object' && pace !== null && !Array.isArray(pace)) {
+      const quiet = (pace as Record<string, unknown>).quietCheckAfter;
+      const coming = (pace as Record<string, unknown>).comingUpBefore;
+      if (typeof quiet === 'number' && typeof coming === 'number') {
+        storedPace = { quietCheckAfter: quiet, comingUpBefore: coming };
+      }
+    }
     return {
       ...(typeof record.workspaceId === 'string' ? { workspaceId: record.workspaceId } : {}),
       ...(typeof record.title === 'string' ? { title: record.title } : {}),
       ...(agenda.length === 0 ? {} : { agenda }),
+      ...(storedPace === undefined ? {} : { pace: storedPace }),
     };
   } catch {
     return {};
@@ -96,6 +113,7 @@ function agendaRows(items: AgendaPayload[]): DraftAgendaItem[] {
     id: makeAgendaId(),
     title: item.title,
     minutes: item.minutes === undefined ? '' : String(item.minutes),
+    ...(item.ownerUserId === undefined ? {} : { ownerUserId: item.ownerUserId }),
   }));
 }
 
@@ -104,7 +122,13 @@ function agendaPayload(items: DraftAgendaItem[]): AgendaPayload[] {
     const title = item.title.trim();
     if (title === '') return [];
     const minutes = item.minutes.trim();
-    return [{ title, ...(minutes === '' ? {} : { minutes: Number(minutes) }) }];
+    return [
+      {
+        title,
+        ...(minutes === '' ? {} : { minutes: Number(minutes) }),
+        ...(item.ownerUserId === undefined ? {} : { ownerUserId: item.ownerUserId }),
+      },
+    ];
   });
 }
 
@@ -118,6 +142,7 @@ function fullLink(link: string): string {
 
 /** New meeting: only the title is required; the agenda is optional and can come three ways. */
 export function NewMeetingPage() {
+  const navigate = useNavigate();
   const [reloadKey, setReloadKey] = useState(0);
   const auth = useMe(reloadKey);
   const [initialDraft] = useState(readDraft);
@@ -126,6 +151,14 @@ export function NewMeetingPage() {
   const [selectedId, setSelectedId] = useState(initialDraft.workspaceId ?? '');
   const [title, setTitle] = useState(initialDraft.title ?? '');
   const [agenda, setAgenda] = useState<DraftAgendaItem[]>(initialDraft.agenda ?? []);
+  const [people, setPeople] = useState<Array<{ id: string; name: string }>>([]);
+  const [peopleError, setPeopleError] = useState<string | null>(null);
+  const [quietCheck, setQuietCheck] = useState(
+    String((initialDraft.pace ?? DEFAULT_PACE).quietCheckAfter),
+  );
+  const [comingUp, setComingUp] = useState(
+    String((initialDraft.pace ?? DEFAULT_PACE).comingUpBefore),
+  );
   const [method, setMethod] = useState<Method | null>(null);
   const [tellText, setTellText] = useState('');
   const [date, setDate] = useState('');
@@ -172,13 +205,50 @@ export function NewMeetingPage() {
   }, [workspaces]);
 
   useEffect(() => {
+    let cancelled = false;
+    setPeople([]);
+    setPeopleError(null);
+    if (selectedId === '') return undefined;
+    getWorkspace(selectedId)
+      .then((workspace) => {
+        if (cancelled) return;
+        const memberIds = new Set(workspace.people.map((person) => person.id));
+        setPeople(workspace.people.map((person) => ({ id: person.id, name: person.name })));
+        // Agenda owners belong to the selected workspace: never keep an id it does not contain.
+        setAgenda((current) => {
+          const next = current.map((item) =>
+            item.ownerUserId !== undefined && !memberIds.has(item.ownerUserId)
+              ? { id: item.id, title: item.title, minutes: item.minutes }
+              : item,
+          );
+          return next.some((item, index) => item !== current[index]) ? next : current;
+        });
+      })
+      .catch((peopleFailure: unknown) => {
+        if (cancelled) return;
+        setPeopleError(
+          peopleFailure instanceof Error
+            ? peopleFailure.message
+            : 'Could not load the people in this workspace.',
+        );
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedId]);
+
+  useEffect(() => {
     if (created !== null) return;
     writeDraft({
       ...(selectedId === '' ? {} : { workspaceId: selectedId }),
       title,
       ...(agenda.length === 0 ? {} : { agenda }),
+      pace: {
+        quietCheckAfter: Number(quietCheck),
+        comingUpBefore: Number(comingUp),
+      },
     });
-  }, [selectedId, title, agenda, created]);
+  }, [selectedId, title, agenda, quietCheck, comingUp, created]);
 
   if (auth.status === 'loading') {
     return (
@@ -298,6 +368,19 @@ export function NewMeetingPage() {
       setError('Choose a workspace for the meeting.');
       return;
     }
+    const quietSeconds = Number(quietCheck);
+    const comingUpSeconds = Number(comingUp);
+    if (
+      !Number.isInteger(quietSeconds) ||
+      quietSeconds < 10 ||
+      quietSeconds > 600 ||
+      !Number.isInteger(comingUpSeconds) ||
+      comingUpSeconds < 10 ||
+      comingUpSeconds > 600
+    ) {
+      setError('Pace warnings must be whole seconds between 10 and 600.');
+      return;
+    }
     let scheduledFor: string | undefined;
     if (scheduled) {
       if (date === '' || time === '') {
@@ -325,11 +408,18 @@ export function NewMeetingPage() {
         workspaceId: selected.id,
         title: title.trim(),
         ...(items.length === 0 ? {} : { agenda: items }),
+        pace: { quietCheckAfter: quietSeconds, comingUpBefore: comingUpSeconds },
         ...(scheduledFor === undefined ? {} : { scheduledFor }),
       });
       clearDraft();
+      // The meeting exists now: stop the draft writer so a late people load cannot recreate the draft.
       setCreated(meeting);
-      setCopied(null);
+      if (scheduled) {
+        setCopied(null);
+        return;
+      }
+      // Start now goes straight into the room: the meeting begins as soon as its owner is in.
+      navigate(`/m/${encodeURIComponent(meeting.id)}/room?start=1`);
     } catch (createErrorValue) {
       setError(
         createErrorValue instanceof Error ? createErrorValue.message : 'Could not create the meeting.',
@@ -352,6 +442,8 @@ export function NewMeetingPage() {
     setCreated(null);
     setTitle('');
     setAgenda([]);
+    setQuietCheck(String(DEFAULT_PACE.quietCheckAfter));
+    setComingUp(String(DEFAULT_PACE.comingUpBefore));
     setMethod(null);
     setTellText('');
     setDate('');
@@ -618,6 +710,27 @@ export function NewMeetingPage() {
                             value={item.minutes}
                             onChange={(event) => updateAgenda(item.id, { minutes: event.target.value })}
                           />
+                          {people.length === 0 ? null : (
+                            <select
+                              className="product-input product-agenda-owner"
+                              aria-label={`Owner for item ${index + 1}`}
+                              value={item.ownerUserId ?? ''}
+                              onChange={(event) =>
+                                updateAgenda(item.id, {
+                                  ...(event.target.value === ''
+                                    ? { ownerUserId: undefined }
+                                    : { ownerUserId: event.target.value }),
+                                })
+                              }
+                            >
+                              <option value="">Everyone (no owner)</option>
+                              {people.map((person) => (
+                                <option key={person.id} value={person.id}>
+                                  {person.name}
+                                </option>
+                              ))}
+                            </select>
+                          )}
                           <button
                             type="button"
                             className="product-link"
@@ -630,6 +743,45 @@ export function NewMeetingPage() {
                       ))}
                     </ol>
                   )}
+                  {peopleError === null ? null : (
+                    <p className="product-error" role="alert">
+                      <ErrorText text={peopleError} />
+                    </p>
+                  )}
+                </div>
+
+                <div className="product-field">
+                  <h2 className="product-subhead">
+                    Pace <span className="product-optional">(optional)</span>
+                  </h2>
+                  <p className="product-hint">
+                    How Kaki warns the room during each item. Leave these as they are unless you
+                    want a different rhythm.
+                  </p>
+                  <div className="product-schedule">
+                    <label className="product-field">
+                      <span>Check quiet people after (seconds into an item)</span>
+                      <input
+                        className="product-input"
+                        type="number"
+                        min={10}
+                        max={600}
+                        value={quietCheck}
+                        onChange={(event) => setQuietCheck(event.target.value)}
+                      />
+                    </label>
+                    <label className="product-field">
+                      <span>Warn the next owner (seconds before the item ends)</span>
+                      <input
+                        className="product-input"
+                        type="number"
+                        min={10}
+                        max={600}
+                        value={comingUp}
+                        onChange={(event) => setComingUp(event.target.value)}
+                      />
+                    </label>
+                  </div>
                 </div>
 
                 <aside className="product-notice" role="note">

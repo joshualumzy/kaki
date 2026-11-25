@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
 import { MeetingScopeProvider, ScenarioProvider } from '../kaki';
 import Meeting from '../meeting/room/Meeting';
 import { getMeetingInfo, type MeetingInfo } from './api';
@@ -9,6 +9,9 @@ import './product.css';
 /** The real meeting room: its own scenario, its own websocket and its own LiveKit room. */
 export function RealMeetingRoom() {
   const { id = '' } = useParams();
+  const [searchParams] = useSearchParams();
+  // "Start now" opens the room with this flag: the owner's meeting begins as soon as they are in.
+  const autoStart = searchParams.get('start') === '1';
   const [info, setInfo] = useState<MeetingInfo | null | undefined>(undefined);
 
   useEffect(() => {
@@ -52,7 +55,7 @@ export function RealMeetingRoom() {
   return (
     <MeetingScopeProvider meetingId={id}>
       <ScenarioProvider view="meeting" meetingId={id}>
-        <Meeting variant="real" meetingId={id} />
+        <Meeting variant="real" meetingId={id} autoStart={autoStart} />
       </ScenarioProvider>
     </MeetingScopeProvider>
   );

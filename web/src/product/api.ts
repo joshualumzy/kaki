@@ -1,3 +1,4 @@
+import type { MeetingPace } from '@kaki/shared';
 import { plainFailureMessage, plainServerText, SERVER_TROUBLE } from '../net/plainFailure';
 import { fetchWithTimeout } from '../net/withTimeout';
 
@@ -22,12 +23,25 @@ export interface ToolStatus {
   error?: string;
 }
 
+/** One agenda item as the meeting list and its editor show it. */
+export interface MeetingAgendaItem {
+  title: string;
+  minutes?: number;
+  ownerUserId?: string;
+}
+
 /** One meeting row on a workspace page. */
 export interface MeetingSummary {
   id: string;
   title: string;
   status: string;
   scheduledFor: string | null;
+  createdAt: string;
+  endedAt: string | null;
+  agenda: MeetingAgendaItem[];
+  pace: MeetingPace | null;
+  todoCount: number;
+  ownerUserId: string | null;
   ownerName: string | null;
 }
 
@@ -55,6 +69,8 @@ export interface MeetingInfo {
 export interface AgendaPayload {
   title: string;
   minutes?: number;
+  /** The workspace member who owns the item, by stable account id. */
+  ownerUserId?: string;
 }
 
 export interface MeetingCreated {
@@ -66,6 +82,14 @@ export interface CreateMeetingInput {
   workspaceId: string;
   title: string;
   agenda?: AgendaPayload[];
+  pace?: MeetingPace;
+  scheduledFor?: string;
+}
+
+export interface UpdateMeetingInput {
+  title?: string;
+  agenda?: AgendaPayload[];
+  pace?: MeetingPace;
   scheduledFor?: string;
 }
 
@@ -192,6 +216,37 @@ function toolStatusFrom(value: unknown): ToolStatus | undefined {
   };
 }
 
+function meetingPaceFrom(value: unknown): MeetingPace | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  if (
+    typeof record.quietCheckAfter !== 'number' ||
+    typeof record.comingUpBefore !== 'number'
+  ) {
+    return null;
+  }
+  return {
+    quietCheckAfter: record.quietCheckAfter,
+    comingUpBefore: record.comingUpBefore,
+  };
+}
+
+function meetingAgendaFrom(value: unknown): MeetingAgendaItem[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry) => {
+    if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) return [];
+    const record = entry as Record<string, unknown>;
+    if (typeof record.title !== 'string') return [];
+    return [
+      {
+        title: record.title,
+        ...(typeof record.minutes === 'number' ? { minutes: record.minutes } : {}),
+        ...(typeof record.ownerUserId === 'string' ? { ownerUserId: record.ownerUserId } : {}),
+      },
+    ];
+  });
+}
+
 function meetingSummaryFrom(value: unknown): MeetingSummary | undefined {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined;
   const record = value as Record<string, unknown>;
@@ -201,6 +256,12 @@ function meetingSummaryFrom(value: unknown): MeetingSummary | undefined {
     title: record.title,
     status: typeof record.status === 'string' ? record.status : 'open',
     scheduledFor: typeof record.scheduledFor === 'string' ? record.scheduledFor : null,
+    createdAt: typeof record.createdAt === 'string' ? record.createdAt : '',
+    endedAt: typeof record.endedAt === 'string' ? record.endedAt : null,
+    agenda: meetingAgendaFrom(record.agenda),
+    pace: meetingPaceFrom(record.pace),
+    todoCount: typeof record.todoCount === 'number' ? record.todoCount : 0,
+    ownerUserId: typeof record.ownerUserId === 'string' ? record.ownerUserId : null,
     ownerName: typeof record.ownerName === 'string' ? record.ownerName : null,
   };
 }
@@ -458,6 +519,22 @@ export async function createMeeting(input: CreateMeetingInput): Promise<MeetingC
     throw new ProductApiError('Could not create the meeting. The server sent no meeting.', 502);
   }
   return { id: body.id, link: body.link };
+}
+
+export async function updateMeeting(id: string, input: UpdateMeetingInput): Promise<void> {
+  await request(`/api/meetings/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+}
+
+export async function cancelMeeting(id: string): Promise<void> {
+  await request(`/api/meetings/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
+
+export async function endMeetingFromList(id: string): Promise<void> {
+  await request(`/api/meetings/${encodeURIComponent(id)}/end`, { method: 'POST' });
 }
 
 export async function tellKaki(text: string): Promise<{ title: string | null; agenda: AgendaPayload[] }> {

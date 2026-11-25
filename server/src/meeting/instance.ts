@@ -211,7 +211,12 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
   };
   const pickedAgenda = agendaPick ? resolveAgendaPick(fullScenario, agendaPick) : undefined;
   // The draft the setup screen starts from, rebuilt from the packaged scenario for every new meeting.
-  const defaultSetup = defaultMeetingSetup(fullScenario);
+  // A real meeting's draft also carries the pace its owner chose when the meeting was created.
+  const baseDefaultSetup = defaultMeetingSetup(fullScenario);
+  const defaultSetup =
+    meetingRow?.pace === null || meetingRow?.pace === undefined
+      ? baseDefaultSetup
+      : { ...baseDefaultSetup, pace: { ...meetingRow.pace } };
   // Validate the whole saved meeting before any part of it is applied. A started meeting keeps the
   // sealed setup it ran with, even once it has ended, so its roles are the ones tasks may name.
   const savedMeeting = persistence?.saved;
@@ -1682,9 +1687,10 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
             return { status: 409, body: { error: 'Join the meeting before pressing Start.' } };
           }
           // A real product meeting has no pack to prepare: its people are its seats, and its own
-          // title and agenda are the plan. Nobody picks a role, so the draft has nothing to seal.
+          // title and agenda are the plan. Its draft already carries the owners and pace the owner
+          // chose when creating the meeting, so it is always the configured setup, edited or not.
           const holders = session.holders();
-          const configured = session.draftTouched() ? session.draft() : undefined;
+          const configured = session.draft();
           candidate = realMeetingScenario(fullScenario, holders, configured);
           sealed = realMeetingSetup(fullScenario, holders, configured);
         } else {

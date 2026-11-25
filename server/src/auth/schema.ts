@@ -215,6 +215,7 @@ async function migrateMeetingsSchema(pool: Pool): Promise<void> {
         kind text not null default 'real',
         scheduled_for timestamptz,
         agenda jsonb,
+        pace jsonb,
         created_at timestamptz not null default now(),
         ended_at timestamptz
       )
@@ -225,6 +226,7 @@ async function migrateMeetingsSchema(pool: Pool): Promise<void> {
     await client.query('alter table meetings add column if not exists minutes_todos jsonb');
     await client.query('alter table meetings add column if not exists minutes_archived_at timestamptz');
     await client.query('alter table meetings add column if not exists agenda jsonb');
+    await client.query('alter table meetings add column if not exists pace jsonb');
     // Step-2 rows had no status; an open meeting is the truthful default for them.
     await client.query("update meetings set status = 'open' where status is null");
     await client.query("alter table meetings alter column status set default 'open'");

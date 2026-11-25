@@ -1,9 +1,10 @@
 import { randomBytes } from 'node:crypto';
-import { normalizeMeetingCode } from '@kaki/shared';
+import { normalizeMeetingCode, parseMeetingPaceInput, type MeetingPace } from '@kaki/shared';
 import type { Pool, PoolClient } from 'pg';
 import { ensureMeetingsSchema } from '../auth/schema';
 import type { MeetingPersistence } from '../persist/persistence';
 import type { MeetingInstance } from './instance';
+import { removeCalendarEventForCancelledMeeting } from './calendarEvent';
 import { agendaFromStored } from './agenda';
 import { SAMPLE_WORKSPACE_ID } from '../workspace/constants';
 import type { AgendaItem, ArchivedMeetingTodo, MeetingMinutesArchive, MeetingRow, MeetingStatus } from './types';
@@ -38,9 +39,25 @@ export interface MeetingStore {
     status?: MeetingStatus;
     scheduledFor?: string;
     agenda?: AgendaItem[];
+    pace?: MeetingPace;
   }): Promise<MeetingRow>;
   get(id: string): Promise<MeetingRow | undefined>;
   list(workspaceId: string): Promise<MeetingRow[]>;
+  /** Change a scheduled meeting's plan; undefined when the row is gone. */
+  update?(
+    id: string,
+    patch: {
+      title?: string;
+      agenda?: AgendaItem[];
+      scheduledFor?: string;
+      pace?: MeetingPace;
+    },
+  ): Promise<MeetingRow | undefined>;
+  /**
+   * Delete one meeting and everything tied to it: its saved state, seat claims and its knowledge
+   * chunk. Returns false when the row was already gone.
+   */
+  delete?(id: string): Promise<boolean>;
   /** Every meeting row this account owns, whatever its status. */
   listByOwner?(ownerUserId: string): Promise<MeetingRow[]>;
   /**
@@ -102,6 +119,23 @@ export interface MeetingRegistry {
   /** The loaded practice meeting with this id, or undefined when it is not a practice one. */
   findPractice(id: string): MeetingInstance | undefined;
   list(workspaceId: string): Promise<MeetingRow[]>;
+  /** Change a scheduled meeting's plan and drop a loaded lobby so the next opening uses it. */
+  updateScheduled(
+    id: string,
+    patch: {
+      title?: string;
+      agenda?: AgendaItem[];
+      scheduledFor?: string;
+      pace?: MeetingPace;
+    },
+  ): Promise<MeetingRow | undefined>;
+  /** Delete a cancelled meeting and everything it left behind. */
+  cancel(id: string): Promise<void>;
+  /**
+   * End an open meeting now, from outside its room: a running meeting ends normally with its
+   * minutes, a lobby that never started is torn down, and an unloaded row is simply marked ended.
+   */
+  endMeeting(id: string): Promise<'ended' | 'not-found' | 'starting'>;
   /**
    * The id of the open or scheduled real meeting whose code this is, or undefined. A loaded meeting
    * is matched on its current code; an unloaded one on the code saved with it. A meeting that was
@@ -465,6 +499,60 @@ export function createMeetingRegistry(deps: MeetingRegistryDeps): MeetingRegistr
 
     list: (workspaceId) => deps.store.list(workspaceId),
 
+    async updateScheduled(id, patch) {
+      if (deps.store.update === undefined) {
+        throw new Error('the meetings store cannot update a meeting');
+      }
+      const row = await deps.store.update(id, patch);
+      // A lobby may already be loaded (someone opened the link early). Dropping it means the next
+      // opening is built from the edited row rather than a stale plan.
+      if (row !== undefined && loaded.has(id)) await registry.unload(id);
+      return row;
+    },
+
+    async cancel(id) {
+      if (deps.store.delete === undefined) {
+        throw new Error('the meetings store cannot delete a meeting');
+      }
+      const row = await deps.store.get(id);
+      if (row === undefined) return;
+      const instance = loaded.get(id);
+      if (instance !== undefined) await registry.unload(id);
+      // Round 3 removes the calendar event here; the hook is named now so cancellation owns it.
+      await removeCalendarEventForCancelledMeeting({
+        meetingId: row.id,
+        workspaceId: row.workspaceId,
+        ownerUserId: row.ownerUserId,
+        title: row.title,
+        scheduledFor: row.scheduledFor,
+      });
+      await deps.releaseMeeting?.(id);
+      await deps.store.delete(id);
+    },
+
+    async endMeeting(id) {
+      const row = await deps.store.get(id);
+      if (row === undefined) return 'not-found';
+      const instance = loaded.get(id);
+      if (instance !== undefined) {
+        if (instance.session.phase() === 'starting') return 'starting';
+        if (instance.session.phase() === 'running' && !instance.session.abandoned()) {
+          if (instance.hub.handleServerCommand === undefined) {
+            throw new Error('this meeting cannot be ended from the list');
+          }
+          // The shared screen is the host's channel; ending this way writes the minutes like any end.
+          await instance.hub.handleServerCommand({ type: 'END_MEETING' }, { kind: 'screen' });
+        } else {
+          // A lobby that never started has no clock or minutes, so tearing the room down is its end.
+          await registry.unload(id);
+        }
+      }
+      const endedAt = new Date(now()).toISOString();
+      await deps.store.markEnded?.(id, endedAt);
+      owners.delete(id);
+      return 'ended';
+    },
+
     async endOwnedBy(userId, workspaceIds) {
       if (deps.store.listByOwner === undefined) {
         throw new Error('the meetings store cannot list an account\'s meetings');
@@ -628,6 +716,14 @@ export function createMeetingRegistry(deps: MeetingRegistryDeps): MeetingRegistr
   return registry;
 }
 
+/** A stored pace must be readable; a malformed one fails loudly rather than drifting to a default. */
+function paceFromStored(value: unknown): MeetingPace | null {
+  if (value === null || value === undefined) return null;
+  const parsed = parseMeetingPaceInput(value);
+  if (!parsed.ok) throw new Error(`kaki meetings: the stored pace is malformed: ${parsed.error}`);
+  return parsed.pace;
+}
+
 /** The Postgres-backed meeting rows, shared with sign-in's pool. */
 export function createPostgresMeetingStore(pool: Pool): MeetingStore {
   const row = (record: {
@@ -639,6 +735,7 @@ export function createPostgresMeetingStore(pool: Pool): MeetingStore {
     status: string;
     scheduled_for: Date | string | null;
     agenda: unknown;
+    pace?: unknown;
     created_at: Date | string;
     ended_at: Date | string | null;
     minutes_text?: string | null;
@@ -654,6 +751,7 @@ export function createPostgresMeetingStore(pool: Pool): MeetingStore {
       record.status === 'scheduled' || record.status === 'ended' ? record.status : 'open',
     scheduledFor: record.scheduled_for === null ? null : new Date(record.scheduled_for).toISOString(),
     agenda: agendaFromStored(record.agenda),
+    pace: paceFromStored(record.pace),
     createdAt: new Date(record.created_at).toISOString(),
     endedAt: record.ended_at === null ? null : new Date(record.ended_at).toISOString(),
     ...(record.minutes_text === null || record.minutes_text === undefined
@@ -671,7 +769,7 @@ export function createPostgresMeetingStore(pool: Pool): MeetingStore {
   });
 
   return {
-    async create({ id, workspaceId, ownerUserId, title, kind = 'real', status = 'open', scheduledFor, agenda = [] }) {
+    async create({ id, workspaceId, ownerUserId, title, kind = 'real', status = 'open', scheduledFor, agenda = [], pace }) {
       await ensureMeetingsSchema(pool);
       const client = await pool.connect();
       try {
@@ -708,11 +806,21 @@ export function createPostgresMeetingStore(pool: Pool): MeetingStore {
           }
         }
         const result = await client.query(
-          `insert into meetings (id, workspace_id, owner_user_id, title, kind, status, scheduled_for, agenda)
-           values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
-           returning id, workspace_id, owner_user_id, title, kind, status, scheduled_for, agenda, created_at, ended_at,
+          `insert into meetings (id, workspace_id, owner_user_id, title, kind, status, scheduled_for, agenda, pace)
+           values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb)
+           returning id, workspace_id, owner_user_id, title, kind, status, scheduled_for, agenda, pace, created_at, ended_at,
                      minutes_text, minutes_todos, minutes_archived_at`,
-          [id ?? newMeetingId(), workspaceId, ownerUserId, title, kind, status, scheduledFor ?? null, JSON.stringify(agenda)],
+          [
+            id ?? newMeetingId(),
+            workspaceId,
+            ownerUserId,
+            title,
+            kind,
+            status,
+            scheduledFor ?? null,
+            JSON.stringify(agenda),
+            pace === undefined ? null : JSON.stringify(pace),
+          ],
         );
         await client.query('commit');
         return row(result.rows[0]);
@@ -726,12 +834,85 @@ export function createPostgresMeetingStore(pool: Pool): MeetingStore {
     async get(id) {
       await ensureMeetingsSchema(pool);
       const result = await pool.query(
-        `select id, workspace_id, owner_user_id, title, kind, status, scheduled_for, agenda, created_at, ended_at,
+        `select id, workspace_id, owner_user_id, title, kind, status, scheduled_for, agenda, pace, created_at, ended_at,
                   minutes_text, minutes_todos, minutes_archived_at
            from meetings where id = $1`,
         [id],
       );
       return result.rows[0] === undefined ? undefined : row(result.rows[0]);
+    },
+    async update(id, patch) {
+      await ensureMeetingsSchema(pool);
+      const columns: string[] = [];
+      const values: unknown[] = [id];
+      if (patch.title !== undefined) {
+        values.push(patch.title);
+        columns.push(`title = $${values.length}`);
+      }
+      if (patch.agenda !== undefined) {
+        values.push(JSON.stringify(patch.agenda));
+        columns.push(`agenda = $${values.length}::jsonb`);
+      }
+      if (patch.pace !== undefined) {
+        values.push(JSON.stringify(patch.pace));
+        columns.push(`pace = $${values.length}::jsonb`);
+      }
+      if (patch.scheduledFor !== undefined) {
+        values.push(patch.scheduledFor);
+        columns.push(`scheduled_for = $${values.length}`);
+      }
+      if (columns.length === 0) return this.get?.(id);
+      const result = await pool.query(
+        `update meetings set ${columns.join(', ')} where id = $1
+         returning id, workspace_id, owner_user_id, title, kind, status, scheduled_for, agenda, pace, created_at, ended_at,
+                   minutes_text, minutes_todos, minutes_archived_at`,
+        values,
+      );
+      return result.rows[0] === undefined ? undefined : row(result.rows[0]);
+    },
+    async delete(id) {
+      await ensureMeetingsSchema(pool);
+      const client = await pool.connect();
+      try {
+        await client.query('begin');
+        const deleted = await client.query('delete from meetings where id = $1 returning id', [id]);
+        if ((deleted.rowCount ?? 0) === 0) {
+          await client.query('rollback');
+          return false;
+        }
+        // A deployment may hold meeting rows without every companion table yet. Delete each one
+        // that exists, so a cancel never fails halfway over a table this server never created.
+        const tables = await client.query<{
+          states: string | null;
+          claims: string | null;
+          chunks: string | null;
+        }>(
+          `select to_regclass('meeting_state')::text as states,
+                  to_regclass('seat_claims')::text as claims,
+                  to_regclass('knowledge_chunks')::text as chunks`,
+        );
+        const found = tables.rows[0];
+        if (found?.states !== null && found?.states !== undefined) {
+          await client.query('delete from meeting_state where id = $1', [id]);
+        }
+        if (found?.claims !== null && found?.claims !== undefined) {
+          await client.query('delete from seat_claims where meeting_id = $1', [id]);
+        }
+        // A cancelled meeting's minutes must not stay answerable from company records.
+        if (found?.chunks !== null && found?.chunks !== undefined) {
+          await client.query(
+            "delete from knowledge_chunks where source = 'meeting' and ref = $1",
+            [`meeting:${id}`],
+          );
+        }
+        await client.query('commit');
+        return true;
+      } catch (error) {
+        await client.query('rollback').catch(() => undefined);
+        throw error;
+      } finally {
+        client.release();
+      }
     },
     async markEnded(id, endedAt) {
       await ensureMeetingsSchema(pool);
@@ -784,7 +965,7 @@ export function createPostgresMeetingStore(pool: Pool): MeetingStore {
     async list(workspaceId) {
       await ensureMeetingsSchema(pool);
       const result = await pool.query(
-        `select id, workspace_id, owner_user_id, title, kind, status, scheduled_for, agenda, created_at, ended_at,
+        `select id, workspace_id, owner_user_id, title, kind, status, scheduled_for, agenda, pace, created_at, ended_at,
                   minutes_text, minutes_todos, minutes_archived_at
            from meetings where workspace_id = $1 order by created_at desc`,
         [workspaceId],
@@ -794,7 +975,7 @@ export function createPostgresMeetingStore(pool: Pool): MeetingStore {
     async listByOwner(ownerUserId) {
       await ensureMeetingsSchema(pool);
       const result = await pool.query(
-        `select id, workspace_id, owner_user_id, title, kind, status, scheduled_for, agenda, created_at, ended_at,
+        `select id, workspace_id, owner_user_id, title, kind, status, scheduled_for, agenda, pace, created_at, ended_at,
                   minutes_text, minutes_todos, minutes_archived_at
            from meetings where owner_user_id = $1 order by created_at asc`,
         [ownerUserId],
@@ -846,7 +1027,7 @@ export function createMemoryMeetingStore(): MeetingStore & { rows: Map<string, M
   const rows = new Map<string, MeetingRow>();
   return {
     rows,
-    async create({ id, workspaceId, ownerUserId, title, kind = 'real', status = 'open', scheduledFor, agenda = [] }) {
+    async create({ id, workspaceId, ownerUserId, title, kind = 'real', status = 'open', scheduledFor, agenda = [], pace }) {
       const meeting: MeetingRow = {
         id: id ?? newMeetingId(),
         workspaceId,
@@ -856,6 +1037,7 @@ export function createMemoryMeetingStore(): MeetingStore & { rows: Map<string, M
         status,
         scheduledFor: scheduledFor ?? null,
         agenda: [...agenda],
+        pace: pace === undefined ? null : { ...pace },
         createdAt: new Date().toISOString(),
         endedAt: null,
       };
@@ -864,6 +1046,22 @@ export function createMemoryMeetingStore(): MeetingStore & { rows: Map<string, M
     },
     async get(id) {
       return rows.get(id);
+    },
+    async update(id, patch) {
+      const meeting = rows.get(id);
+      if (meeting === undefined) return undefined;
+      const next: MeetingRow = {
+        ...meeting,
+        ...(patch.title === undefined ? {} : { title: patch.title }),
+        ...(patch.agenda === undefined ? {} : { agenda: [...patch.agenda] }),
+        ...(patch.pace === undefined ? {} : { pace: { ...patch.pace } }),
+        ...(patch.scheduledFor === undefined ? {} : { scheduledFor: patch.scheduledFor }),
+      };
+      rows.set(id, next);
+      return next;
+    },
+    async delete(id) {
+      return rows.delete(id);
     },
     async markEnded(id, endedAt) {
       const meeting = rows.get(id);

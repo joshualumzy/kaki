@@ -3,6 +3,8 @@ import { isObject } from '@kaki/shared';
 export interface AgendaItem {
   title: string;
   minutes?: number;
+  /** The workspace member who owns this item, by stable account id. */
+  ownerUserId?: string;
 }
 
 export const MAX_AGENDA_ITEMS = 20;
@@ -25,13 +27,18 @@ function hasOnlyKeys(value: Record<string, unknown>, allowed: readonly string[])
 }
 
 function agendaItemFrom(value: unknown, options: AgendaItemOptions): AgendaItem | undefined {
-  if (!isObject(value) || !hasOnlyKeys(value, ['title', 'minutes'])) return undefined;
+  if (!isObject(value) || !hasOnlyKeys(value, ['title', 'minutes', 'ownerUserId'])) return undefined;
   if (typeof value.title !== 'string') return undefined;
   const title = value.title.trim();
   if (title.length < 1 || title.length > MAX_AGENDA_TITLE_LENGTH) return undefined;
+  const rawOwner = value.ownerUserId;
+  if (rawOwner !== undefined && (typeof rawOwner !== 'string' || rawOwner.trim() === '')) {
+    return undefined;
+  }
+  const ownerUserId = typeof rawOwner === 'string' ? rawOwner.trim() : undefined;
   const rawMinutes = value.minutes;
   if (rawMinutes === undefined || (rawMinutes === null && options.nullMinutes === true)) {
-    return { title };
+    return { title, ...(ownerUserId === undefined ? {} : { ownerUserId }) };
   }
   if (
     typeof rawMinutes !== 'number' ||
@@ -41,7 +48,11 @@ function agendaItemFrom(value: unknown, options: AgendaItemOptions): AgendaItem 
   ) {
     return undefined;
   }
-  return { title, minutes: rawMinutes };
+  return {
+    title,
+    minutes: rawMinutes,
+    ...(ownerUserId === undefined ? {} : { ownerUserId }),
+  };
 }
 
 export function parseAgendaInput(value: unknown): AgendaParse {
@@ -58,8 +69,11 @@ export function parseAgendaInput(value: unknown): AgendaParse {
   return { ok: true, agenda };
 }
 
+/** A model may draft titles and minutes only; agenda owners always come from the owner's picks. */
 export function parseModelAgendaItem(value: unknown): AgendaItem | undefined {
-  return agendaItemFrom(value, { nullMinutes: true });
+  const item = agendaItemFrom(value, { nullMinutes: true });
+  if (item === undefined) return undefined;
+  return { title: item.title, ...(item.minutes === undefined ? {} : { minutes: item.minutes }) };
 }
 
 export function agendaFromStored(value: unknown): AgendaItem[] {

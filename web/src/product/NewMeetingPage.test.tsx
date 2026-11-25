@@ -48,6 +48,28 @@ function baseRoutes(overrides: Record<string, Handler> = {}): Record<string, Han
         { id: 'ws-1', name: 'My workspace', kind: 'personal', role: 'admin' },
         { id: 'sample-nanyang-kopi', name: 'Nanyang Kopi (sample)', kind: 'sample', role: 'member' },
       ]),
+    'GET /api/workspaces/ws-1': () =>
+      reply({
+        id: 'ws-1',
+        name: 'My workspace',
+        kind: 'personal',
+        readOnly: false,
+        people: [{ id: 'user-1', name: 'Ada Lovelace', role: 'admin' }],
+        tools: [],
+        meetings: [],
+        counts: { meetings: 0, todos: 0, records: 0 },
+      }),
+    'GET /api/workspaces/sample-nanyang-kopi': () =>
+      reply({
+        id: 'sample-nanyang-kopi',
+        name: 'Nanyang Kopi (sample)',
+        kind: 'sample',
+        readOnly: true,
+        people: [],
+        tools: [],
+        meetings: [],
+        counts: { meetings: 0, todos: 0, records: 0 },
+      }),
     ...overrides,
   };
 }
@@ -59,7 +81,8 @@ function renderPage(): void {
         <Route path="/new" element={<NewMeetingPage />} />
         <Route path="/signin" element={<p>sign in</p>} />
         <Route path="/practice" element={<p>practice</p>} />
-        <Route path="/m/:id" element={<p>meeting room</p>} />
+        <Route path="/m/:id/room" element={<p>meeting room</p>} />
+        <Route path="/m/:id" element={<p>meeting lobby</p>} />
         <Route path="/workspaces/:id" element={<p>workspace</p>} />
       </Routes>
     </MemoryRouter>,
@@ -91,7 +114,7 @@ afterEach(() => {
 });
 
 describe('NewMeetingPage', () => {
-  it('creates a meeting with just a title and shows the link', async () => {
+  it('starts now by going straight into the room', async () => {
     const fetchMock = installFetch(
       baseRoutes({
         'POST /api/meetings': () => reply({ id: 'mtg-1', link: '/m/mtg-1' }),
@@ -104,13 +127,14 @@ describe('NewMeetingPage', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: 'Start now' }));
 
-    expect(await screen.findByRole('link', { name: /\/m\/mtg-1/ })).toBeTruthy();
-    expect(screen.getByRole('link', { name: 'Open meeting' }).getAttribute('href')).toBe(
-      '/m/mtg-1',
-    );
+    expect(await screen.findByText('meeting room')).toBeTruthy();
     const bodies = meetingBodies(fetchMock);
     expect(bodies).toHaveLength(1);
-    expect(bodies[0]).toMatchObject({ workspaceId: 'ws-1', title: 'Weekly sync' });
+    expect(bodies[0]).toMatchObject({
+      workspaceId: 'ws-1',
+      title: 'Weekly sync',
+      pace: { quietCheckAfter: 120, comingUpBefore: 60 },
+    });
     expect(bodies[0]).not.toHaveProperty('scheduledFor');
     expect(window.localStorage.getItem(DRAFT_KEY)).toBeNull();
   });
@@ -125,6 +149,37 @@ describe('NewMeetingPage', () => {
       ),
     ).toBeTruthy();
     expect(screen.getByText(/Nanyang Kopi\s+sample is read-only and has its tools ready/)).toBeTruthy();
+  });
+
+  it('sends agenda owners by id and the chosen pace', async () => {
+    const fetchMock = installFetch(
+      baseRoutes({
+        'POST /api/meetings': () => reply({ id: 'mtg-3', link: '/m/mtg-3' }),
+      }),
+    );
+    renderPage();
+
+    fireEvent.change(await screen.findByLabelText('Meeting title'), {
+      target: { value: 'Planning' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Type it' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add an item' }));
+    fireEvent.change(screen.getByLabelText('Agenda item 1'), {
+      target: { value: 'Budget' },
+    });
+    fireEvent.change(await screen.findByLabelText('Owner for item 1'), {
+      target: { value: 'user-1' },
+    });
+    fireEvent.change(screen.getByLabelText('Check quiet people after (seconds into an item)'), {
+      target: { value: '90' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Start now' }));
+
+    await waitFor(() => expect(meetingBodies(fetchMock)).toHaveLength(1));
+    expect(meetingBodies(fetchMock)[0]).toMatchObject({
+      agenda: [{ title: 'Budget', ownerUserId: 'user-1' }],
+      pace: { quietCheckAfter: 90, comingUpBefore: 60 },
+    });
   });
 
   it('schedules for later with the browser time sent as UTC', async () => {
@@ -204,7 +259,7 @@ describe('NewMeetingPage', () => {
       target: { value: 'Nanyang sync' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Start now' }));
-    expect(await screen.findByRole('link', { name: /\/m\/mtg-sample/ })).toBeTruthy();
+    expect(await screen.findByText('meeting room')).toBeTruthy();
   });
 
   it('shows the form when the saved draft chose the sample workspace', async () => {

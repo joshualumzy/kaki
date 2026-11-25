@@ -131,6 +131,27 @@ describe('real meeting notices', () => {
     expect(fetchMock.mock.calls[0]?.[0]).toBe('/api/meetings/mtg-1/meeting/start');
   });
 
+  it('starts the meeting automatically for the owner opened with Start now', async () => {
+    mocks.isHost = true;
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+      new Response(JSON.stringify({ started: true }), { status: 200 }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    render(<RealWaitingOverlay meetingId="mtg-1" autoStart />);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('/api/meetings/mtg-1/meeting/start');
+  });
+
+  it('keeps a working Try again button when an automatic start fails', async () => {
+    mocks.isHost = true;
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('<html>', { status: 502 })));
+    render(<RealWaitingOverlay meetingId="mtg-1" autoStart />);
+
+    expect((await screen.findByRole('alert')).textContent).toBe("Couldn't start the meeting. Try again.");
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeTruthy();
+  });
+
   it('shows the server\'s busy message when a meeting cannot open', async () => {
     mocks.isHost = true;
     const fetchMock = vi.fn(async () =>

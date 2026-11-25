@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { defaultMeetingSetup } from '@kaki/shared';
-import { realBaseScenario, realMeetingScenario, realMeetingSetup } from '../../src/meeting/realMeeting';
+import { realBaseScenario, realMeetingScenario, realMeetingSetup, userRoomIdentity } from '../../src/meeting/realMeeting';
 
 const base = realBaseScenario({
   id: 'owner-test', title: 'Planning', ownerUserId: null,
@@ -12,6 +12,25 @@ const holders = [
 ];
 
 describe('real agenda owner identity', () => {
+  it('turns a member id into their stable seat, not their name', () => {
+    const row = realBaseScenario({
+      id: 'owner-test',
+      title: 'Planning',
+      ownerUserId: null,
+      agenda: [{ title: 'Budget', minutes: 5, ownerUserId: 'member-1' }],
+    });
+    expect(row.agenda[0]?.ownerRole).toBe(userRoomIdentity('member-1'));
+  });
+
+  it('seals the pace the owner chose', () => {
+    const setup = defaultMeetingSetup(base);
+    setup.pace = { quietCheckAfter: 90, comingUpBefore: 45 };
+    expect(realMeetingSetup(base, holders, setup).pace).toEqual({
+      quietCheckAfter: 90,
+      comingUpBefore: 45,
+    });
+  });
+
   it('keeps the second Raj seat through sealing and roster refresh', () => {
     const setup = defaultMeetingSetup(base);
     setup.agenda[0]!.ownerRoleId = 'person_b';

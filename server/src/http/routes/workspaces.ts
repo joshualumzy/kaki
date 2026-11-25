@@ -10,6 +10,7 @@ import {
   type WorkspaceRole,
 } from '../../auth/store';
 import { SAMPLE_WORKSPACE } from '../../workspace/sample';
+import { meetingStatusNow } from '../../meeting/types';
 import { SAMPLE_WORKSPACE_ID } from '../../workspace/constants';
 import { connectorFor, ConnectorError } from '../../workspace/connector';
 import { decryptSecret, parseSecretKey, SecretKeyError } from '../../workspace/secrets';
@@ -826,9 +827,14 @@ export async function handleWorkspaces(call: RouteCall): Promise<void> {
     const meetings = rows.map((row) => ({
       id: row.id,
       title: row.title,
-      status: row.status,
+      status: meetingStatusNow(row),
       scheduledFor: row.scheduledFor,
+      createdAt: row.createdAt,
+      endedAt: row.endedAt,
       agenda: row.agenda,
+      pace: row.pace ?? null,
+      todoCount: row.minutes?.todos.length ?? 0,
+      ownerUserId: row.ownerUserId,
       ownerName: row.ownerUserId === null ? null : (ownerNames.get(row.ownerUserId) ?? null),
     }));
     const toolRecords = (await context.workspaceTools?.list(workspaceId)) ?? [];
@@ -840,7 +846,11 @@ export async function handleWorkspaces(call: RouteCall): Promise<void> {
       people,
       tools: toolStatuses(toolRecords),
       meetings,
-      counts: { meetings: meetings.length, todos: 0, records: 0 },
+      counts: {
+        meetings: meetings.length,
+        todos: meetings.reduce((sum, meeting) => sum + meeting.todoCount, 0),
+        records: 0,
+      },
     });
     return;
   }

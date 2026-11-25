@@ -30,7 +30,15 @@ import { handlePractice } from './http/routes/practice';
 import { handleIdle } from './http/routes/idle';
 import { handleHealth } from './http/routes/meeting';
 import { handleAgendaFromCalendar, handleTellKaki } from './http/routes/agenda';
-import { handleCreateMeeting, handleMeetingByCode, handleMeetingInfo, handleMeetingJoin } from './http/routes/meetings';
+import {
+  handleCancelMeeting,
+  handleCreateMeeting,
+  handleEndMeeting,
+  handleMeetingByCode,
+  handleMeetingInfo,
+  handleMeetingJoin,
+  handleUpdateMeeting,
+} from './http/routes/meetings';
 import { handleWorkspaces } from './http/routes/workspaces';
 import { handleDeleteAccount } from './http/routes/account';
 import {
@@ -210,6 +218,9 @@ function buildServerRouteTable({ auth }: { auth: Auth | undefined }): RoutedRout
     { method: 'PUT', path: '/api/workspaces/:id/tools/:kind', access: 'user', handle: handleWorkspaces },
     { method: 'DELETE', path: '/api/workspaces/:id/tools/:kind', access: 'user', handle: handleWorkspaces },
     { method: 'POST', path: '/api/meetings', access: 'user', handle: handleCreateMeeting },
+    { method: 'PATCH', path: '/api/meetings/:id', access: 'user', handle: handleUpdateMeeting },
+    { method: 'DELETE', path: '/api/meetings/:id', access: 'user', handle: handleCancelMeeting },
+    { method: 'POST', path: '/api/meetings/:id/end', access: 'user', handle: handleEndMeeting },
     { method: 'POST', path: '/api/tell-kaki', access: 'user', handle: handleTellKaki },
     { method: 'POST', path: '/api/agenda/from-calendar', access: 'user', handle: handleAgendaFromCalendar },
     { method: 'GET', path: '/api/meetings/by-code/:code', access: 'public', handle: handleMeetingByCode },

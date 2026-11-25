@@ -58,12 +58,20 @@ export function RealRoomBanners() {
 }
 
 /** Covers the stage until the owner starts a real meeting; the owner gets the one Start button. */
-export function RealWaitingOverlay({ meetingId }: { meetingId: string }) {
+export function RealWaitingOverlay({
+  meetingId,
+  autoStart = false,
+}: {
+  meetingId: string;
+  /** "Start now": the owner's meeting starts as soon as they are in the room. */
+  autoStart?: boolean;
+}) {
   const room = useRealRoom();
   const [starting, setStarting] = useState(false);
   const [problem, setProblem] = useState<string | undefined>();
-  if (room === null || room.meetingState?.waitingForOwner !== true) return null;
-  const ownerName = room.meetingState.ownerName?.trim();
+  const autoAttempted = useRef(false);
+  const waiting = room?.meetingState?.waitingForOwner === true;
+  const isHost = room?.isHost === true;
 
   async function start(): Promise<void> {
     if (starting) return;
@@ -90,6 +98,16 @@ export function RealWaitingOverlay({ meetingId }: { meetingId: string }) {
       setStarting(false);
     }
   }
+
+  useEffect(() => {
+    // One automatic attempt only: a failure leaves the working Start button and its plain error.
+    if (!autoStart || !waiting || !isHost || autoAttempted.current) return;
+    autoAttempted.current = true;
+    void start();
+  }, [autoStart, waiting, isHost]);
+
+  if (room === null || !waiting) return null;
+  const ownerName = room.meetingState?.ownerName?.trim();
 
   return (
     <div className="kd-start" role="region" aria-label="Waiting for the meeting to start">

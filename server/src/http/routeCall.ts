@@ -81,6 +81,9 @@ export interface RequestContext {
     | 'endOwnedBy'
     | 'endWorkspaceMember'
     | 'endUser'
+    | 'updateScheduled'
+    | 'cancel'
+    | 'endMeeting'
   >;
   /** The meeting a session must belong to: a seat for meeting A resolves to nobody on B's routes. */
   authMeetingId?: string;

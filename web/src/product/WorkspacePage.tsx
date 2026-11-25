@@ -5,6 +5,8 @@ import { useMe } from '../auth/useMe';
 import { SIGN_IN_ENDED } from '../net/plainFailure';
 import { Button, Card } from '../ui';
 import {
+  cancelMeeting,
+  endMeetingFromList,
   getWorkspace,
   getWorkspaceInvite,
   leaveWorkspace,
@@ -13,6 +15,8 @@ import {
   renameWorkspace,
   resetWorkspaceInvite,
   setWorkspaceMemberRole,
+  updateMeeting,
+  type MeetingSummary,
   type ToolStatus,
   type WorkspaceDetail,
   type WorkspaceInvite,
@@ -40,6 +44,47 @@ function whenText(iso: string): string {
   return Number.isNaN(when.getTime()) ? iso : when.toLocaleString();
 }
 
+function meetingWhenText(meeting: MeetingSummary): string {
+  if (meeting.status === 'ended') {
+    return `Ended ${whenText(meeting.endedAt ?? meeting.createdAt)}`;
+  }
+  if (meeting.status === 'scheduled' && meeting.scheduledFor !== null) {
+    return `Scheduled for ${whenText(meeting.scheduledFor)}`;
+  }
+  if (meeting.scheduledFor !== null) {
+    return `Open now · was scheduled for ${whenText(meeting.scheduledFor)}`;
+  }
+  return `Open now · created ${whenText(meeting.createdAt)}`;
+}
+
+function todoText(count: number): string {
+  return `${count} ${count === 1 ? 'to-do' : 'to-dos'}`;
+}
+
+function localDate(iso: string | null): string {
+  if (iso === null) return '';
+  const when = new Date(iso);
+  if (Number.isNaN(when.getTime())) return '';
+  const month = String(when.getMonth() + 1).padStart(2, '0');
+  const day = String(when.getDate()).padStart(2, '0');
+  return `${when.getFullYear()}-${month}-${day}`;
+}
+
+function localTime(iso: string | null): string {
+  if (iso === null) return '';
+  const when = new Date(iso);
+  if (Number.isNaN(when.getTime())) return '';
+  return `${String(when.getHours()).padStart(2, '0')}:${String(when.getMinutes()).padStart(2, '0')}`;
+}
+
+interface EditableAgendaItem {
+  title: string;
+  minutes: string;
+  ownerUserId?: string;
+}
+
+type MeetingEditKind = 'edit' | 'reschedule';
+
 /** One workspace: people, counts, meetings and the tools Kaki can use there. */
 export function WorkspacePage() {
   const { id = '' } = useParams();
@@ -63,6 +108,18 @@ export function WorkspacePage() {
   const [inviteBusy, setInviteBusy] = useState<'reset' | 'copy' | null>(null);
   const [memberError, setMemberError] = useState<string | null>(null);
   const [memberBusy, setMemberBusy] = useState<string | null>(null);
+  const [meetingEdit, setMeetingEdit] = useState<MeetingSummary | null>(null);
+  const [meetingEditKind, setMeetingEditKind] = useState<MeetingEditKind>('edit');
+  const [editTitle, setEditTitle] = useState('');
+  const [editAgenda, setEditAgenda] = useState<EditableAgendaItem[]>([]);
+  const [editQuietCheck, setEditQuietCheck] = useState('120');
+  const [editComingUp, setEditComingUp] = useState('60');
+  const [editDate, setEditDate] = useState('');
+  const [editTime, setEditTime] = useState('');
+  const [meetingEditError, setMeetingEditError] = useState<string | null>(null);
+  const [meetingEditBusy, setMeetingEditBusy] = useState(false);
+  const [meetingActionBusy, setMeetingActionBusy] = useState<string | null>(null);
+  const [meetingActionError, setMeetingActionError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -160,6 +217,140 @@ export function WorkspacePage() {
   const user = auth.me.user;
   const role = workspaces?.find((workspace) => workspace.id === id)?.role;
   const canEdit = role === 'admin' && detail !== null && !detail.readOnly;
+  const canManageMeeting = (meeting: MeetingSummary): boolean =>
+    detail !== null &&
+    !detail.readOnly &&
+    user !== undefined &&
+    (meeting.ownerUserId === user.id || role === 'admin');
+
+  function openMeetingEdit(meeting: MeetingSummary, kind: MeetingEditKind): void {
+    setMeetingEdit(meeting);
+    setMeetingEditKind(kind);
+    setMeetingEditError(null);
+    setEditTitle(meeting.title);
+    setEditAgenda(
+      meeting.agenda.map((item) => ({
+        title: item.title,
+        minutes: item.minutes === undefined ? '' : String(item.minutes),
+        ...(item.ownerUserId === undefined ? {} : { ownerUserId: item.ownerUserId }),
+      })),
+    );
+    setEditQuietCheck(String(meeting.pace?.quietCheckAfter ?? 120));
+    setEditComingUp(String(meeting.pace?.comingUpBefore ?? 60));
+    setEditDate(localDate(meeting.scheduledFor));
+    setEditTime(localTime(meeting.scheduledFor));
+  }
+
+  function closeMeetingEdit(): void {
+    if (meetingEditBusy) return;
+    setMeetingEdit(null);
+    setMeetingEditError(null);
+  }
+
+  function updateEditAgenda(index: number, patch: Partial<EditableAgendaItem>): void {
+    setEditAgenda((current) =>
+      current.map((item, itemIndex) => (itemIndex === index ? { ...item, ...patch } : item)),
+    );
+  }
+
+  async function saveMeetingEdit(): Promise<void> {
+    if (meetingEdit === null || meetingEditBusy) return;
+    setMeetingEditBusy(true);
+    setMeetingEditError(null);
+    try {
+      if (meetingEditKind === 'reschedule') {
+        if (editDate === '' || editTime === '') {
+          throw new Error('Choose a date and time for the meeting.');
+        }
+        const when = new Date(`${editDate}T${editTime}`);
+        if (Number.isNaN(when.getTime())) throw new Error('Enter a valid date and time.');
+        if (when.getTime() <= Date.now()) throw new Error('Choose a time in the future.');
+        await updateMeeting(meetingEdit.id, { scheduledFor: when.toISOString() });
+      } else {
+        const title = editTitle.trim();
+        if (title === '') throw new Error('Give the meeting a title.');
+        const agenda = editAgenda.flatMap((item) => {
+          const itemTitle = item.title.trim();
+          if (itemTitle === '') return [];
+          const minutesText = item.minutes.trim();
+          return [
+            {
+              title: itemTitle,
+              ...(minutesText === '' ? {} : { minutes: Number(minutesText) }),
+              ...(item.ownerUserId === undefined ? {} : { ownerUserId: item.ownerUserId }),
+            },
+          ];
+        });
+        const quietSeconds = Number(editQuietCheck);
+        const comingUpSeconds = Number(editComingUp);
+        if (
+          !Number.isInteger(quietSeconds) ||
+          quietSeconds < 10 ||
+          quietSeconds > 600 ||
+          !Number.isInteger(comingUpSeconds) ||
+          comingUpSeconds < 10 ||
+          comingUpSeconds > 600
+        ) {
+          throw new Error('Pace warnings must be whole seconds between 10 and 600.');
+        }
+        await updateMeeting(meetingEdit.id, {
+          title,
+          agenda,
+          pace: { quietCheckAfter: quietSeconds, comingUpBefore: comingUpSeconds },
+        });
+      }
+      setMeetingEdit(null);
+      setReloadKey((key) => key + 1);
+    } catch (error) {
+      setMeetingEditError(
+        error instanceof Error ? error.message : 'Could not save the meeting.',
+      );
+    } finally {
+      setMeetingEditBusy(false);
+    }
+  }
+
+  async function cancelScheduledMeeting(meeting: MeetingSummary): Promise<void> {
+    if (meetingActionBusy !== null) return;
+    if (!window.confirm(`Cancel ${meeting.title}? It will be deleted for everyone.`)) return;
+    setMeetingActionBusy(meeting.id);
+    setMeetingActionError(null);
+    try {
+      await cancelMeeting(meeting.id);
+      setDetail((current) =>
+        current === null
+          ? current
+          : {
+              ...current,
+              meetings: current.meetings.filter((entry) => entry.id !== meeting.id),
+            },
+      );
+      if (meetingEdit?.id === meeting.id) setMeetingEdit(null);
+    } catch (error) {
+      setMeetingActionError(
+        error instanceof Error ? error.message : 'Could not cancel the meeting.',
+      );
+    } finally {
+      setMeetingActionBusy(null);
+    }
+  }
+
+  async function endOpenMeeting(meeting: MeetingSummary): Promise<void> {
+    if (meetingActionBusy !== null) return;
+    if (!window.confirm(`End ${meeting.title} for everyone? Its minutes are kept.`)) return;
+    setMeetingActionBusy(meeting.id);
+    setMeetingActionError(null);
+    try {
+      await endMeetingFromList(meeting.id);
+      setReloadKey((key) => key + 1);
+    } catch (error) {
+      setMeetingActionError(
+        error instanceof Error ? error.message : 'Could not end the meeting.',
+      );
+    } finally {
+      setMeetingActionBusy(null);
+    }
+  }
 
   async function saveName(): Promise<void> {
     if (detail === null || renaming) return;
@@ -593,11 +784,16 @@ export function WorkspacePage() {
                       .map((meeting) => (
                         <li key={meeting.id} className="product-meeting">
                           <div className="product-meeting-main">
-                            <p className="product-row-title">{meeting.title}</p>
+                            <div className="product-tile-head">
+                              <p className="product-row-title">{meeting.title}</p>
+                              <span className="product-pill">
+                                {meeting.status === 'scheduled' ? 'Scheduled' : 'Open'}
+                              </span>
+                            </div>
+                            <p className="product-hint">{meetingWhenText(meeting)}</p>
                             <p className="product-hint">
-                              {meeting.scheduledFor === null
-                                ? 'Open now'
-                                : `Scheduled for ${whenText(meeting.scheduledFor)}`}
+                              {todoText(meeting.todoCount)} ·{' '}
+                              {meeting.ownerName === null ? 'No owner' : `Owner ${meeting.ownerName}`}
                             </p>
                             <div className="product-invite-row">
                               <p className="product-invite-link">
@@ -609,11 +805,232 @@ export function WorkspacePage() {
                                 {copiedId === meeting.id ? 'Copied' : 'Copy'}
                               </Button>
                             </div>
+                            {canManageMeeting(meeting) ? (
+                              <div className="product-row-actions">
+                                {meeting.status === 'scheduled' ? (
+                                  <>
+                                    <button
+                                      type="button"
+                                      className="product-link"
+                                      disabled={meetingActionBusy !== null}
+                                      onClick={() => openMeetingEdit(meeting, 'edit')}
+                                    >
+                                      Edit
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="product-link"
+                                      disabled={meetingActionBusy !== null}
+                                      onClick={() => openMeetingEdit(meeting, 'reschedule')}
+                                    >
+                                      Reschedule
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="product-link product-link-danger"
+                                      disabled={meetingActionBusy !== null}
+                                      onClick={() => void cancelScheduledMeeting(meeting)}
+                                    >
+                                      {meetingActionBusy === meeting.id ? 'Cancelling…' : 'Cancel'}
+                                    </button>
+                                  </>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    className="product-link product-link-danger"
+                                    disabled={meetingActionBusy !== null}
+                                    onClick={() => void endOpenMeeting(meeting)}
+                                  >
+                                    {meetingActionBusy === meeting.id ? 'Ending…' : 'End'}
+                                  </button>
+                                )}
+                              </div>
+                            ) : null}
                           </div>
                         </li>
                       ))}
                   </ul>
                 )}
+
+                {meetingEdit === null ? null : (
+                  <div
+                    className="product-edit-meeting"
+                    role="region"
+                    aria-label={`${meetingEditKind === 'edit' ? 'Edit' : 'Reschedule'} ${meetingEdit.title}`}
+                  >
+                    <div className="product-tile-head">
+                      <h3 className="product-section-subtitle">
+                        {meetingEditKind === 'edit' ? 'Edit meeting' : 'Reschedule meeting'}
+                      </h3>
+                      <button
+                        type="button"
+                        className="product-link"
+                        onClick={closeMeetingEdit}
+                        disabled={meetingEditBusy}
+                      >
+                        Close
+                      </button>
+                    </div>
+                    <p className="product-hint">{meetingEdit.title}</p>
+
+                    {meetingEditKind === 'edit' ? (
+                      <>
+                        <label className="product-field">
+                          <span>Meeting title</span>
+                          <input
+                            className="product-input product-title-input"
+                            value={editTitle}
+                            onChange={(event) => setEditTitle(event.target.value)}
+                          />
+                        </label>
+                        <div className="product-field">
+                          <h4 className="product-section-subtitle">Agenda</h4>
+                          {editAgenda.length === 0 ? (
+                            <p className="product-hint">No agenda items.</p>
+                          ) : (
+                            <ol className="product-agenda">
+                              {editAgenda.map((item, index) => (
+                                <li key={`edit-agenda-${index}`} className="product-agenda-row">
+                                  <input
+                                    className="product-input"
+                                    aria-label={`Agenda item ${index + 1}`}
+                                    placeholder="Item"
+                                    value={item.title}
+                                    onChange={(event) =>
+                                      updateEditAgenda(index, { title: event.target.value })
+                                    }
+                                  />
+                                  <input
+                                    className="product-input product-minutes"
+                                    aria-label={`Minutes for item ${index + 1}`}
+                                    type="number"
+                                    min={1}
+                                    max={240}
+                                    placeholder="min"
+                                    value={item.minutes}
+                                    onChange={(event) =>
+                                      updateEditAgenda(index, { minutes: event.target.value })
+                                    }
+                                  />
+                                  <select
+                                    className="product-input product-agenda-owner"
+                                    aria-label={`Owner for item ${index + 1}`}
+                                    value={item.ownerUserId ?? ''}
+                                    onChange={(event) =>
+                                      updateEditAgenda(index, {
+                                        ...(event.target.value === ''
+                                          ? { ownerUserId: undefined }
+                                          : { ownerUserId: event.target.value }),
+                                      })
+                                    }
+                                  >
+                                    <option value="">Everyone (no owner)</option>
+                                    {detail.people.map((person) => (
+                                      <option key={person.id} value={person.id}>
+                                        {person.name}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  <button
+                                    type="button"
+                                    className="product-link"
+                                    aria-label={`Remove item ${index + 1}`}
+                                    onClick={() =>
+                                      setEditAgenda((current) =>
+                                        current.filter((_, itemIndex) => itemIndex !== index),
+                                      )
+                                    }
+                                  >
+                                    Remove
+                                  </button>
+                                </li>
+                              ))}
+                            </ol>
+                          )}
+                          <Button
+                            variant="ghost"
+                            onClick={() =>
+                              setEditAgenda((current) => [
+                                ...current,
+                                { title: '', minutes: '' },
+                              ])
+                            }
+                          >
+                            Add an item
+                          </Button>
+                        </div>
+                        <div className="product-field">
+                          <h4 className="product-section-subtitle">Pace</h4>
+                          <div className="product-schedule">
+                            <label className="product-field">
+                              <span>Check quiet people after (seconds)</span>
+                              <input
+                                className="product-input"
+                                type="number"
+                                min={10}
+                                max={600}
+                                value={editQuietCheck}
+                                onChange={(event) => setEditQuietCheck(event.target.value)}
+                              />
+                            </label>
+                            <label className="product-field">
+                              <span>Warn the next owner (seconds before the item ends)</span>
+                              <input
+                                className="product-input"
+                                type="number"
+                                min={10}
+                                max={600}
+                                value={editComingUp}
+                                onChange={(event) => setEditComingUp(event.target.value)}
+                              />
+                            </label>
+                          </div>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="product-schedule">
+                        <label className="product-field">
+                          <span>Date</span>
+                          <input
+                            className="product-input"
+                            type="date"
+                            value={editDate}
+                            onChange={(event) => setEditDate(event.target.value)}
+                          />
+                        </label>
+                        <label className="product-field">
+                          <span>Time</span>
+                          <input
+                            className="product-input"
+                            type="time"
+                            value={editTime}
+                            onChange={(event) => setEditTime(event.target.value)}
+                          />
+                        </label>
+                      </div>
+                    )}
+
+                    {meetingEditError === null ? null : (
+                      <p className="product-error" role="alert">
+                        <ErrorText text={meetingEditError} />
+                      </p>
+                    )}
+                    <div className="product-row-actions">
+                      <Button onClick={() => void saveMeetingEdit()} disabled={meetingEditBusy}>
+                        {meetingEditBusy ? 'Saving…' : 'Save'}
+                      </Button>
+                      <button
+                        type="button"
+                        className="product-link"
+                        onClick={closeMeetingEdit}
+                        disabled={meetingEditBusy}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 <h3 className="product-section-subtitle">Past meetings</h3>
                 {detail.readOnly ? (
                   <p className="product-hint">The sample workspace&apos;s meetings are built in.</p>
@@ -632,7 +1049,9 @@ export function WorkspacePage() {
                             >
                               {meeting.title}
                             </Link>
-                            <p className="product-hint">Ended · minutes and to-dos</p>
+                            <p className="product-hint">
+                              {meetingWhenText(meeting)} · {todoText(meeting.todoCount)}
+                            </p>
                           </div>
                           <Link
                             className="product-open"
@@ -643,6 +1062,11 @@ export function WorkspacePage() {
                         </li>
                       ))}
                   </ul>
+                )}
+                {meetingActionError === null ? null : (
+                  <p className="product-error" role="alert">
+                    <ErrorText text={meetingActionError} />
+                  </p>
                 )}
                 {copyNote === null ? null : (
                   <p className="product-note" role="status">

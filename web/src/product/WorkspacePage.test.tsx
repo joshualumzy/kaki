@@ -1,5 +1,5 @@
 /** @vitest-environment jsdom */
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { MeState } from '../auth/useMe';
@@ -25,7 +25,7 @@ function reply(body: unknown, status = 200): Response {
   });
 }
 
-type Handler = () => Response | Promise<Response>;
+type Handler = (init?: RequestInit) => Response | Promise<Response>;
 
 function installFetch(routes: Record<string, Handler>): ReturnType<typeof vi.fn> {
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -33,7 +33,7 @@ function installFetch(routes: Record<string, Handler>): ReturnType<typeof vi.fn>
       typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
     const handler = routes[`${init?.method ?? 'GET'} ${url}`];
     if (handler === undefined) throw new Error(`Unexpected fetch: ${init?.method ?? 'GET'} ${url}`);
-    return handler();
+    return handler(init);
   });
   vi.stubGlobal('fetch', fetchMock);
   return fetchMock;
@@ -255,5 +255,229 @@ describe('WorkspacePage', () => {
     renderPage('ws-1');
 
     expect(await screen.findByText('sign in')).toBeTruthy();
+  });
+
+  it('edits a scheduled meeting with member owners and pace', async () => {
+    const fetchMock = installFetch({
+      'GET /api/workspaces': () => reply(workspaces),
+      'GET /api/workspaces/ws-1': () =>
+        reply({
+          id: 'ws-1',
+          name: 'Team workspace',
+          kind: 'team',
+          readOnly: false,
+          people: [
+            { id: 'user-1', name: 'Ada Lovelace', role: 'admin' },
+            { id: 'user-2', name: 'Ben Bitdiddle', role: 'member' },
+          ],
+          tools: [],
+          meetings: [
+            {
+              id: 'mtg-1',
+              title: 'Scheduled sync',
+              status: 'scheduled',
+              scheduledFor: '2999-01-01T02:00:00.000Z',
+              createdAt: '2026-11-01T02:00:00.000Z',
+              endedAt: null,
+              agenda: [{ title: 'Budget', minutes: 15, ownerUserId: 'user-1' }],
+              pace: { quietCheckAfter: 120, comingUpBefore: 60 },
+              todoCount: 1,
+              ownerUserId: 'user-1',
+              ownerName: 'Ada Lovelace',
+            },
+          ],
+          counts: { meetings: 1, todos: 1, records: 0 },
+        }),
+      'GET /api/workspaces/ws-1/invite': () =>
+        reply({
+          token: 'invite-token',
+          path: '/join-workspace/invite-token',
+          workspace: { id: 'ws-1', name: 'Team workspace' },
+        }),
+      'PATCH /api/meetings/mtg-1': () => reply({ ok: true }),
+    });
+    renderPage('ws-1');
+
+    expect(await screen.findByText(/^Scheduled for /)).toBeTruthy();
+    expect(screen.getByText('1 to-do · Owner Ada Lovelace')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+
+    const title = await screen.findByDisplayValue('Scheduled sync');
+    fireEvent.change(title, { target: { value: 'Scheduled sync v2' } });
+    fireEvent.change(screen.getByLabelText('Owner for item 1'), {
+      target: { value: 'user-2' },
+    });
+    fireEvent.change(screen.getByLabelText('Check quiet people after (seconds)'), {
+      target: { value: '90' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() =>
+      expect(fetchMock.mock.calls.some(([url, init]) => String(url) === '/api/meetings/mtg-1' && init?.method === 'PATCH')).toBe(true),
+    );
+    const patch = fetchMock.mock.calls.find(
+      ([url, init]) => String(url) === '/api/meetings/mtg-1' && init?.method === 'PATCH',
+    )?.[1];
+    expect(JSON.parse(String(patch?.body))).toMatchObject({
+      title: 'Scheduled sync v2',
+      agenda: [{ title: 'Budget', minutes: 15, ownerUserId: 'user-2' }],
+      pace: { quietCheckAfter: 90, comingUpBefore: 60 },
+    });
+  });
+
+  it('reschedules and cancels a scheduled meeting', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const fetchMock = installFetch({
+      'GET /api/workspaces': () => reply(workspaces),
+      'GET /api/workspaces/ws-1': () =>
+        reply({
+          id: 'ws-1',
+          name: 'Team workspace',
+          kind: 'team',
+          readOnly: false,
+          people: [{ id: 'user-1', name: 'Ada Lovelace', role: 'admin' }],
+          tools: [],
+          meetings: [
+            {
+              id: 'mtg-1',
+              title: 'Scheduled sync',
+              status: 'scheduled',
+              scheduledFor: '2999-01-01T02:00:00.000Z',
+              createdAt: '2026-11-01T02:00:00.000Z',
+              endedAt: null,
+              agenda: [],
+              pace: null,
+              todoCount: 0,
+              ownerUserId: 'user-1',
+              ownerName: 'Ada Lovelace',
+            },
+          ],
+          counts: { meetings: 1, todos: 0, records: 0 },
+        }),
+      'GET /api/workspaces/ws-1/invite': () =>
+        reply({
+          token: 'invite-token',
+          path: '/join-workspace/invite-token',
+          workspace: { id: 'ws-1', name: 'Team workspace' },
+        }),
+      'PATCH /api/meetings/mtg-1': () => reply({ ok: true }),
+      'DELETE /api/meetings/mtg-1': () => reply({ ok: true }),
+    });
+    renderPage('ws-1');
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Reschedule' }));
+    fireEvent.change(screen.getByLabelText('Date'), { target: { value: '2999-02-02' } });
+    fireEvent.change(screen.getByLabelText('Time'), { target: { value: '09:30' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() =>
+      expect(fetchMock.mock.calls.some(([url, init]) => String(url) === '/api/meetings/mtg-1' && init?.method === 'PATCH')).toBe(true),
+    );
+
+    cleanup();
+    renderPage('ws-1');
+    fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }));
+    await waitFor(() =>
+      expect(fetchMock.mock.calls.some(([url, init]) => String(url) === '/api/meetings/mtg-1' && init?.method === 'DELETE')).toBe(true),
+    );
+    expect(confirm).toHaveBeenCalled();
+    confirm.mockRestore();
+  });
+
+  it('ends an open meeting from the list', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const fetchMock = installFetch({
+      'GET /api/workspaces': () => reply(workspaces),
+      'GET /api/workspaces/ws-1': () =>
+        reply({
+          id: 'ws-1',
+          name: 'Team workspace',
+          kind: 'team',
+          readOnly: false,
+          people: [{ id: 'user-1', name: 'Ada Lovelace', role: 'admin' }],
+          tools: [],
+          meetings: [
+            {
+              id: 'mtg-1',
+              title: 'Open sync',
+              status: 'open',
+              scheduledFor: null,
+              createdAt: '2026-11-01T02:00:00.000Z',
+              endedAt: null,
+              agenda: [],
+              pace: null,
+              todoCount: 0,
+              ownerUserId: 'user-1',
+              ownerName: 'Ada Lovelace',
+            },
+          ],
+          counts: { meetings: 1, todos: 0, records: 0 },
+        }),
+      'GET /api/workspaces/ws-1/invite': () =>
+        reply({
+          token: 'invite-token',
+          path: '/join-workspace/invite-token',
+          workspace: { id: 'ws-1', name: 'Team workspace' },
+        }),
+      'POST /api/meetings/mtg-1/end': () => reply({ ok: true }),
+    });
+    renderPage('ws-1');
+
+    expect(await screen.findByText(/^Open now · created /)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'End' }));
+    await waitFor(() =>
+      expect(fetchMock.mock.calls.some(([url, init]) => String(url) === '/api/meetings/mtg-1/end' && init?.method === 'POST')).toBe(true),
+    );
+    expect(confirm).toHaveBeenCalled();
+    confirm.mockRestore();
+  });
+
+  it('keeps a member read-only on meetings they do not own', async () => {
+    mocks.state = {
+      status: 'ready',
+      me: {
+        authEnabled: true,
+        kind: 'user',
+        user: { id: 'user-2', name: 'Ben Bitdiddle', email: 'ben@example.com' },
+      },
+    };
+    installFetch({
+      'GET /api/workspaces': () =>
+        reply([{ id: 'ws-1', name: 'Team workspace', kind: 'team', role: 'member' }]),
+      'GET /api/workspaces/ws-1': () =>
+        reply({
+          id: 'ws-1',
+          name: 'Team workspace',
+          kind: 'team',
+          readOnly: false,
+          people: [
+            { id: 'user-1', name: 'Ada Lovelace', role: 'admin' },
+            { id: 'user-2', name: 'Ben Bitdiddle', role: 'member' },
+          ],
+          tools: [],
+          meetings: [
+            {
+              id: 'mtg-1',
+              title: 'Open sync',
+              status: 'open',
+              scheduledFor: null,
+              createdAt: '2026-11-01T02:00:00.000Z',
+              endedAt: null,
+              agenda: [],
+              pace: null,
+              todoCount: 0,
+              ownerUserId: 'user-1',
+              ownerName: 'Ada Lovelace',
+            },
+          ],
+          counts: { meetings: 1, todos: 0, records: 0 },
+        }),
+    });
+    renderPage('ws-1');
+
+    expect(await screen.findByText('Open sync')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'End' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull();
   });
 });

@@ -24,25 +24,104 @@ describe.skipIf(connectionString === undefined)('postgres meeting store agenda',
     await postgres?.dispose();
   });
 
-  it('stores the agenda and reads it back on get and list', async () => {
+  it('stores the agenda, owners and pace, and reads them back on get and list', async () => {
     if (postgres === undefined) throw new Error('POSTGRES_URL is missing');
     const store = createPostgresMeetingStore(postgres.pool);
     const workspaceId = `workspace-${randomUUID()}`;
     const agenda = [
-      { title: 'Budget', minutes: 15 },
+      { title: 'Budget', minutes: 15, ownerUserId: 'owner-1' },
       { title: 'Hiring' },
     ];
+    const pace = { quietCheckAfter: 90, comingUpBefore: 45 };
 
     const meeting = await store.create({
       workspaceId,
       ownerUserId: 'owner-1',
       title: 'Planning',
       agenda,
+      pace,
     });
 
     expect(meeting.agenda).toEqual(agenda);
+    expect(meeting.pace).toEqual(pace);
     expect((await store.get(meeting.id))?.agenda).toEqual(agenda);
+    expect((await store.get(meeting.id))?.pace).toEqual(pace);
     expect((await store.list(workspaceId))[0]?.agenda).toEqual(agenda);
+  });
+
+  it('updates a meeting in place', async () => {
+    if (postgres === undefined) throw new Error('POSTGRES_URL is missing');
+    const store = createPostgresMeetingStore(postgres.pool);
+    const workspaceId = `workspace-${randomUUID()}`;
+    const meeting = await store.create({
+      workspaceId,
+      ownerUserId: 'owner-1',
+      title: 'Planning',
+      agenda: [{ title: 'Budget', minutes: 10 }],
+    });
+    const scheduledFor = new Date(Date.now() + 60 * 60_000).toISOString();
+
+    const updated = await store.update!(meeting.id, {
+      title: 'Planning v2',
+      agenda: [{ title: 'Budget', minutes: 20, ownerUserId: 'owner-1' }],
+      pace: { quietCheckAfter: 60, comingUpBefore: 30 },
+      scheduledFor,
+    });
+
+    expect(updated).toMatchObject({
+      title: 'Planning v2',
+      agenda: [{ title: 'Budget', minutes: 20, ownerUserId: 'owner-1' }],
+      pace: { quietCheckAfter: 60, comingUpBefore: 30 },
+      scheduledFor,
+    });
+    expect(await store.get(meeting.id)).toMatchObject({ title: 'Planning v2' });
+  });
+
+  it('deletes the row, saved state, seat claims and meeting knowledge chunk together', async () => {
+    if (postgres === undefined) throw new Error('POSTGRES_URL is missing');
+    const store = createPostgresMeetingStore(postgres.pool);
+    const workspaceId = `workspace-${randomUUID()}`;
+    const meeting = await store.create({
+      workspaceId,
+      ownerUserId: 'owner-1',
+      title: 'Cancelled',
+    });
+    await postgres.pool.query(`
+      create table if not exists meeting_state (
+        id text primary key,
+        schema_version integer not null,
+        saved_at timestamptz not null,
+        state jsonb not null
+      )
+    `);
+    await postgres.pool.query(
+      "insert into meeting_state (id, schema_version, saved_at, state) values ($1, 1, now(), '{}')",
+      [meeting.id],
+    );
+    await postgres.pool.query(
+      "insert into seat_claims (meeting_id, role, holder, expires_at) values ($1, 'seat-1', 'holder-1', now() + interval '1 hour')",
+      [meeting.id],
+    );
+    await postgres.pool.query('create table if not exists knowledge_chunks (workspace_id text, source text, ref text)');
+    await postgres.pool.query(
+      "insert into knowledge_chunks (workspace_id, source, ref) values ($1, 'meeting', $2)",
+      [workspaceId, `meeting:${meeting.id}`],
+    );
+
+    expect(await store.delete!(meeting.id)).toBe(true);
+    expect(await store.get(meeting.id)).toBeUndefined();
+    const counts = await postgres.pool.query<{
+      states: string;
+      claims: string;
+      chunks: string;
+    }>(
+      `select
+         (select count(*)::text from meeting_state where id = $1) as states,
+         (select count(*)::text from seat_claims where meeting_id = $1) as claims,
+         (select count(*)::text from knowledge_chunks where ref = $2) as chunks`,
+      [meeting.id, `meeting:${meeting.id}`],
+    );
+    expect(counts.rows[0]).toEqual({ states: '0', claims: '0', chunks: '0' });
   });
 
   it('stores a meeting with no agenda as an empty list', async () => {
