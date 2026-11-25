@@ -358,7 +358,7 @@ Return strict JSON and nothing else: {"suggestion":"","basis":"meeting"|"workspa
 When there is a point:
 - "suggestion" is one short, plain sentence ${personName} could add. It must be supported by that evidence: say it in your own words if you like, but never add a fact, number, name or claim that the evidence does not contain.
 - basis "meeting": "evidence" is copied word for word from one transcript line that supports it, and "source" is empty.
-- basis "workspace": "evidence" is copied word for word from one workspace record below, and "source" is that record's source label.
+- basis "workspace": "evidence" is copied word for word from the text of one workspace record below (not its source or date line), and "source" is that record's source label, without the date.
 Otherwise return basis "none" with an empty suggestion, evidence and source.`,
     },
     {
@@ -375,41 +375,99 @@ ${facts.length === 0 ? '(none available)' : recordBlock(facts)}`,
   ];
 }
 
-/** Read a catch-up point whose evidence quote is real; the support check is a separate model judgement. */
+/** True when a quote is word for word in a record, ignoring case, punctuation and spacing. */
+function quoteInRecord(evidence: string, text: string): boolean {
+  const quote = normalise(evidence);
+  const record = normalise(text);
+  if (quote === '' || record === '') return false;
+  // The model sometimes copies the record's source/date header along with its text, so accept
+  // either direction; in both cases the record's own words are quoted in full.
+  return ` ${record} `.includes(` ${quote} `) || ` ${quote} `.includes(` ${record} `);
+}
+
+/** True when the model's source label names this record, allowing a date it may have appended. */
+function sourceNamesRecord(source: string, fact: Fact): boolean {
+  const said = normalise(source);
+  const label = normalise(fact.source);
+  if (said === label) return true;
+  const date = normalise(fact.date);
+  return date !== '' && said === `${label} ${date}`;
+}
+
+/**
+ * The record a workspace point cites. A matching source label wins; otherwise the quoted words
+ * must appear in exactly one offered record. In every case the quote itself must be real.
+ */
+function workspaceFact(
+  source: string | undefined,
+  evidence: string,
+  facts: readonly Fact[],
+): Fact | undefined {
+  const quoted = facts.filter((fact) => quoteInRecord(evidence, fact.text));
+  if (quoted.length === 0) return undefined;
+  const named = source === undefined ? undefined : quoted.find((fact) => sourceNamesRecord(source, fact));
+  if (named !== undefined) return named;
+  return quoted.length === 1 ? quoted[0] : undefined;
+}
+
+/**
+ * Read a catch-up point whose evidence quote is real; the support check is a separate model
+ * judgement. `log` receives the reason whenever no point survives, so a plain catch-up is never
+ * silent in the server log.
+ */
 export function parseCatchupReply(
   raw: string,
   lines: readonly WingmanLine[],
   facts: readonly Fact[],
+  log?: (reason: string) => void,
 ): CatchupVerdict | undefined {
+  const reject = (reason: string): undefined => {
+    log?.(reason);
+    return undefined;
+  };
   let json: unknown;
   try {
     json = parseJsonReply(raw);
   } catch (error) {
     throw new LlmError('Wingman catch-up reply is not valid JSON', { cause: error });
   }
-  if (!isObject(json) || !isString(json.suggestion) || json.suggestion.trim() === '') return undefined;
-  if (!isString(json.evidence) || json.evidence.trim() === '') return undefined;
+  if (!isObject(json)) return reject('the reply was not a JSON object');
+  if (json.basis === 'none') return reject('the model found no point worth adding');
+  if (!isString(json.suggestion) || json.suggestion.trim() === '') {
+    return reject('the reply had no suggestion');
+  }
+  if (!isString(json.evidence) || json.evidence.trim() === '') {
+    return reject('the reply quoted no evidence');
+  }
   const suggestion = json.suggestion.trim();
   const evidence = json.evidence.trim();
+  const source = isString(json.source) && json.source.trim() !== '' ? json.source.trim() : undefined;
+  // The evidence itself decides where the point is grounded, so a model that names the wrong basis
+  // or leaves the source label out still keeps a point that is genuinely word for word.
+  const meetingLine = groundedLine(evidence, lines);
+  const meetingVerdict = (line: WingmanLine): CatchupVerdict => ({
+    suggestion,
+    evidence: line.text,
+    source: `${speakerName(line.speaker)} · ${line.timestamp}`,
+  });
+  const factVerdict = (record: Fact): CatchupVerdict => ({
+    suggestion,
+    evidence: record.text,
+    source: `${record.source} (${record.date})`,
+    fact: record,
+  });
+  const fact = workspaceFact(source, evidence, facts);
   if (json.basis === 'meeting') {
-    const line = groundedLine(evidence, lines);
-    if (line === undefined) return undefined;
-    return {
-      suggestion,
-      evidence: line.text,
-      source: `${speakerName(line.speaker)} · ${line.timestamp}`,
-    };
+    if (meetingLine !== undefined) return meetingVerdict(meetingLine);
+    if (fact !== undefined) return factVerdict(fact);
+    return reject('the point is not word for word from a transcript line or a record we offered it');
   }
   if (json.basis === 'workspace') {
-    if (!isString(json.source) || json.source.trim() === '') return undefined;
-    const source = json.source.trim();
-    const fact = facts.find(
-      (candidate) => candidate.source === source && candidate.text.includes(evidence),
-    );
-    if (fact === undefined) return undefined;
-    return { suggestion, evidence, source: `${fact.source} (${fact.date})`, fact };
+    if (fact !== undefined) return factVerdict(fact);
+    if (meetingLine !== undefined) return meetingVerdict(meetingLine);
+    return reject('the point is not word for word from a transcript line or a record we offered it');
   }
-  return undefined;
+  return reject('the point had an unknown basis');
 }
 
 /** The strict schema for the support judgement of one catch-up suggestion. */

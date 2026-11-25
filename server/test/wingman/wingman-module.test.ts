@@ -1136,6 +1136,95 @@ describe('wingman real-meeting pace cues', () => {
     }
   });
 
+  it('shows a member the workspace point and source when the model appends the record date to the source', async () => {
+    const pricingFact: Fact = {
+      text: 'A $10.00 single set returns $6.80 after commission and costs $7.30 to make and pack: a $0.50 loss.',
+      source: 'Wiki: Nanyang Kopi & Toast - Delivery Pricing',
+      date: '2026-11-20',
+    };
+    const search = vi.fn<SearchCompanyData>(async () => [pricingFact]);
+    const fake = fakeHub();
+    const stop = start({
+      hub: fake,
+      llm: catchupLlm(
+        JSON.stringify({
+          suggestion: 'Single sets lose 50 cents a set after commission and packaging.',
+          basis: 'workspace',
+          evidence: 'A $10.00 single set returns $6.80 after commission and costs $7.30 to make and pack: a $0.50 loss',
+          source: 'Wiki: Nanyang Kopi & Toast - Delivery Pricing 2026-11-20',
+        }),
+      ),
+      search,
+      holders: cueHolders,
+      meetingKind: 'real',
+      seatIsGuest: () => false,
+      scenario: {
+        ...cueScenario,
+        agenda: [{ title: 'Delivery after the promo', minutes: 10, canWait: false, deadline: 'today', ownerRole: 'mei' }],
+      },
+      sealed: sealedCue({
+        scenario: {
+          ...cueScenario,
+          agenda: [{ title: 'Delivery after the promo', minutes: 10, canWait: false, deadline: 'today', ownerRole: 'mei' }],
+        },
+      }),
+    });
+    try {
+      fake.emit(cueRecord({ elapsedSeconds: 121, speakerTalkSeconds: { host: 40, mei: 6 } }));
+      const note = await waitFor(
+        () => wingmanNotes(fake.published).find((event) => event.payload.id === 'catchup:raj:0'),
+        'the catch-up note with its workspace point',
+      );
+      expect(search).toHaveBeenCalledWith('Delivery after the promo', 'raj');
+      expect(note.payload.title).toBe('Catch-up: Delivery after the promo');
+      expect(note.payload.facts).toEqual([
+        { ...pricingFact, text: 'Single sets lose 50 cents a set after commission and packaging.' },
+      ]);
+      expect(note.payload.sources).toEqual(['Wiki: Nanyang Kopi & Toast - Delivery Pricing (2026-11-20)']);
+      expect(note.payload.text).not.toContain('One point you could add');
+    } finally {
+      stop();
+    }
+  });
+
+  it('logs why a catch-up was left plain instead of dropping the point silently', async () => {
+    const warnings = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      const fake = fakeHub();
+      const stop = start({
+        hub: fake,
+        llm: catchupLlm(
+          JSON.stringify({
+            suggestion: 'Should we settle the numbers first?',
+            basis: 'meeting',
+            evidence: 'We need the budget figure before we decide.',
+            source: '',
+          }),
+        ),
+        search: async () => [],
+        holders: cueHolders,
+        meetingKind: 'real',
+        scenario: cueScenario,
+        sealed: sealedCue(),
+      });
+      try {
+        fake.emit(cueRecord({ elapsedSeconds: 121, speakerTalkSeconds: { host: 40, mei: 6 } }));
+        const note = await waitFor(
+          () => wingmanNotes(fake.published).find((event) => event.payload.id === 'catchup:raj:0'),
+          'the plain catch-up',
+        );
+        expect(note.payload.text).toBe('Now: "Budget".');
+        expect(warnings).toHaveBeenCalledWith(
+          expect.stringContaining('sent the plain catch-up for raj on "Budget"; the point is not word for word'),
+        );
+      } finally {
+        stop();
+      }
+    } finally {
+      warnings.mockRestore();
+    }
+  });
+
   it('sends the plain catch-up and logs loudly when there is no model or it fails', async () => {
     const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     try {

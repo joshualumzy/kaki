@@ -78,6 +78,72 @@ describe('catch-up reply grounding', () => {
     });
     expect(parseCatchupReply(raw, [], [fact])).toBeUndefined();
   });
+
+  it('keeps a workspace point whose source carries the record date or whose quote differs in punctuation', () => {
+    const pricing: Fact = {
+      text: "A $10.00 single set returns $6.80 after commission and costs $7.30 to make and pack: a $0.50 loss.",
+      source: 'Wiki: Nanyang Kopi & Toast - Delivery Pricing',
+      date: '2026-11-20',
+    };
+    const raw = reply({
+      suggestion: 'Single sets lose 50 cents a set after commission and packaging.',
+      basis: 'workspace',
+      evidence: 'A $10.00 single set returns $6.80 after commission and costs $7.30 to make and pack: a $0.50 loss',
+      source: 'Wiki: Nanyang Kopi & Toast - Delivery Pricing 2026-11-20',
+    });
+    expect(parseCatchupReply(raw, [], [pricing])).toEqual({
+      suggestion: 'Single sets lose 50 cents a set after commission and packaging.',
+      evidence: pricing.text,
+      source: 'Wiki: Nanyang Kopi & Toast - Delivery Pricing (2026-11-20)',
+      fact: pricing,
+    });
+  });
+
+  it('keeps a grounded point when the model leaves the source out or names the wrong basis', () => {
+    const noSource = reply({
+      suggestion: 'Should we get the figures sorted first?',
+      basis: 'workspace',
+      evidence: fact.text,
+    });
+    expect(parseCatchupReply(noSource, [], [fact])).toEqual({
+      suggestion: 'Should we get the figures sorted first?',
+      evidence: fact.text,
+      source: 'Wiki: Budget (2026-11-01)',
+      fact,
+    });
+
+    const wrongBasis = reply({
+      suggestion: 'Should we get the figures sorted first?',
+      basis: 'meeting',
+      evidence: fact.text,
+      source: fact.source,
+    });
+    expect(parseCatchupReply(wrongBasis, [], [fact])).toEqual({
+      suggestion: 'Should we get the figures sorted first?',
+      evidence: fact.text,
+      source: 'Wiki: Budget (2026-11-01)',
+      fact,
+    });
+  });
+
+  it('names the reason whenever a catch-up is left plain', () => {
+    const log = vi.fn();
+    expect(
+      parseCatchupReply(
+        reply({ suggestion: 'A point', basis: 'workspace', evidence: 'Never said', source: fact.source }),
+        [],
+        [fact],
+        log,
+      ),
+    ).toBeUndefined();
+    expect(log).toHaveBeenCalledWith(
+      'the point is not word for word from a transcript line or a record we offered it',
+    );
+
+    log.mockClear();
+    expect(parseCatchupReply(reply({}), [], [], log)).toBeUndefined();
+    expect(log).toHaveBeenCalledWith('the model found no point worth adding');
+  });
 });
 
 describe('catch-up support check', () => {

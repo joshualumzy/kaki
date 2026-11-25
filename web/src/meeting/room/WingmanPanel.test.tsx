@@ -83,6 +83,33 @@ describe('WingmanPanel', () => {
     );
   });
 
+  it('shows a catch-up workspace point and its record source', () => {
+    const note: WingmanNotePayload = {
+      id: 'catchup:raj:0',
+      kind: 'nudge',
+      urgency: 'quiet',
+      title: 'Catch-up: Delivery after the promo',
+      text: 'Now: "Delivery after the promo".',
+      facts: [
+        {
+          text: 'Single sets lose 50 cents a set after commission and packaging.',
+          source: 'Wiki: Nanyang Kopi & Toast - Delivery Pricing',
+          date: '2026-11-20',
+        },
+      ],
+      sources: ['Wiki: Nanyang Kopi & Toast - Delivery Pricing (2026-11-20)'],
+    };
+    render(<WingmanPanel notes={[note]} onAsk={vi.fn(() => true)} onDismiss={vi.fn()} />);
+
+    expect(screen.getByText('Single sets lose 50 cents a set after commission and packaging.')).toBeTruthy();
+    expect(
+      screen.getByText('(Wiki: Nanyang Kopi & Toast - Delivery Pricing · 2026-11-20)'),
+    ).toBeTruthy();
+    expect(screen.getByText(/Sources:/).parentElement?.textContent).toBe(
+      'Sources: Wiki: Nanyang Kopi & Toast - Delivery Pricing (2026-11-20)',
+    );
+  });
+
   it('shows the quiet note count as a badge with no reminder motion', () => {
     const { container } = render(
       <WingmanPanel notes={quietNotes} onAsk={vi.fn(() => true)} onDismiss={vi.fn()} />,

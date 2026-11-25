@@ -488,7 +488,11 @@ export function createWingmanModule(options: WingmanModuleOptions = {}): KakiMod
               { json: true, schema: CATCHUP_SCHEMA },
             );
             if (stopped || startedIn !== generation) return;
-            const verdict = parseCatchupReply(raw, lines, facts);
+            const verdict = parseCatchupReply(raw, lines, facts, (reason) => {
+              console.warn(
+                `kaki wingman: sent the plain catch-up for ${person.role} on "${itemTitle}"; ${reason}`,
+              );
+            });
             if (verdict !== undefined) {
               // Shorten first, then verify exactly the text that will be shown. Verifying the full
               // sentence and truncating afterwards could drop a trailing condition the model saw.
@@ -527,6 +531,9 @@ export function createWingmanModule(options: WingmanModuleOptions = {}): KakiMod
         // Membership or the workspace search can change while the calls are in flight. Recheck
         // after the awaits: a person who became a guest gets no records or sources.
         if (fact !== undefined && (isGuest(person.role) || !searchEnabled())) {
+          console.warn(
+            `kaki wingman: sent the plain catch-up for ${person.role} on "${itemTitle}"; the seat may no longer read workspace records`,
+          );
           suggestion = undefined;
           fact = undefined;
           source = undefined;
