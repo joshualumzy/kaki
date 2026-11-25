@@ -3,7 +3,14 @@ import { useEffect, useState } from 'react';
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
 import { useMe } from '../auth/useMe';
 import { SIGN_IN_ENDED } from '../net/plainFailure';
-import { Button, Card } from '../ui';
+import {
+  Button,
+  Card,
+  formatMeetingTime,
+  localZoneAbbreviation,
+  useConfirm,
+  useDocumentTitle,
+} from '../ui';
 import {
   cancelMeeting,
   deleteWorkspace,
@@ -43,8 +50,7 @@ function fullLink(id: string): string {
 }
 
 function whenText(iso: string): string {
-  const when = new Date(iso);
-  return Number.isNaN(when.getTime()) ? iso : when.toLocaleString();
+  return formatMeetingTime(iso);
 }
 
 /** A scheduled meeting whose time has passed was never started: the clock never makes it open. */
@@ -138,6 +144,8 @@ export function WorkspacePage() {
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleteAnywayOffered, setDeleteAnywayOffered] = useState(false);
+  const { confirm, dialog: confirmDialog } = useConfirm();
+  useDocumentTitle(detail === null ? 'Workspace · Kaki' : `${detail.name} · Kaki`);
 
   useEffect(() => {
     let cancelled = false;
@@ -330,7 +338,14 @@ export function WorkspacePage() {
 
   async function cancelScheduledMeeting(meeting: MeetingSummary): Promise<void> {
     if (meetingActionBusy !== null) return;
-    if (!window.confirm(`Cancel ${meeting.title}? It will be deleted for everyone.`)) return;
+    const confirmed = await confirm({
+      title: `Cancel ${meeting.title}?`,
+      message: 'It will be deleted for everyone.',
+      confirmLabel: 'Cancel meeting',
+      cancelLabel: 'Keep it',
+      danger: true,
+    });
+    if (!confirmed) return;
     setMeetingActionBusy(meeting.id);
     setMeetingActionError(null);
     try {
@@ -355,7 +370,14 @@ export function WorkspacePage() {
 
   async function endOpenMeeting(meeting: MeetingSummary): Promise<void> {
     if (meetingActionBusy !== null) return;
-    if (!window.confirm(`End ${meeting.title} for everyone? Its minutes are kept.`)) return;
+    const confirmed = await confirm({
+      title: `End ${meeting.title} for everyone?`,
+      message: 'Its minutes are kept.',
+      confirmLabel: 'End meeting',
+      cancelLabel: 'Keep it open',
+      danger: true,
+    });
+    if (!confirmed) return;
     setMeetingActionBusy(meeting.id);
     setMeetingActionError(null);
     try {
@@ -478,7 +500,14 @@ export function WorkspacePage() {
 
   async function resetInvite(): Promise<void> {
     if (detail === null || inviteBusy !== null) return;
-    if (!window.confirm('Reset the invite link? The old link will stop working.')) return;
+    const confirmed = await confirm({
+      title: 'Reset the invite link?',
+      message: 'The old link will stop working.',
+      confirmLabel: 'Reset link',
+      cancelLabel: 'Keep the link',
+      danger: true,
+    });
+    if (!confirmed) return;
     setInviteBusy('reset');
     setInviteError(null);
     setInviteNote(null);
@@ -532,7 +561,14 @@ export function WorkspacePage() {
 
   async function removeMember(person: { id: string; name: string }): Promise<void> {
     if (detail === null || memberBusy !== null || person.id === '') return;
-    if (!window.confirm(`Remove ${person.name} from this workspace?`)) return;
+    const confirmed = await confirm({
+      title: `Remove ${person.name}?`,
+      message: 'They will lose access to this workspace.',
+      confirmLabel: 'Remove person',
+      cancelLabel: 'Keep them',
+      danger: true,
+    });
+    if (!confirmed) return;
     setMemberBusy(person.id);
     setMemberError(null);
     try {
@@ -551,7 +587,14 @@ export function WorkspacePage() {
 
   async function leaveThisWorkspace(): Promise<void> {
     if (detail === null || memberBusy !== null) return;
-    if (!window.confirm(`Leave ${detail.name}?`)) return;
+    const confirmed = await confirm({
+      title: `Leave ${detail.name}?`,
+      message: 'You can join again with an invite link.',
+      confirmLabel: 'Leave workspace',
+      cancelLabel: 'Stay',
+      danger: true,
+    });
+    if (!confirmed) return;
     setMemberBusy(user?.id ?? 'leave');
     setMemberError(null);
     try {
@@ -567,6 +610,7 @@ export function WorkspacePage() {
     <>
       <AppBar user={user} workspaces={workspaces ?? []} />
       <main className="page product-page product-page-wide">
+        {confirmDialog}
         {notFound ? (
           <Card title="Workspace not found">
             <p className="product-hint">This workspace does not exist, or you are not a member.</p>
@@ -1141,25 +1185,30 @@ export function WorkspacePage() {
                         </div>
                       </>
                     ) : (
-                      <div className="product-schedule">
-                        <label className="product-field">
-                          <span>Date</span>
-                          <input
-                            className="product-input"
-                            type="date"
-                            value={editDate}
-                            onChange={(event) => setEditDate(event.target.value)}
-                          />
-                        </label>
-                        <label className="product-field">
-                          <span>Time</span>
-                          <input
-                            className="product-input"
-                            type="time"
-                            value={editTime}
-                            onChange={(event) => setEditTime(event.target.value)}
-                          />
-                        </label>
+                      <div>
+                        <p className="product-hint">
+                          {`Times are in your local zone (${localZoneAbbreviation() || 'your local time'}).`}
+                        </p>
+                        <div className="product-schedule">
+                          <label className="product-field">
+                            <span>Date</span>
+                            <input
+                              className="product-input"
+                              type="date"
+                              value={editDate}
+                              onChange={(event) => setEditDate(event.target.value)}
+                            />
+                          </label>
+                          <label className="product-field">
+                            <span>Time</span>
+                            <input
+                              className="product-input"
+                              type="time"
+                              value={editTime}
+                              onChange={(event) => setEditTime(event.target.value)}
+                            />
+                          </label>
+                        </div>
                       </div>
                     )}
 

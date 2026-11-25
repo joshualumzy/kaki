@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { MeetingScopeProvider, ScenarioProvider } from '../kaki';
 import Meeting from '../meeting/room/Meeting';
+import { useDocumentTitle } from '../ui';
 import { getMeetingInfo, type MeetingInfo } from './api';
 import { EndedMeetingCard } from './EndedMeetingCard';
 import './product.css';
@@ -13,6 +14,11 @@ export function RealMeetingRoom() {
   // "Start now" opens the room with this flag: the owner's meeting begins as soon as they are in.
   const autoStart = searchParams.get('start') === '1';
   const [info, setInfo] = useState<MeetingInfo | null | undefined>(undefined);
+  useDocumentTitle(
+    info === null || info === undefined || info.title.trim() === ''
+      ? 'Meeting · Kaki'
+      : `${info.title} · Kaki`,
+  );
 
   useEffect(() => {
     let cancelled = false;

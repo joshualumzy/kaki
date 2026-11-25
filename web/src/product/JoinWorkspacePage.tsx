@@ -2,12 +2,13 @@ import { ErrorText } from './ErrorText';
 import { useEffect, useState } from 'react';
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
 import { useMe } from '../auth/useMe';
-import { Button, Card } from '../ui';
+import { Button, Card, useDocumentTitle } from '../ui';
 import { joinWorkspace } from './api';
 import './product.css';
 
 /** The page an invite link opens: a signed-in person joins the team workspace as a member. */
 export function JoinWorkspacePage() {
+  useDocumentTitle('Join a workspace · Kaki');
   const { token = '' } = useParams();
   const navigate = useNavigate();
   const auth = useMe();

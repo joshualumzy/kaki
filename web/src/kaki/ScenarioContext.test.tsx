@@ -74,7 +74,7 @@ describe('ScenarioProvider', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     renderProvider();
-    expect(screen.getByText('Loading scenario…')).toBeTruthy();
+    expect(screen.getByText('Getting the meeting ready…')).toBeTruthy();
 
     await flush();
     expect(screen.getByText('Starting up… this can take a few seconds.')).toBeTruthy();
@@ -237,7 +237,7 @@ describe('ScenarioProvider', () => {
 
     failing = false;
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
-    expect(screen.getByText('Loading scenario…')).toBeTruthy();
+    expect(screen.getByText('Getting the meeting ready…')).toBeTruthy();
 
     await flush();
     expect(screen.getByText('Meeting ready')).toBeTruthy();

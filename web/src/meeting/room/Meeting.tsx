@@ -12,6 +12,7 @@ import {
   useScenario,
 } from '../../kaki';
 import { failureText } from '../../net/failureText';
+import { useDocumentTitle } from '../../ui';
 import {
   COULD_NOT_JOIN,
   ROOM_CONNECT_PROBLEM,
@@ -144,6 +145,11 @@ export default function Meeting({
   autoStart?: boolean;
 }) {
   const scenario = useScenario();
+  useDocumentTitle(
+    scenario.meetingTitle.trim() === ''
+      ? 'Meeting · Kaki'
+      : `${scenario.meetingTitle} · Kaki`,
+  );
   const practice = variant === 'practice';
   const real = variant === 'real';
   // The meeting id every path, room and socket follows: a real meeting's row, or this visitor's
@@ -285,7 +291,7 @@ export default function Meeting({
   // A human-only setup names its person seats; those are the seats to offer even with no AI cast.
   const offersSeats = practice ? hasAi || scenario.joinSeats !== undefined : roles.length > 0;
   const seatsError = practice
-    ? `${scenario.id} has no AI attendees: add "npcs" to its scenario.json.`
+    ? 'This practice has no seats to join. Go back and start a new practice.'
     : 'The meeting owner has not opened any seats yet.';
 
   async function join(

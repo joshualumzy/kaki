@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import type { MeUser } from '../auth/api';
-import { Button, Card } from '../ui';
+import { Button, Card, Dialog } from '../ui';
 import { deleteAccount, logout, logoutEverywhere, type WorkspaceSummary } from './api';
 
 interface AppBarProps {
@@ -189,51 +189,47 @@ export function AppBar({ user, workspaces }: AppBarProps) {
             )}
           </div>
         ) : null}
-        {deleteOpen ? (
-          <div className="product-dialog-backdrop">
-            <div
-              className="product-dialog"
-              role="dialog"
-              aria-modal="true"
-              aria-label="Delete your account"
-            >
-              <Card title="Delete your account">
-                <p>
-                  Deleting your account removes your workspaces, meetings, minutes, to-dos and tool
-                  logins. Any open meetings end now. This cannot be undone.
-                </p>
-                <label className="product-dialog-field">
-                  <span>Type DELETE to confirm</span>
-                  <input
-                    type="text"
-                    value={confirmText}
-                    onChange={(event) => setConfirmText(event.target.value)}
-                    autoComplete="off"
-                    autoFocus
-                    disabled={deleting}
-                  />
-                </label>
-                {deleteError === null ? null : (
-                  <p className="product-error" role="alert">
-                    {deleteError}
-                  </p>
-                )}
-                <div className="product-dialog-actions">
-                  <Button variant="ghost" onClick={cancelDelete} disabled={deleting}>
-                    Keep my account
-                  </Button>
-                  <Button
-                    variant="danger"
-                    onClick={() => void removeAccount()}
-                    disabled={deleting || confirmText !== 'DELETE'}
-                  >
-                    {deleting ? 'Deleting…' : 'Delete my account'}
-                  </Button>
-                </div>
-              </Card>
+        <Dialog
+          open={deleteOpen}
+          onClose={cancelDelete}
+          label="Delete your account"
+          busy={deleting}
+        >
+          <Card title="Delete your account">
+            <p>
+              Deleting your account removes your workspaces, meetings, minutes, to-dos and tool
+              logins. Any open meetings end now. This cannot be undone.
+            </p>
+            <label className="product-dialog-field">
+              <span>Type DELETE to confirm</span>
+              <input
+                type="text"
+                value={confirmText}
+                onChange={(event) => setConfirmText(event.target.value)}
+                autoComplete="off"
+                autoFocus
+                disabled={deleting}
+              />
+            </label>
+            {deleteError === null ? null : (
+              <p className="product-error" role="alert">
+                {deleteError}
+              </p>
+            )}
+            <div className="product-dialog-actions">
+              <Button variant="ghost" onClick={cancelDelete} disabled={deleting}>
+                Keep my account
+              </Button>
+              <Button
+                variant="danger"
+                onClick={() => void removeAccount()}
+                disabled={deleting || confirmText !== 'DELETE'}
+              >
+                {deleting ? 'Deleting…' : 'Delete my account'}
+              </Button>
             </div>
-          </div>
-        ) : null}
+          </Card>
+        </Dialog>
       </div>
     </header>
   );

@@ -242,11 +242,11 @@ function useKakiLinks(feeds: readonly KakiAudience[] | undefined): ReadonlyMap<s
         try {
           parsed = JSON.parse(message.data) as unknown;
         } catch {
-          console.warn('kaki web: ignored a non-JSON message');
+          console.error('kaki web: the server sent a message that is not JSON');
           return;
         }
         if (!isKakiEvent(parsed, scenarioRef.current)) {
-          console.warn('kaki web: ignored an invalid event', parsed);
+          console.error('kaki web: the server sent an event this app does not understand');
           return;
         }
         const event = Object.assign(parsed, { receivedAt: Date.now() });

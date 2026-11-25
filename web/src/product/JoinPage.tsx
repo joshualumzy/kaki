@@ -2,7 +2,7 @@ import { ErrorText } from './ErrorText';
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useMe } from '../auth/useMe';
-import { Button, Card } from '../ui';
+import { Button, Card, formatMeetingTime, useDocumentTitle } from '../ui';
 import { storeRealJoinName, storeRealMeetingCode } from '../meeting/room/rejoinSession';
 import { getMeetingInfo, joinMeeting, type MeetingInfo } from './api';
 import { EndedMeetingCard } from './EndedMeetingCard';
@@ -22,6 +22,13 @@ export function JoinPage() {
   const [name, setName] = useState('');
   const [joinError, setJoinError] = useState<string | null>(null);
   const [joining, setJoining] = useState(false);
+  useDocumentTitle(
+    notFound
+      ? 'Meeting not found · Kaki'
+      : info === null
+        ? 'Join a meeting · Kaki'
+        : `${info.title} · Kaki`,
+  );
 
   useEffect(() => {
     if (inviteCode.trim() !== '') storeRealMeetingCode(id, inviteCode.trim());
@@ -143,7 +150,7 @@ export function JoinPage() {
 
           {plannedInFuture ? (
             <p className="product-note">
-              {`This meeting is planned for ${new Date(info.scheduledFor ?? '').toLocaleString()}. You can join early.`}
+              {`This meeting is planned for ${formatMeetingTime(info.scheduledFor ?? '')}. You can join early.`}
             </p>
           ) : null}
 
