@@ -107,4 +107,9 @@ describe('task entries', () => {
       expect(entryForTask({ ...task, status }, 'SUGGESTED')).toBeUndefined();
     }
   });
+  it('does not say Kaki noticed the server-owned minutes card', () => {
+    expect(
+      entryForTask({ ...task, purpose: 'meeting_minutes' }, undefined),
+    ).toBeUndefined();
+  });
 });

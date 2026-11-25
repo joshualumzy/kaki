@@ -4,6 +4,7 @@ export { Button } from './Button';
 export { Card } from './Card';
 export { Dialog } from './Dialog';
 export { useDocumentTitle } from './documentTitle';
+export { Markdown } from './Markdown';
 export { formatMeetingTime, localZoneAbbreviation } from './meetingTime';
 export { RejectionBanner } from './RejectionBanner';
 export { StatusPill } from './StatusPill';

@@ -159,7 +159,7 @@ describe('MeetingPanel team meetings', () => {
 });
 
 describe('MeetingPanel', () => {
-  it('orders the Host, Wingman and Action board sections', () => {
+  it('orders the meeting progress, Kaki assistant and Action board sections', () => {
     const suggested: Task = {
       id: 'suggested-1',
       title: 'Post the opening update',
@@ -182,7 +182,7 @@ describe('MeetingPanel', () => {
     const headings = [...container.querySelectorAll('.kd-section-title')].map((heading) =>
       heading.textContent?.trim(),
     );
-    expect(headings.slice(0, 3)).toEqual(['Host', 'Wingman', 'Action board']);
+    expect(headings.slice(0, 3)).toEqual(['Meeting progress', 'Kaki (assistant)', 'Action board']);
   });
 
   it('puts the Need an idea button inside the Wingman section, under the ask box', () => {

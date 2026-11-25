@@ -7,7 +7,7 @@ import type { SavedMeetingDetails } from '../../src/persist/state';
 import { createFakeLlm } from '../../src/services/llm';
 import { createTaskStore, type TaskStore } from '../../src/meeting/tasks';
 import { testScenario } from '../fixtures/scenario';
-import { waitFor } from '../helpers';
+import { settle, waitFor } from '../helpers';
 
 const settings: WikiSettings = { url: 'http://wiki.test', email: 'a@b.test', password: 'pw' };
 const reply = JSON.stringify({ title: 'Launch notes', body: '- Build is due 20 Nov' });
@@ -404,23 +404,37 @@ describe('wiki action module', () => {
     }
   });
 
-  it('drafts the minutes even when the meeting closed with an empty transcript', async () => {
+  it('keeps Kaki’s copy but creates no card when the meeting ended with nothing said', async () => {
+    const archives: Array<{ minutes: string; todos: unknown[] }> = [];
     const tasks = setup(
       { llm: createFakeLlm(() => reply), wiki: settings, fetchImpl: wikiFetch(), minutesDelayMs: 10, today: () => '2026-11-03' },
       false,
-      { seats: [{ name: 'Bao', seat: 'cashier' }] },
+      {
+        seats: [{ name: 'Bao', seat: 'cashier' }],
+        archiveMinutes: async (input) => {
+          archives.push(input);
+        },
+      },
     );
-    // Nobody said a word before the closing: the minutes still exist (agenda, tasks, questions).
+    // A real meeting ends through its ended record, not a spoken closing. Nobody said a word:
+    // there is no minutes card to review, but Kaki still keeps its own copy for the history.
     tasks.hub.publish({
-      type: 'HOST_SPEECH_TRIGGERED',
+      type: 'MEETING_RECORD_UPDATED',
       audience: { kind: 'screen' },
-      payload: { kind: 'CLOSING', text: 'That concludes our meeting.' },
+      payload: {
+        agendaIndex: 0,
+        openQuestions: [],
+        elapsedSeconds: 60,
+        speakerTalkSeconds: {},
+        ended: true,
+      },
     });
 
-    const minutesTask = await waitFor(() => minutesTaskIn(tasks), 'end-of-meeting minutes task');
-    expect(minutesTask.status).toBe('DRAFT_READY');
-    expect(minutesTask.draft?.subject).toBe('Lunch service readiness — Meeting Minutes');
-    expect(minutesTask.draft?.body).not.toContain('Discussion Transcript');
+    await waitFor(() => (archives.length === 1 ? true : undefined), "Kaki's minutes copy");
+    await settle(30);
+    expect(archives[0]?.minutes).toContain('Lunch service readiness — Meeting Minutes');
+    expect(archives[0]?.todos).toEqual([]);
+    expect(minutesTaskIn(tasks)).toBeUndefined();
   });
 
   it('drafts the minutes for review even when the wiki is not configured', async () => {

@@ -346,8 +346,13 @@ export function MeetingPanel({
           {real ? plainRejection(rejection.reason) : `${rejection.commandType}: ${rejection.reason}`}
         </p>
       )}
-      <section className="kd-panel-section" aria-label="Host">
-        <SectionHeading icon="clock" tone="host">Host</SectionHeading>
+      <section
+        className="kd-panel-section"
+        aria-label={isHost ? "You're the host" : 'Meeting progress'}
+      >
+        <SectionHeading icon="clock" tone="host">
+          {isHost ? "You're the host" : 'Meeting progress'}
+        </SectionHeading>
         {isHost && <HostBrief scenario={scenario} practice={practice} />}
       {record === undefined ? (
         <>
@@ -526,7 +531,9 @@ export function MeetingPanel({
       </section>
 
       <section id="wingman" className="kd-panel-section" aria-label="Wingman section">
-        <SectionHeading icon="sparkle" tone="wingman" aside="private to you">Wingman</SectionHeading>
+        <SectionHeading icon="sparkle" tone="wingman" aside="private to you">
+          Kaki (assistant)
+        </SectionHeading>
         {practice && (
           <details
             className="kd-briefing"

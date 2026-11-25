@@ -67,6 +67,9 @@ export function entryForTask(
   task: Task,
   previousStatus: Task['status'] | undefined,
 ): TimelineEntry | undefined {
+  // The minutes card is a server-owned end-of-meeting step with its own place in the panel; saying
+  // Kaki noticed it as a task would announce work nobody in the room asked for.
+  if (task.purpose !== undefined) return undefined;
   if (task.status === previousStatus || task.status !== 'SUGGESTED') return undefined;
   return { key: `task|${task.id}|${task.status}`, kind: 'task', text: `Kaki noticed a task: ${task.title}` };
 }

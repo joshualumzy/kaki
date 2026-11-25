@@ -33,6 +33,7 @@ import {
   type WorkspaceSummary,
 } from './api';
 import { AppBar } from './AppBar';
+import { ProductFooter } from './ProductFooter';
 import { ToolSection } from './ToolSection';
 import './product.css';
 
@@ -221,6 +222,11 @@ export function WorkspacePage() {
   const user = guard.user;
   const role = workspaces?.find((workspace) => workspace.id === id)?.role;
   const canEdit = role === 'admin' && detail !== null && !detail.readOnly;
+  // The count is read from the same rows the meeting list shows, so cancelling the last meeting
+  // cannot leave a stale "1" beside "No meetings yet".
+  const meetingCount = detail === null ? 0 : detail.meetings.length;
+  const todoCount =
+    detail === null ? 0 : detail.meetings.reduce((sum, meeting) => sum + meeting.todoCount, 0);
   const canManageMeeting = (meeting: MeetingSummary): boolean =>
     detail !== null &&
     !detail.readOnly &&
@@ -317,8 +323,8 @@ export function WorkspacePage() {
   async function cancelScheduledMeeting(meeting: MeetingSummary): Promise<void> {
     if (meetingActionBusy !== null) return;
     const confirmed = await confirm({
-      title: `Cancel ${meeting.title}?`,
-      message: 'It will be deleted for everyone.',
+      title: 'Cancel this meeting?',
+      message: `${meeting.title} will be removed for everyone.`,
       confirmLabel: 'Cancel meeting',
       cancelLabel: 'Keep it',
       danger: true,
@@ -786,19 +792,21 @@ export function WorkspacePage() {
                                 </>
                               ) : null}
                               {self ? (
-                                <button
-                                  type="button"
-                                  className="product-link"
-                                  disabled={busy || lastAdmin}
-                                  title={
-                                    lastAdmin
-                                      ? 'Make someone else an admin before you leave.'
-                                      : undefined
-                                  }
-                                  onClick={() => void leaveThisWorkspace()}
-                                >
-                                  {memberBusy === user?.id ? 'Leaving…' : 'Leave workspace'}
-                                </button>
+                                lastAdmin ? (
+                                  <span className="product-hint product-last-admin">
+                                    You&apos;re the last admin. Make someone else an admin before
+                                    you leave.
+                                  </span>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    className="product-link"
+                                    disabled={busy}
+                                    onClick={() => void leaveThisWorkspace()}
+                                  >
+                                    {memberBusy === user?.id ? 'Leaving…' : 'Leave workspace'}
+                                  </button>
+                                )
                               ) : null}
                             </span>
                           )}
@@ -854,11 +862,13 @@ export function WorkspacePage() {
                             {inviteBusy === 'reset' ? 'Resetting…' : 'Reset link'}
                           </Button>
                         </div>
-                        {inviteNote === null ? null : (
-                          <p className="product-note" role="status">
-                            {inviteNote}
-                          </p>
-                        )}
+                        <div className="product-invite-status">
+                          {inviteNote === null ? null : (
+                            <p className="product-note" role="status">
+                              {inviteNote}
+                            </p>
+                          )}
+                        </div>
                       </>
                     )}
                   </div>
@@ -870,11 +880,11 @@ export function WorkspacePage() {
                 <dl className="product-stats">
                   <div className="product-stat">
                     <dt>Meetings</dt>
-                    <dd>{detail.counts.meetings}</dd>
+                    <dd>{meetingCount}</dd>
                   </div>
                   <div className="product-stat">
                     <dt>To-dos</dt>
-                    <dd>{detail.counts.todos}</dd>
+                    <dd>{todoCount}</dd>
                   </div>
                 </dl>
               </section>
@@ -1002,7 +1012,7 @@ export function WorkspacePage() {
                                     </button>
                                     <button
                                       type="button"
-                                      className="product-link product-link-danger"
+                                      className="product-link"
                                       disabled={meetingActionBusy !== null}
                                       onClick={() => void cancelScheduledMeeting(meeting)}
                                     >
@@ -1099,7 +1109,7 @@ export function WorkspacePage() {
                                       })
                                     }
                                   >
-                                    <option value="">Everyone (no owner)</option>
+                                    <option value="">No owner</option>
                                     {detail.people.map((person) => (
                                       <option key={person.id} value={person.id}>
                                         {person.name}
@@ -1313,6 +1323,7 @@ export function WorkspacePage() {
             ) : null}
           </>
         )}
+        <ProductFooter />
       </main>
     </>
   );

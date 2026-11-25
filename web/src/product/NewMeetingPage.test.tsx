@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MeState } from '../auth/useMe';
+import { formatMeetingTime } from '../ui';
 import { NewMeetingPage } from './NewMeetingPage';
 
 const DRAFT_KEY = 'kaki.new-meeting-draft.v1';
@@ -222,6 +223,58 @@ describe('NewMeetingPage', () => {
     expect(meetingBodies(fetchMock)[0]?.scheduledFor).toBe(
       new Date('2999-01-01T10:00').toISOString(),
     );
+    const when = formatMeetingTime(new Date('2999-01-01T10:00').toISOString());
+    expect((await screen.findByText(/^Scheduled for /)).textContent).toBe(
+      `Scheduled for ${when}.`,
+    );
+  });
+
+  it('confirms a workspace created from the form', async () => {
+    installFetch(
+      baseRoutes({
+        'POST /api/workspaces': () =>
+          reply({ id: 'ws-new', name: 'Research', kind: 'team', role: 'admin' }),
+        'GET /api/workspaces/ws-new': () =>
+          reply({
+            id: 'ws-new',
+            name: 'Research',
+            kind: 'team',
+            readOnly: false,
+            people: [{ id: 'user-1', name: 'Ada Lovelace', role: 'admin' }],
+            tools: [],
+            meetings: [],
+            counts: { meetings: 0, todos: 0, records: 0 },
+          }),
+      }),
+    );
+    renderPage();
+
+    await screen.findByLabelText('Meeting title');
+    fireEvent.change(screen.getByLabelText('Workspace'), {
+      target: { value: '__create_workspace__' },
+    });
+    fireEvent.change(screen.getByLabelText('New workspace name'), {
+      target: { value: 'Research' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }));
+
+    expect(await screen.findByText('Workspace Research created.')).toBeTruthy();
+    expect(screen.getByLabelText('Workspace')).toHaveProperty('value', 'ws-new');
+  });
+
+  it('puts Add an item below the agenda rows', async () => {
+    installFetch(baseRoutes());
+    renderPage();
+
+    await screen.findByLabelText('Meeting title');
+    fireEvent.click(screen.getByRole('button', { name: 'Type it' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add an item' }));
+
+    const row = screen.getByLabelText('Agenda item 1');
+    const add = screen.getByRole('button', { name: 'Add an item' });
+    expect(
+      row.compareDocumentPosition(add) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   });
 
   it('refuses a time in the past with a plain sentence', async () => {

@@ -1,5 +1,5 @@
 /** @vitest-environment jsdom */
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { MeState } from '../auth/useMe';
@@ -182,6 +182,7 @@ describe('WorkspacePage', () => {
           people: [
             { id: 'user-1', name: 'Ada Lovelace', role: 'admin' },
             { id: 'user-2', name: 'Ben Bitdiddle', role: 'member' },
+            { id: 'user-3', name: 'Cara Diaz', role: 'admin' },
           ],
           tools: [],
           meetings: [],
@@ -202,9 +203,43 @@ describe('WorkspacePage', () => {
       await screen.findByRole('link', { name: /join-workspace\/invite-token/ }),
     ).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Make admin' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Remove' })).toBeTruthy();
+    expect(screen.getAllByRole('button', { name: 'Remove' }).length).toBeGreaterThan(1);
     expect(screen.getByRole('button', { name: 'Leave workspace' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Reset link' })).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Privacy' }).getAttribute('href')).toBe('/privacy');
+    expect(screen.getByRole('link', { name: 'Terms' }).getAttribute('href')).toBe('/terms');
+  });
+
+  it('hides Leave workspace for the only admin and says why', async () => {
+    installFetch({
+      'GET /api/workspaces': () => reply(workspaces),
+      'GET /api/workspaces/ws-1': () =>
+        reply({
+          id: 'ws-1',
+          name: 'Team workspace',
+          kind: 'team',
+          readOnly: false,
+          people: [
+            { id: 'user-1', name: 'Ada Lovelace', role: 'admin' },
+            { id: 'user-2', name: 'Ben Bitdiddle', role: 'member' },
+          ],
+          tools: [],
+          meetings: [],
+          counts: { meetings: 0, todos: 0, records: 0 },
+        }),
+      'GET /api/workspaces/ws-1/invite': () =>
+        reply({
+          token: 'invite-token',
+          path: '/join-workspace/invite-token',
+          workspace: { id: 'ws-1', name: 'Team workspace' },
+        }),
+    });
+    renderPage('ws-1');
+
+    expect(
+      await screen.findByText(/You're the last admin\. Make someone else an admin before you leave\./),
+    ).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Leave workspace' })).toBeNull();
   });
 
   it('shows the sample workspace as read-only with built-in tools', async () => {
@@ -445,8 +480,9 @@ describe('WorkspacePage', () => {
     renderPage('ws-1');
     fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }));
     expect(
-      await screen.findByRole('dialog', { name: 'Cancel Scheduled sync?' }),
+      await screen.findByRole('dialog', { name: 'Cancel this meeting?' }),
     ).toBeTruthy();
+    expect(screen.getByText('Scheduled sync will be removed for everyone.')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Cancel meeting' }));
     await waitFor(() =>
       expect(fetchMock.mock.calls.some(([url, init]) => String(url) === '/api/meetings/mtg-1' && init?.method === 'DELETE')).toBe(true),
@@ -549,6 +585,97 @@ describe('WorkspacePage', () => {
     expect(await screen.findByText('Open sync')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'End' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull();
+  });
+
+  it('updates the meeting count when the only scheduled meeting is cancelled', async () => {
+    installFetch({
+      'GET /api/workspaces': () => reply(workspaces),
+      'GET /api/workspaces/ws-1': () =>
+        reply({
+          id: 'ws-1',
+          name: 'Team workspace',
+          kind: 'team',
+          readOnly: false,
+          people: [{ id: 'user-1', name: 'Ada Lovelace', role: 'admin' }],
+          tools: [],
+          meetings: [
+            {
+              id: 'mtg-1',
+              title: 'Solo sync',
+              status: 'scheduled',
+              scheduledFor: '2999-01-01T02:00:00.000Z',
+              createdAt: '2026-11-01T02:00:00.000Z',
+              endedAt: null,
+              agenda: [],
+              pace: null,
+              todoCount: 0,
+              ownerUserId: 'user-1',
+              ownerName: 'Ada Lovelace',
+            },
+          ],
+          counts: { meetings: 1, todos: 0, records: 0 },
+        }),
+      'GET /api/workspaces/ws-1/invite': () =>
+        reply({
+          token: 'invite-token',
+          path: '/join-workspace/invite-token',
+          workspace: { id: 'ws-1', name: 'Team workspace' },
+        }),
+      'DELETE /api/meetings/mtg-1': () => reply({ ok: true }),
+    });
+    renderPage('ws-1');
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Cancel meeting' }));
+
+    await waitFor(() =>
+      expect(screen.getByText(/No meetings yet\. Start one with/)).toBeTruthy(),
+    );
+    const activity = screen.getByLabelText('Activity');
+    expect(within(activity).getByText('Meetings').parentElement?.textContent).toBe('Meetings0');
+  });
+
+  it('shows one agenda row when editing a meeting created with one item', async () => {
+    installFetch({
+      'GET /api/workspaces': () => reply(workspaces),
+      'GET /api/workspaces/ws-1': () =>
+        reply({
+          id: 'ws-1',
+          name: 'Team workspace',
+          kind: 'team',
+          readOnly: false,
+          people: [{ id: 'user-1', name: 'Ada Lovelace', role: 'admin' }],
+          tools: [],
+          meetings: [
+            {
+              id: 'mtg-1',
+              title: 'Planning',
+              status: 'scheduled',
+              scheduledFor: '2999-01-01T02:00:00.000Z',
+              createdAt: '2026-11-01T02:00:00.000Z',
+              endedAt: null,
+              agenda: [{ title: 'Blockers', minutes: 5 }],
+              pace: null,
+              todoCount: 0,
+              ownerUserId: 'user-1',
+              ownerName: 'Ada Lovelace',
+            },
+          ],
+          counts: { meetings: 1, todos: 0, records: 0 },
+        }),
+      'GET /api/workspaces/ws-1/invite': () =>
+        reply({
+          token: 'invite-token',
+          path: '/join-workspace/invite-token',
+          workspace: { id: 'ws-1', name: 'Team workspace' },
+        }),
+    });
+    renderPage('ws-1');
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
+
+    expect(screen.getAllByLabelText('Agenda item 1')).toHaveLength(1);
+    expect(screen.getAllByDisplayValue('Blockers')).toHaveLength(1);
   });
 
   it('retries a meeting whose workspace calendar write failed', async () => {

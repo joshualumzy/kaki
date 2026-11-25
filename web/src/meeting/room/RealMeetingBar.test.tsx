@@ -75,7 +75,7 @@ describe('real meeting bar', () => {
   it('offers the real controls and never the practice ones', () => {
     renderBar();
 
-    for (const label of ['Mic on', 'Camera off', 'Off the record', 'Invite', 'People', 'Leave']) {
+    for (const label of ['Turn mic off', 'Turn camera on', 'Off the record', 'Invite', 'People', 'Leave']) {
       expect(screen.getByRole('button', { name: new RegExp(`^${label}`) })).toBeTruthy();
     }
     expect(screen.queryByRole('button', { name: /End for everyone/ })).toBeNull();
@@ -87,7 +87,7 @@ describe('real meeting bar', () => {
     mocks.micRejects = true;
     renderBar();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Mic on' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Turn mic off' }));
 
     const alert = await screen.findByRole('alert');
     expect(alert.textContent).toBe(failureText('mic-blocked', { real: true }));
@@ -98,7 +98,7 @@ describe('real meeting bar', () => {
     mocks.cameraRejects = true;
     renderBar();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Camera off' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Turn camera on' }));
 
     const alert = await screen.findByRole('alert');
     expect(alert.textContent).toBe(failureText('camera-blocked', { real: true }));
@@ -157,7 +157,7 @@ describe('real meeting bar', () => {
     renderBar();
 
     expect(screen.queryByRole('toolbar', { name: 'Meeting controls' })).toBeNull();
-    for (const label of ['Mic', 'Camera', 'Off the record', 'Invite', 'People', 'Leave', 'End for everyone']) {
+    for (const label of ['Turn mic', 'Turn camera', 'Off the record', 'Invite', 'People', 'Leave', 'End for everyone']) {
       expect(screen.queryByRole('button', { name: new RegExp(`^${label}`) })).toBeNull();
     }
     mocks.meetingState.phase = 'running';
@@ -167,7 +167,7 @@ describe('real meeting bar', () => {
     mocks.meetingState.waitingForOwner = true;
     renderBar();
 
-    for (const label of ['Mic', 'Camera', 'Off the record', 'Invite']) {
+    for (const label of ['Turn mic', 'Turn camera', 'Off the record', 'Invite']) {
       expect((screen.getByRole('button', { name: new RegExp(`^${label}`) }) as HTMLButtonElement).disabled).toBe(true);
     }
     expect((screen.getByRole('button', { name: /Leave/ }) as HTMLButtonElement).disabled).toBe(false);

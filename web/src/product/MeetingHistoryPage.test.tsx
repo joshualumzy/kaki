@@ -126,7 +126,7 @@ describe('MeetingHistoryPage', () => {
           id: 'mtg-1',
           title: 'Weekly planning',
           date: '2026-11-20T10:00:00.000Z',
-          minutes: '# Weekly planning\n\nWe agreed the rota.',
+          minutes: '## Decisions\n\n**We agreed** the rota.',
           todos: [{ id: 'task-1', title: 'Update the rota', owner: 'Chef', status: 'SUGGESTED', done: false }],
           canEdit: true,
         }),
@@ -140,7 +140,9 @@ describe('MeetingHistoryPage', () => {
     renderPage();
 
     expect(await screen.findByRole('heading', { name: 'Weekly planning' })).toBeTruthy();
-    expect(screen.getByText(/We agreed the rota/)).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Decisions' }).tagName).toBe('H2');
+    expect(screen.getByText('We agreed').tagName).toBe('STRONG');
+    expect(screen.queryByText(/^##/)).toBeNull();
     expect(screen.getByRole('button', { name: 'Copy' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Download markdown' })).toBeTruthy();
     expect(screen.getByText(/No tool is connected here/)).toBeTruthy();
@@ -158,7 +160,7 @@ describe('MeetingHistoryPage', () => {
           id: 'mtg-1',
           title: 'Weekly planning',
           date: '2026-11-20T10:00:00.000Z',
-          minutes: '# Weekly planning',
+          minutes: '## Notes',
           todos: [{ id: 'task-1', title: 'Update the rota', owner: 'Chef', status: 'SUGGESTED', done: false }],
           canEdit: false,
         }),

@@ -103,7 +103,7 @@ export function RealMeetingBar({
           disabled={waiting}
           onClick={() => void toggleMicrophone()}
         >
-          {isMicrophoneEnabled ? 'Mic on' : 'Mic off'}
+          {isMicrophoneEnabled ? 'Turn mic off' : 'Turn mic on'}
         </button>
         <button
           type="button"
@@ -113,7 +113,7 @@ export function RealMeetingBar({
           disabled={waiting}
           onClick={() => void toggleCamera()}
         >
-          {isCameraEnabled ? 'Camera on' : 'Camera off'}
+          {isCameraEnabled ? 'Turn camera off' : 'Turn camera on'}
         </button>
         <button
           type="button"

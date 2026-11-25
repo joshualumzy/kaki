@@ -60,7 +60,7 @@ export function Dock({
           </span>
           {meetingCode !== undefined && (
             <span className="kd-code" aria-label="Meeting code" style={{ border: 0, padding: 0, fontSize: 11.5 }}>
-              Code <b>{meetingCode}</b>
+              Join code: <b>{meetingCode}</b>
             </span>
           )}
         </div>

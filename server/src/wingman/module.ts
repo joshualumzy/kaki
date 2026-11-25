@@ -887,6 +887,8 @@ export function createWingmanModule(options: WingmanModuleOptions = {}): KakiMod
       function giveTaskNote(task: Task, role: Role): void {
         const key = `${task.id}\u0000${role}`;
         if (givenKeys.has(key)) return;
+        // The minutes card is the end-of-meeting review, not a to-do handed out during the talk.
+        if (task.purpose !== undefined) return;
         if (task.status === 'DISMISSED' || task.status === 'SUPERSEDED') return;
         givenKeys.add(key);
         publishNote(

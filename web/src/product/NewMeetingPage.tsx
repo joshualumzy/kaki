@@ -7,6 +7,7 @@ import { SIGN_IN_ENDED } from '../net/plainFailure';
 import {
   Button,
   Card,
+  formatMeetingTime,
   localZoneAbbreviation,
   useDocumentTitle,
 } from '../ui';
@@ -24,6 +25,7 @@ import {
   type WorkspaceSummary,
 } from './api';
 import { AppBar } from './AppBar';
+import { ProductFooter } from './ProductFooter';
 import './product.css';
 
 const DRAFT_KEY = 'kaki.new-meeting-draft.v1';
@@ -213,10 +215,12 @@ export function NewMeetingPage() {
   const [note, setNote] = useState<string | null>(null);
   const [pending, setPending] = useState<'start' | 'schedule' | 'calendar' | 'kaki' | null>(null);
   const [created, setCreated] = useState<MeetingCreated | null>(null);
+  const [createdScheduledFor, setCreatedScheduledFor] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
   const [createError, setCreateError] = useState<string | null>(null);
+  const [createdWorkspaceName, setCreatedWorkspaceName] = useState<string | null>(null);
   const [savingWorkspace, setSavingWorkspace] = useState(false);
 
   useEffect(() => {
@@ -436,6 +440,7 @@ export function NewMeetingPage() {
       setSelectedId(workspace.id);
       setCreating(false);
       setNewName('');
+      setCreatedWorkspaceName(workspace.name);
     } catch (workspaceError) {
       setCreateError(
         workspaceError instanceof Error ? workspaceError.message : 'Could not create the workspace.',
@@ -513,9 +518,11 @@ export function NewMeetingPage() {
       // The meeting exists now: stop the draft writer so a late people load cannot recreate the draft.
       setCreated(meeting);
       if (scheduled) {
+        setCreatedScheduledFor(scheduledFor ?? null);
         setCopied(null);
         return;
       }
+      setCreatedScheduledFor(null);
       // Start now goes straight into the room: the meeting begins as soon as its owner is in.
       navigate(`/m/${encodeURIComponent(meeting.id)}/room?start=1`);
     } catch (createErrorValue) {
@@ -538,6 +545,7 @@ export function NewMeetingPage() {
 
   function createAnother(): void {
     setCreated(null);
+    setCreatedScheduledFor(null);
     setTitle('');
     setAgenda([]);
     setQuietCheck(String(DEFAULT_PACE.quietCheckAfter));
@@ -586,6 +594,11 @@ export function NewMeetingPage() {
         {created !== null ? (
           <section className="card product-section">
             <h2 className="product-section-title">The meeting is ready</h2>
+            {createdScheduledFor === null ? null : (
+              <p className="product-hint">
+                Scheduled for {formatMeetingTime(createdScheduledFor)}.
+              </p>
+            )}
             <p className="product-hint">Share this link with the people joining.</p>
             <div className="product-invite-row">
               <p className="product-invite-link">
@@ -647,6 +660,7 @@ export function NewMeetingPage() {
                 className="product-input"
                 value={creating ? CREATE_OPTION : selectedId}
                 onChange={(event) => {
+                  setCreatedWorkspaceName(null);
                   if (event.target.value === CREATE_OPTION) {
                     setCreating(true);
                     return;
@@ -666,6 +680,11 @@ export function NewMeetingPage() {
                 A workspace holds your meetings, minutes and connected tools. The Nanyang Kopi
                 sample is read-only and has its tools ready.
               </p>
+              {createdWorkspaceName === null ? null : (
+                <p className="product-note" role="status">
+                  Workspace {createdWorkspaceName} created.
+                </p>
+              )}
             </div>
 
             {creating ? (
@@ -769,14 +788,6 @@ export function NewMeetingPage() {
                       Tell Kaki
                     </button>
                   </div>
-
-                  {method === 'type' ? (
-                    <div className="product-method-panel">
-                      <Button variant="ghost" onClick={addAgendaItem}>
-                        Add an item
-                      </Button>
-                    </div>
-                  ) : null}
 
                   {method === 'calendar' ? (
                     <div className="product-method-panel">
@@ -896,7 +907,7 @@ export function NewMeetingPage() {
                                 })
                               }
                             >
-                              <option value="">Everyone (no owner)</option>
+                              <option value="">No owner</option>
                               {people.map((person) => (
                                 <option key={person.id} value={person.id}>
                                   {person.name}
@@ -916,6 +927,13 @@ export function NewMeetingPage() {
                       ))}
                     </ol>
                   )}
+                  {method === 'type' ? (
+                    <div className="product-agenda-add">
+                      <Button variant="ghost" onClick={addAgendaItem}>
+                        Add an item
+                      </Button>
+                    </div>
+                  ) : null}
                   {peopleError === null ? null : (
                     <p className="product-error" role="alert">
                       <ErrorText text={peopleError} />
@@ -1025,6 +1043,7 @@ export function NewMeetingPage() {
               </form>
           </section>
         ) : null}
+        <ProductFooter />
       </main>
     </>
   );

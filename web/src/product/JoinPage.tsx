@@ -6,6 +6,7 @@ import { Button, Card, formatMeetingTime, useDocumentTitle } from '../ui';
 import { storeRealJoinName, storeRealMeetingCode } from '../meeting/room/rejoinSession';
 import { getMeetingInfo, joinMeeting, type MeetingInfo } from './api';
 import { EndedMeetingCard } from './EndedMeetingCard';
+import { ProductFooter } from './ProductFooter';
 import './product.css';
 
 /** What a visitor sees from a meeting link before they join. */
@@ -199,6 +200,7 @@ export function JoinPage() {
           </section>
         </>
       )}
+      <ProductFooter />
     </main>
   );
 }

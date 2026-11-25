@@ -257,14 +257,25 @@
   border: 1px solid var(--color-border);
   font-family: var(--font-mono);
   font-size: 0.82rem;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .product-invite-link a {
   color: var(--color-text);
   text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+/* A copy confirmation must not push the page around when it appears. */
+.product-invite-status {
+  display: flex;
+  align-items: center;
+  min-height: 3rem;
+}
+
+.product-invite-status .product-note {
+  margin-top: 0;
 }
 
 /* Agenda methods */
@@ -370,10 +381,11 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  flex-wrap: wrap;
 }
 
 .product-agenda-row .product-input:first-child {
-  flex: 1 1 auto;
+  flex: 1 1 12rem;
 }
 
 .product-minutes {
@@ -381,7 +393,12 @@
 }
 
 .product-agenda-owner {
-  flex: 0 1 12rem;
+  flex: 1 1 14rem;
+  min-width: 11rem;
+}
+
+.product-agenda-add {
+  margin-top: var(--space-2);
 }
 
 .product-edit-meeting {
@@ -751,6 +768,11 @@
   flex: 1 1 auto;
 }
 
+.product-last-admin {
+  flex: 1 1 100%;
+  text-align: right;
+}
+
 .product-avatar {
   display: grid;
   place-items: center;
@@ -1013,24 +1035,84 @@
   margin: 8px 0;
 }
 
-.product-minutes-copy {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  font: inherit;
-  font-size: 0.85rem;
-  line-height: 1.5;
+.product-markdown {
   margin: 8px 0 0;
   padding: 12px;
   background: rgba(0, 0, 0, 0.04);
   border-radius: 8px;
   max-height: 60vh;
   overflow: auto;
+  font-size: 0.9rem;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.product-markdown h1,
+.product-markdown h2,
+.product-markdown h3,
+.product-markdown h4,
+.product-markdown h5,
+.product-markdown h6 {
+  margin: var(--space-4) 0 var(--space-2);
+  line-height: 1.25;
+}
+
+.product-markdown h1:first-child,
+.product-markdown h2:first-child,
+.product-markdown h3:first-child {
+  margin-top: 0;
+}
+
+.product-markdown h1 {
+  font-size: 1.3rem;
+}
+
+.product-markdown h2 {
+  font-size: 1.15rem;
+}
+
+.product-markdown h3 {
+  font-size: 1rem;
+}
+
+.product-markdown p,
+.product-markdown ul,
+.product-markdown ol,
+.product-markdown blockquote {
+  margin: var(--space-2) 0;
+}
+
+.product-markdown ul,
+.product-markdown ol {
+  padding-left: 1.25rem;
+}
+
+.product-markdown blockquote {
+  padding-left: var(--space-3);
+  border-left: 3px solid var(--color-border-strong);
+  color: var(--color-muted);
+}
+
+.product-markdown code {
+  padding: 0 0.25em;
+  border-radius: 4px;
+  background: var(--color-bg-raised);
+  font-family: var(--font-mono);
+  font-size: 0.9em;
 }
 
 .signin-footer {
   display: flex;
   justify-content: center;
   gap: var(--space-4);
+  font-size: 0.85rem;
+}
+
+.product-footer {
+  display: flex;
+  justify-content: center;
+  gap: var(--space-4);
+  margin-top: var(--space-6);
   font-size: 0.85rem;
 }
 

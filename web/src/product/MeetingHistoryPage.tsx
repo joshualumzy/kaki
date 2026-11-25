@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { Link, Navigate, useParams } from 'react-router-dom';
 import { useSignInGuard } from '../auth/useSignInGuard';
 import { SIGN_IN_ENDED } from '../net/plainFailure';
-import { Button, Card, formatMeetingTime, useDocumentTitle } from '../ui';
+import { Button, Card, formatMeetingTime, Markdown, useDocumentTitle } from '../ui';
 import {
   getMeetingMinutes,
   getWorkspace,
@@ -14,6 +14,7 @@ import {
   type WorkspaceSummary,
 } from './api';
 import { AppBar } from './AppBar';
+import { ProductFooter } from './ProductFooter';
 import './product.css';
 
 function whenText(iso: string): string {
@@ -241,13 +242,14 @@ export function MeetingHistoryPage() {
                         {copyNote}
                       </p>
                     )}
-                    <pre className="product-minutes-copy">{minutes.minutes}</pre>
+                    <Markdown text={minutes.minutes} />
                   </>
                 )}
               </section>
             </div>
           </>
         )}
+        <ProductFooter />
       </main>
     </>
   );

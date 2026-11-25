@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useSignInGuard } from '../auth/useSignInGuard';
 import { Button, Card, useDocumentTitle } from '../ui';
 import { joinWorkspace } from './api';
+import { ProductFooter } from './ProductFooter';
 import './product.css';
 
 /** The page an invite link opens: a signed-in person joins the team workspace as a member. */
@@ -66,6 +67,7 @@ export function JoinWorkspacePage() {
           </>
         )}
       </Card>
+      <ProductFooter />
     </main>
   );
 }

@@ -497,6 +497,28 @@ describe('wingman module', () => {
     }
   });
 
+  it('does not announce the end-of-meeting minutes card as a given to-do', async () => {
+    const fake = fakeHub();
+    const stop = start({ hub: fake });
+    try {
+      const minutes = task({
+        title: 'Publish meeting minutes to the team wiki',
+        purpose: 'meeting_minutes',
+        status: 'DRAFT_READY',
+      });
+      fake.emit({
+        type: 'TASK_UPDATED',
+        audience: { kind: 'role', role: 'chef' },
+        payload: { task: minutes },
+      });
+
+      const notes = wingmanNotes(fake.published).filter((event) => event.payload.kind === 'given');
+      expect(notes).toHaveLength(0);
+    } finally {
+      stop();
+    }
+  });
+
   it('pops a direct question to the person, with workspace facts and sources', async () => {
     const fake = fakeHub();
     const llm = createFakeLlm(() =>

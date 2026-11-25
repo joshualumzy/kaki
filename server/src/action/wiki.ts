@@ -454,18 +454,19 @@ export function createWikiModule({
           // The meeting that just closed, with its own seats and agenda, not the startup scenario.
           const scenario = context.activeScenario();
           const title = `${scenario.meetingTitle} — Meeting Minutes`;
+          const allTasks = context.tasks.list();
+          const offTheRecordSpans = context.meetingDetails?.().offTheRecordSpans ?? [];
           const content = buildMeetingMinutes(
             scenario,
             date,
             snapshotLines,
             openQuestions,
-            context.tasks.list(),
-            context.meetingDetails?.().offTheRecordSpans ?? [],
+            allTasks,
+            offTheRecordSpans,
           );
           // Kaki keeps its own copy of the minutes before any tool is involved, so the workspace
           // history has them even with no tool connected or after the meeting is unloaded.
-          const todos = context.tasks
-            .list()
+          const todos = allTasks
             .filter((task) => task.status !== 'DISMISSED' && task.purpose === undefined)
             .map((task) => ({
               id: task.id,
@@ -477,6 +478,20 @@ export function createWikiModule({
             void context.archiveMinutes({ minutes: content, todos }).catch((error: unknown) => {
               console.error(`kaki action-wiki: could not keep Kaki's copy of the minutes: ${errorMessage(error)}`);
             });
+          }
+          // A meeting nobody spoke in has no minutes to publish. Offering the card anyway looked
+          // like a to-do invented out of thin air, and its system purpose kept it out of Kaki's own
+          // to-do list. Keep Kaki's copy above, but create no card when there is nothing to review.
+          const hasMinutesContent =
+            snapshotLines.length > 0 ||
+            openQuestions.length > 0 ||
+            todos.length > 0 ||
+            offTheRecordSpans.length > 0;
+          if (!hasMinutesContent) {
+            console.log(
+              `kaki action-wiki: ${scenario.meetingTitle} ended with nothing said; no minutes card was created`,
+            );
+            return;
           }
           const assignee = minutesAssignee(scenario, context.meetingDetails?.().holders ?? []);
           if (assignee === undefined) {
