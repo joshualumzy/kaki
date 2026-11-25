@@ -89,6 +89,7 @@ export function realScenarioWithPeople(base: Scenario, holders: readonly SeatHol
 
 /** Bind only an exact, uniquely held seat id. Names never establish agenda ownership. */
 function realAgendaOwner(
+  base: Scenario,
   configured: MeetingSetup | undefined,
   item: Scenario['agenda'][number],
   index: number,
@@ -98,7 +99,12 @@ function realAgendaOwner(
   const role = candidate?.ownerRoleId.trim();
   if (role === undefined || role === REAL_BASE_ROLE) return REAL_BASE_ROLE;
   const matches = holders.filter((holder) => holder.seat === role);
-  return matches.length === 1 ? matches[0]!.seat : REAL_BASE_ROLE;
+  if (matches.length === 1) return matches[0]!.seat;
+  if (matches.length > 1) return REAL_BASE_ROLE;
+  // The meeting row names this item's owner by account id, and the base scenario registers that
+  // stable seat even before the person joins. Keep it so cues reach the seat once it fills; only a
+  // role the base scenario knows can come from the row, so a display name never establishes it.
+  return base.roles.some((entry) => entry.id === role) ? role : REAL_BASE_ROLE;
 }
 
 /**
@@ -118,7 +124,7 @@ export function realMeetingSetup(
       id: `agenda-${index + 1}`,
       title: item.title,
       minutes: item.minutes,
-      ownerRoleId: realAgendaOwner(configured, item, index, holders),
+      ownerRoleId: realAgendaOwner(base, configured, item, index, holders),
     })),
     roles: roles.map((role) => ({
       id: role.id,

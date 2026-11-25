@@ -50,6 +50,43 @@ describe('real agenda owner identity', () => {
     expect(row.agenda[0]?.ownerRole).toBe(userRoomIdentity('member-1'));
   });
 
+  it('keeps a selected owner’s seat while they are absent, then hands the item and cues to them', () => {
+    const row = realBaseScenario({
+      id: 'owner-test',
+      title: 'Planning',
+      ownerUserId: 'owner-1',
+      agenda: [
+        { title: 'Budget', minutes: 5, ownerUserId: 'member-1' },
+        { title: 'Hiring', minutes: 5 },
+      ],
+    });
+    const ownerSeat = userRoomIdentity('owner-1');
+    const memberSeat = userRoomIdentity('member-1');
+    const ownerOnly = [{ name: 'mei', displayName: 'Mei Tan', seat: ownerSeat }];
+    const setup = defaultMeetingSetup(row);
+
+    // The owner starts the meeting before the agenda owner joins.
+    const sealed = realMeetingSetup(row, ownerOnly, setup);
+    expect(sealed.agenda[0]?.ownerRoleId).toBe(memberSeat);
+    expect(sealed.agenda[1]?.ownerRoleId).toBe('everyone');
+
+    const atStart = realMeetingScenario(row, ownerOnly, sealed);
+    expect(atStart.agenda[0]?.ownerRole).toBe(memberSeat);
+    const absentRole = atStart.roles.find((role) => role.id === memberSeat);
+    expect(absentRole?.label).toBe('Agenda owner');
+    expect(absentRole?.label).not.toBe('Everyone');
+    // An item nobody owns stays the generic role; identity is never invented.
+    expect(atStart.agenda[1]?.ownerRole).toBe('everyone');
+
+    // The agenda owner joins a minute later with the seat identity the row named.
+    const raj = { name: 'raj', displayName: 'Raj', seat: memberSeat };
+    const afterJoin = realMeetingScenario(atStart, [...ownerOnly, raj], sealed);
+    expect(afterJoin.agenda[0]?.ownerRole).toBe(memberSeat);
+    expect(afterJoin.roles.find((role) => role.id === memberSeat)?.label).toBe('Raj');
+    // The up-next cue reads this ownerRole and asks for the present holder of exactly that seat.
+    expect(afterJoin.agenda[0]?.ownerRole).toBe(raj.seat);
+  });
+
   it('seals the pace the owner chose', () => {
     const setup = defaultMeetingSetup(base);
     setup.pace = { quietCheckAfter: 90, comingUpBefore: 45 };

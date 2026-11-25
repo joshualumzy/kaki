@@ -841,9 +841,9 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
   }
   /**
    * A real meeting's scenario with the people now in it. The current scenario already carries the
-   * agenda owners the meeting sealed; a sealed setup is re-applied so an owner who has left falls
-   * back to unowned instead of naming an absent seat. Only people's plain seats are added, so a
-   * roster refresh never brings back AI attendees or drops a late joiner's role.
+   * agenda owners the meeting sealed; a sealed setup is re-applied so an owner who is absent, whether
+   * before or after joining, keeps the stable seat the meeting named. Only people's plain seats are
+   * added, so a roster refresh never brings back AI attendees or drops a late joiner's role.
    */
   function realScenarioForRoom(): Scenario {
     const holders = session.holders();
