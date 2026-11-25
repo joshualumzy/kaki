@@ -45,6 +45,7 @@ function setup(
     scenario?: Scenario;
     activeScenario?: Scenario;
     seats?: Array<{ name: string; seat: string }>;
+    startedAt?: string;
     offTheRecordSpans?: Array<{ from: string; to: string }>;
     archiveMinutes?: (input: {
       minutes: string;
@@ -67,6 +68,7 @@ function setup(
           meetingDetails: () =>
             ({
               holders: context.seats!,
+              ...(context.startedAt === undefined ? {} : { startedAt: context.startedAt }),
               ...(context.offTheRecordSpans === undefined
                 ? {}
                 : { offTheRecordSpans: context.offTheRecordSpans }),
@@ -514,6 +516,38 @@ describe('wiki action module', () => {
     expect(createCalls).toHaveLength(1);
     expect(JSON.parse(String(createCalls[0]![1]?.body)).variables.content).toContain(
       'We decided to cap the oven at 200C.',
+    );
+  });
+
+  it('keeps late-published minutes on the meeting date, not the day of publishing', async () => {
+    const fetchImpl = wikiFetch();
+    const tasks = setup(
+      { llm: createFakeLlm(() => reply), wiki: settings, fetchImpl, minutesDelayMs: 10, today: () => '2026-11-04' },
+      false,
+      { seats: [{ name: 'Bao', seat: 'cashier' }], startedAt: '2026-11-03T10:00:00.000Z' },
+    );
+    publishClosing(tasks.hub);
+
+    const ready = await waitFor(
+      () => {
+        const task = minutesTaskIn(tasks);
+        return task?.status === 'DRAFT_READY' ? task : undefined;
+      },
+      'end-of-meeting minutes task to be DRAFT_READY',
+    );
+    expect(ready.draft?.body).toContain('**Date:** 2026-11-03');
+    tasks.handleCommand({ type: 'APPROVE_ACTION', taskId: ready.id, draft: ready.draft! }, roleAudience('cashier'));
+    const done = await waitForStatus(tasks, ready.id, 'COMPLETED');
+
+    expect(done.artifactUrl).toBe(
+      'http://wiki.test/en/meetings/2026-11-03-lunch-service-readiness-meeting-minutes',
+    );
+    const createCall = fetchImpl.mock.calls.find(([, init]) =>
+      JSON.parse(String(init?.body)).query.includes('Create'),
+    );
+    if (createCall === undefined) throw new Error('Expected a page create request');
+    expect(JSON.parse(String(createCall[1]?.body)).variables.path).toBe(
+      'meetings/2026-11-03-lunch-service-readiness-meeting-minutes',
     );
   });
 

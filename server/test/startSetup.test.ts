@@ -1657,6 +1657,8 @@ describe('Start applies the validated setup', () => {
     const ownerSeat = ((await ownerJoin.json()) as { participantRole: string }).participantRole;
     const guest = await joinGuest(app, 'Ben');
     expect((await startMeeting(app, ownerCookie)).status).toBe(200);
+    // Pin the meeting's own date so the minutes and their wiki path stay deterministic.
+    app.session.setStartedAt('2026-11-20T09:00:00.000Z');
 
     const screen = await connectScreen(app, ownerCookie);
     // The chair talks for over a minute, so the notetaker has enough to judge who was quiet.

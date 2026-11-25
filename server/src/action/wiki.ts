@@ -262,6 +262,17 @@ export function createWikiModule({
   minutesDelayMs = DEFAULT_MINUTES_DELAY_MS,
   today = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Singapore' }),
 }: WikiModuleOptions = {}): KakiModule {
+  /** The date part (Asia/Singapore) of an ISO instant, as the minutes and page path show it. */
+  function localDate(iso: string): string {
+    return new Date(iso).toLocaleDateString('en-CA', { timeZone: 'Asia/Singapore' });
+  }
+  // The meeting's own date, so a late publish or a retry on another day lands on the same page.
+  let meetingDate: (() => string | undefined) | undefined;
+  let draftedMinutesDate: string | undefined;
+  function minutesDate(): string {
+    return draftedMinutesDate ?? meetingDate?.() ?? today();
+  }
+
   function settingsFrom(tools: WorkspaceTools | undefined): WikiSettings | undefined {
     return wiki ?? tools?.wiki;
   }
@@ -423,7 +434,8 @@ export function createWikiModule({
       const draft = task.draft;
       if (draft === undefined) throw new ActionError('The task has no draft to publish');
 
-      const path = pagePath(today(), draft.subject);
+      const date = task.purpose === 'meeting_minutes' ? minutesDate() : today();
+      const path = pagePath(date, draft.subject);
       const artifactUrl = await publishPage(settings, path, draft.subject, draft.body, `Written by Kaki: ${task.title}`, signal);
       return publicArtifactUrl(artifactUrl, settings.publicUrl);
     },
@@ -433,6 +445,10 @@ export function createWikiModule({
     name: 'action-wiki',
     start(context) {
       const stopBase = baseModule.start(context);
+      meetingDate = () => {
+        const startedAt = context.meetingDetails?.().startedAt ?? context.session?.startedAt();
+        return startedAt === undefined ? undefined : localDate(startedAt);
+      };
       // The end-of-meeting minutes are drafted locally (no LLM, no wiki call), so they are created
       // even when the wiki is unconfigured: publishing them later fails loudly on the card instead
       // of leaving the panel stuck on "syncing".
@@ -450,7 +466,8 @@ export function createWikiModule({
         minutesTimer = setTimeout(() => {
           minutesTimer = undefined;
           if (stopped) return;
-          const date = today();
+          const date = minutesDate();
+          draftedMinutesDate = date;
           // The meeting that just closed, with its own seats and agenda, not the startup scenario.
           const scenario = context.activeScenario();
           const title = `${scenario.meetingTitle} — Meeting Minutes`;
@@ -537,6 +554,7 @@ export function createWikiModule({
           transcriptLines = [];
           openQuestions = [];
           minutesPublished = false;
+          draftedMinutesDate = undefined;
           if (minutesTimer !== undefined) {
             clearTimeout(minutesTimer);
             minutesTimer = undefined;

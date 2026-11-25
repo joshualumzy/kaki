@@ -565,6 +565,12 @@ export async function handleWorkspaces(call: RouteCall): Promise<void> {
         });
         return;
       }
+      // Already published: answer from the meeting row before any instance loads. After a reset
+      // the room has no minutes card, and re-creating one would write a second wiki page.
+      if (meeting.minutesPublish?.status === 'published') {
+        sendJson(response, 200, { publish: meeting.minutesPublish });
+        return;
+      }
       const minutesText = meeting.minutes?.minutes;
       if (minutesText === undefined || minutesText.trim() === '') {
         sendJson(response, 409, { error: 'The minutes are still being prepared. Reload in a moment.' });

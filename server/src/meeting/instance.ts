@@ -679,16 +679,27 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
     isHostSeat: (role) => hostIdentityOf(session.active()).seat === role,
   });
   hub.onCommand(tasks.handleCommand);
+  // One publish-state write at a time, in task order: a slow "draft" write can never land after a
+  // newer "published" one. A failed write is logged loudly but does not stop later writes.
+  let publishStateWrites: Promise<void> = Promise.resolve();
+  function keepMinutesPublish(publish: MeetingMinutesPublish): Promise<void> {
+    if (onMinutesPublish === undefined) return Promise.resolve();
+    const write = publishStateWrites.then(() => onMinutesPublish(publish));
+    publishStateWrites = write.catch((error: unknown) => {
+      console.error(
+        `kaki minutes: could not keep the publish state "${publish.status}" for ${id}: ${
+          error instanceof Error ? (error.stack ?? error.message) : String(error)
+        }`,
+      );
+    });
+    return publishStateWrites;
+  }
   // The ended team meeting is the owner's until the minutes are published or dismissed. Any other
   // task moving says nothing about that review, so leave the protection alone.
   tasks.onChange((task) => {
     if (task.purpose !== 'meeting_minutes') return;
     const publish = minutesPublishFromTask(task);
-    if (publish !== undefined && onMinutesPublish !== undefined) {
-      void onMinutesPublish(publish).catch((error: unknown) => {
-        console.error(`kaki minutes: could not keep the publish state: ${error instanceof Error ? error.message : String(error)}`);
-      });
-    }
+    if (publish !== undefined) void keepMinutesPublish(publish);
     if (
       task.status === 'COMPLETED' ||
       task.status === 'SYNCED' ||
@@ -1865,6 +1876,18 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
     if (persistence.saved !== undefined) {
       try {
         tasks.restore(persistence.saved.state.tasks);
+        // A publish Kaki was running when it stopped is now FAILED on the card. Keep the same
+        // plain "try again" state with the meeting row, so history never sticks on "publishing".
+        if (
+          tasks
+            .list()
+            .some((task) => task.purpose === 'meeting_minutes' && task.interrupted === true)
+        ) {
+          await keepMinutesPublish({
+            status: 'failed',
+            error: 'Publishing was interrupted; try again.',
+          });
+        }
         // Restored tasks do not fire a change: an ended meeting whose minutes were already
         // published before the restart is not under review any more.
         if (
