@@ -65,10 +65,10 @@ const TOOLS: ToolSpec[] = [
     label: 'Email',
     tokenLabel: 'Password',
     fields: [
-      { name: 'smtpHost', label: 'SMTP host' },
-      { name: 'smtpPort', label: 'SMTP port', type: 'number' },
+      { name: 'smtpHost', label: 'Mail server host' },
+      { name: 'smtpPort', label: 'Mail server port', type: 'number' },
       { name: 'from', label: 'From address' },
-      { name: 'mailpitUrl', label: 'Mailbox URL' },
+      { name: 'mailpitUrl', label: 'Inbox URL' },
       { name: 'user', label: 'Username', optional: true },
     ],
   },
@@ -77,7 +77,7 @@ const TOOLS: ToolSpec[] = [
     label: 'Calendar',
     tokenLabel: 'Password',
     fields: [
-      { name: 'caldavUrl', label: 'CalDAV URL' },
+      { name: 'caldavUrl', label: 'Calendar server URL' },
       { name: 'viewBaseUrl', label: 'View base URL', optional: true },
       { name: 'user', label: 'Username', optional: true },
       { name: 'calendar', label: 'Calendar', optional: true },

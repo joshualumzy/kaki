@@ -170,7 +170,7 @@ describe('JoinPage', () => {
     renderPage();
 
     expect(await screen.findByRole('heading', { name: 'This meeting has ended' })).toBeTruthy();
-    expect(screen.getByText('Ask the host for the minutes.')).toBeTruthy();
+    expect(screen.getByText('Ask the meeting owner for the minutes.')).toBeTruthy();
     expect(screen.queryByLabelText('Your name')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Join meeting' })).toBeNull();
   });

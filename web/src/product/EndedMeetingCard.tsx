@@ -15,7 +15,7 @@ export function EndedMeetingCard({
     <Card title="This meeting has ended">
       <p className="product-hint">{meetingTitle}</p>
       {historyWorkspaceId === null ? (
-        <p className="product-hint">Ask the host for the minutes.</p>
+        <p className="product-hint">Ask the meeting owner for the minutes.</p>
       ) : (
         <Link
           className="product-open"

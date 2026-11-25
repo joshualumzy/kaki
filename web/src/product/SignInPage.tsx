@@ -127,6 +127,14 @@ export function SignInPage() {
           Try a practice meeting
         </Link>
       </section>
+      <footer className="signin-footer">
+        <Link className="product-link" to="/privacy">
+          Privacy
+        </Link>
+        <Link className="product-link" to="/terms">
+          Terms
+        </Link>
+      </footer>
     </main>
   );
 }

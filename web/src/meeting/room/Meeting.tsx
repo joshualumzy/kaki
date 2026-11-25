@@ -910,7 +910,7 @@ function RealEntryCard({
         <p className="kd-sub">{title}</p>
         {ask === 'code' ? (
           <p className="kd-hint">
-            Ask the host for the meeting code, or open the invite link they sent.
+            Ask the meeting owner for the meeting code, or open the invite link they sent.
           </p>
         ) : null}
         {ask === undefined ? null : (

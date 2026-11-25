@@ -44,6 +44,12 @@ describe('SignInPage', () => {
     );
   });
 
+  it('links to Privacy and Terms', () => {
+    renderPage();
+    expect(screen.getByRole('link', { name: 'Privacy' }).getAttribute('href')).toBe('/privacy');
+    expect(screen.getByRole('link', { name: 'Terms' }).getAttribute('href')).toBe('/terms');
+  });
+
   it('carries the page that asked for sign-in into the Google start link', () => {
     renderPage('/signin?next=%2Fworkspaces%2Fws-1');
     expect(screen.getByRole('link', { name: 'Sign in with Google' }).getAttribute('href')).toBe(

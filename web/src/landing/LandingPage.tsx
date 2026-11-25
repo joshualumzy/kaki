@@ -111,6 +111,12 @@ export function LandingPage() {
           </p>
         )}
       </form>
+
+      <footer className="landing-footer">
+        <Link to="/privacy">Privacy</Link>
+        <span aria-hidden="true">·</span>
+        <Link to="/terms">Terms</Link>
+      </footer>
     </main>
   );
 }

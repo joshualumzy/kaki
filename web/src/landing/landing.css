@@ -163,6 +163,24 @@
   text-underline-offset: 3px;
 }
 
+.landing-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--color-muted);
+  font-size: 13px;
+}
+
+.landing-footer a {
+  color: var(--color-muted);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.landing-footer a:hover {
+  color: var(--color-text);
+}
+
 /* Phone widths: 44px targets and labels no smaller than 12px. */
 @media (max-width: 480px) {
   .landing-go,

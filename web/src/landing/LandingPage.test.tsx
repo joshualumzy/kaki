@@ -48,6 +48,12 @@ describe('LandingPage', () => {
     expect(screen.getByRole('link', { name: 'Try a practice meeting' }).getAttribute('href')).toBe('/practice');
   });
 
+  it('links to Privacy and Terms in the footer', () => {
+    renderPage();
+    expect(screen.getByRole('link', { name: 'Privacy' }).getAttribute('href')).toBe('/privacy');
+    expect(screen.getByRole('link', { name: 'Terms' }).getAttribute('href')).toBe('/terms');
+  });
+
   it('shows a six-character example meeting code', () => {
     renderPage();
     const input = screen.getByLabelText('Got an invite? Enter the meeting code') as HTMLInputElement;

@@ -144,7 +144,7 @@ export function JoinPage() {
             <h1>{info.title}</h1>
             <p className="page-subtitle">
               {info.workspaceName === null ? 'A Kaki meeting' : info.workspaceName}
-              {info.ownerName === null ? '' : ` · Hosted by ${info.ownerName}`}
+              {info.ownerName === null ? '' : ` · Owner ${info.ownerName}`}
             </p>
           </header>
 
