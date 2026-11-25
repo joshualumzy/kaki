@@ -758,16 +758,17 @@ export function createPostgresAuthStore(pool: Pool): AuthStore {
       return row === undefined ? undefined : toWorkspace(row);
     },
 
-    async deleteWorkspace({ id, actorUserId }, transaction) {
+    async deleteWorkspace({ id, actorUserId, beforeDelete }, transaction) {
       const client = transaction ?? (await pool.connect());
       const ownsTransaction = transaction === undefined;
       try {
         if (ownsTransaction) await client.query('begin');
-        const workspace = await client.query<{ kind: string }>(
-          'select kind from workspaces where id = $1 for update',
+        const workspace = await client.query<WorkspaceRow>(
+          'select id, name, kind, created_by, created_at from workspaces where id = $1 for update',
           [id],
         );
-        if (workspace.rows[0]?.kind !== 'team') {
+        const row = workspace.rows[0];
+        if (row === undefined || row.kind !== 'team') {
           if (ownsTransaction) await client.query('rollback');
           return false;
         }
@@ -779,6 +780,7 @@ export function createPostgresAuthStore(pool: Pool): AuthStore {
           if (ownsTransaction) await client.query('rollback');
           return false;
         }
+        if (beforeDelete !== undefined) await beforeDelete(toWorkspace(row));
         await client.query('delete from workspace_members where workspace_id = $1', [id]);
         await client.query('delete from workspace_invites where workspace_id = $1', [id]);
         await client.query('delete from workspaces where id = $1', [id]);

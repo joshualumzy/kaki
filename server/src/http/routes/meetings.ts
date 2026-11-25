@@ -5,7 +5,9 @@ import type { RouteCall } from '../routeCall';
 import type { AuthStore } from '../../auth/store';
 import { parseAgendaInput } from '../../meeting/agenda';
 import { MeetingBusyError, MeetingOpenError } from '../../meeting/registry';
+import { WorkspaceFencedError } from '../../workspace/fence';
 import { meetingStatusNow, type AgendaItem, type MeetingRow } from '../../meeting/types';
+import { fetchCalendarEvents, calendarFileIdForUid } from '../../action/calendar';
 import { SAMPLE_WORKSPACE_ID } from '../../workspace/constants';
 import { SAMPLE_WORKSPACE } from '../../workspace/sample';
 
@@ -161,6 +163,45 @@ export async function handleCreateMeeting(call: RouteCall): Promise<void> {
     sendJson(response, 400, { error: paceField.error });
     return;
   }
+  let selectedCalendarEvent: { uid: string; fileId: string } | undefined;
+  const rawCalendarEvent = parsed.value.calendarEvent;
+  if (rawCalendarEvent !== undefined && rawCalendarEvent !== null) {
+    if (!isObject(rawCalendarEvent) || typeof rawCalendarEvent.uid !== 'string') {
+      sendJson(response, 400, { error: 'The chosen calendar event is not valid.' });
+      return;
+    }
+    const tools = await context.toolSource?.toolsFor(workspaceId).catch(() => undefined);
+    if (tools?.calendar === undefined) {
+      sendJson(response, 400, { error: 'The workspace calendar is not connected.' });
+      return;
+    }
+    let events;
+    try {
+      events = await fetchCalendarEvents(
+        tools.calendar,
+        context.actionTools.fetchImpl ?? fetch,
+        context.actionTools.timeoutMs,
+      );
+    } catch (error) {
+      sendJson(response, 502, {
+        error: error instanceof Error ? error.message : 'The workspace calendar could not be read.',
+      });
+      return;
+    }
+    const chosen = events.find(
+      (event) => event.uid === rawCalendarEvent.uid && event.status !== 'CANCELLED',
+    );
+    if (chosen === undefined) {
+      sendJson(response, 400, {
+        error: 'That calendar event is no longer in the workspace calendar. Pick it again.',
+      });
+      return;
+    }
+    selectedCalendarEvent = {
+      uid: chosen.uid,
+      fileId: chosen.fileId ?? calendarFileIdForUid(chosen.uid),
+    };
+  }
   const rawScheduledFor = parsed.value.scheduledFor;
   let scheduledFor: string | undefined;
   if (rawScheduledFor !== undefined && rawScheduledFor !== null) {
@@ -193,6 +234,7 @@ export async function handleCreateMeeting(call: RouteCall): Promise<void> {
       agenda,
       ...(scheduledFor === undefined ? {} : { scheduledFor }),
       ...(paceField.pace === undefined ? {} : { pace: paceField.pace }),
+      ...(selectedCalendarEvent === undefined ? {} : { calendarEvent: selectedCalendarEvent }),
     });
     const calendar = await context.meetings?.calendarEventFor?.(meeting.id);
     sendJson(response, 200, {
@@ -203,6 +245,10 @@ export async function handleCreateMeeting(call: RouteCall): Promise<void> {
   } catch (error) {
     if (error instanceof MeetingBusyError) {
       sendJson(response, 503, { error: 'busy', message: error.message });
+      return;
+    }
+    if (error instanceof WorkspaceFencedError) {
+      sendJson(response, 409, { error: 'This workspace is being deleted.' });
       return;
     }
     throw error;
@@ -473,9 +519,17 @@ export async function handleCancelMeeting(call: RouteCall): Promise<void> {
     sendJson(response, 500, { error: 'Meeting storage is unavailable.' });
     return;
   }
+  const actorId = accountUserId(call.principal);
+  const workspace =
+    row.workspaceId === SAMPLE_WORKSPACE_ID
+      ? undefined
+      : await context.authStore?.getWorkspace(row.workspaceId);
   let calendarWarning: string | null = null;
   try {
-    const outcome = await registry.cancel(id);
+    const outcome = await registry.cancel(id, {
+      workspaceName: workspace?.name ?? null,
+      requestedBy: actorId ?? null,
+    });
     calendarWarning = outcome?.calendarWarning ?? null;
   } catch (error) {
     if (error instanceof MeetingOpenError) {

@@ -204,7 +204,16 @@ export interface AuthStore {
    * gone, is not a team, or the actor may not delete it. Run inside `client` when given.
    */
   deleteWorkspace(
-    input: { id: string; actorUserId: string },
+    input: {
+      id: string;
+      actorUserId: string;
+      /**
+       * Runs after the workspace is locked and the actor is rechecked as its admin, but before any
+       * row is removed. Calendar cancellation and room unloading happen here, never before the
+       * authorization check.
+       */
+      beforeDelete?: (workspace: WorkspaceRecord) => Promise<void>;
+    },
     client?: PoolClient,
   ): Promise<boolean>;
 
@@ -559,9 +568,13 @@ export function createMemoryAuthStore(now: () => number = Date.now): AuthStore {
       workspaces.set(id, updated);
       return updated;
     },
-    async deleteWorkspace({ id, actorUserId }) {
+    async deleteWorkspace({ id, actorUserId, beforeDelete }) {
       const workspace = workspaces.get(id);
       if (workspace === undefined || workspace.kind !== 'team') return false;
+      if (members.get(id)?.get(actorUserId) !== 'admin') return false;
+      if (beforeDelete !== undefined) await beforeDelete({ ...workspace });
+      // A demotion can only interleave while the callback awaited; recheck before the mutation so a
+      // workspace is never deleted on an authority that no longer exists.
       if (members.get(id)?.get(actorUserId) !== 'admin') return false;
       members.delete(id);
       invites.delete(id);

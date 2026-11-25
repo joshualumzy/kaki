@@ -302,7 +302,7 @@ describe.skipIf(connectionString === undefined)('postgres auth store', () => {
     });
     if (postgres === undefined) throw new Error('POSTGRES_URL is missing');
     const meetings = createPostgresMeetingStore(postgres.pool);
-    const workspaceId = `workspace-${randomUUID()}`;
+    const workspaceId = (await store.listWorkspacesForUser(owner.id))[0]!.workspace.id;
     const scheduledFor = new Date(Date.now() + 60 * 60_000).toISOString();
 
     const meeting = await meetings.create({

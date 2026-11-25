@@ -41,6 +41,7 @@ import {
 } from './http/routes/meetings';
 import { handleWorkspaces } from './http/routes/workspaces';
 import {
+  handleCalendarCancellations,
   handleMeetingCalendarIcs,
   handleMeetingCalendarSync,
   handleWorkspaceCalendarEvents,
@@ -52,6 +53,17 @@ import {
 } from './account/deleteAccountData';
 import { createMeetingInstance, type MeetingInstance } from './meeting/instance';
 import { createMeetingCalendarSync } from './meeting/calendarEvent';
+import {
+  createCalendarCancellationService,
+  createMemoryCalendarCancellationStore,
+  type CalendarCancellationStore,
+} from './meeting/calendarCancellations';
+import {
+  createMemoryTaskCalendarEventStore,
+  createTaskCalendarLifecycle,
+  type TaskCalendarEventStore,
+} from './meeting/taskCalendarEvents';
+import { createWorkspaceFence } from './workspace/fence';
 import {
   MeetingBusyError,
   createMeetingRegistry,
@@ -119,6 +131,10 @@ export interface CreateAppOptions {
    * A server using Postgres stores must pass the Postgres deletion so every table goes together.
    */
   workspaceDeletion?: WorkspaceDataDeletion;
+  /** Failed calendar cancellations kept for retry; defaults to memory. */
+  calendarCancellations?: CalendarCancellationStore;
+  /** Approved follow-up events kept with their workspace; defaults to memory. */
+  taskCalendarEvents?: TaskCalendarEventStore;
   /** How often an open workspace is reindexed; defaults to 30 minutes. Tests set it low. */
   workspaceIndexIntervalMs?: number;
   /** Who is in a LiveKit room, to refuse a join when the meeting is full; defaults to asking LiveKit. */
@@ -221,6 +237,10 @@ function buildServerRouteTable({ auth }: { auth: Auth | undefined }): RoutedRout
     { method: 'PATCH', path: '/api/workspaces/:id', access: 'user', handle: handleWorkspaces },
     { method: 'DELETE', path: '/api/workspaces/:id', access: 'user', handle: handleWorkspaces },
     { method: 'GET', path: '/api/workspaces/:id/calendar/events', access: 'user', handle: handleWorkspaceCalendarEvents },
+    { method: 'GET', path: '/api/workspaces/:id/calendar-cancellations', access: 'user', handle: handleCalendarCancellations },
+    { method: 'POST', path: '/api/workspaces/:id/calendar-cancellations/:cancellationId/retry', access: 'user', handle: handleCalendarCancellations },
+    { method: 'GET', path: '/api/calendar-cancellations', access: 'user', handle: handleCalendarCancellations },
+    { method: 'POST', path: '/api/calendar-cancellations/:cancellationId/retry', access: 'user', handle: handleCalendarCancellations },
     { method: 'GET', path: '/api/workspaces/:id/invite', access: 'user', handle: handleWorkspaces },
     { method: 'POST', path: '/api/workspaces/:id/invite/reset', access: 'user', handle: handleWorkspaces },
     { method: 'POST', path: '/api/workspace-invites/:token', access: 'user', handle: handleWorkspaces },
@@ -400,6 +420,8 @@ export async function createApp({
   indexWorkspaceTool: indexWorkspaceToolOption,
   accountDeletion: accountDeletionOption,
   workspaceDeletion: workspaceDeletionOption,
+  calendarCancellations: calendarCancellationsOption,
+  taskCalendarEvents: taskCalendarEventsOption,
   workspaceIndexIntervalMs,
   roomRoster = livekitRoster(),
   disconnectLivekitUser = removeRoomUser,
@@ -444,11 +466,28 @@ export async function createApp({
     (auth === undefined
       ? undefined
       : createMemoryAccountDataDeletion({ auth: auth.store, meetings, tools: workspaceTools }));
+  const calendarCancellations =
+    calendarCancellationsOption ?? createMemoryCalendarCancellationStore();
+  const calendarCancellationService = createCalendarCancellationService({
+    store: calendarCancellations,
+    ...(actionTools.fetchImpl === undefined ? {} : { fetchImpl: actionTools.fetchImpl }),
+    ...(actionTools.timeoutMs === undefined ? {} : { timeoutMs: actionTools.timeoutMs }),
+  });
+  const taskCalendarEvents =
+    taskCalendarEventsOption ?? createMemoryTaskCalendarEventStore();
+  const taskCalendar = createTaskCalendarLifecycle({
+    store: taskCalendarEvents,
+    ...(actionTools.fetchImpl === undefined ? {} : { fetchImpl: actionTools.fetchImpl }),
+    ...(actionTools.timeoutMs === undefined ? {} : { timeoutMs: actionTools.timeoutMs }),
+    cancellations: calendarCancellations,
+  });
+  const workspaceFence = createWorkspaceFence();
   const meetingCalendar = createMeetingCalendarSync({
     store: meetings,
     tools: toolSource,
-    fetchImpl: actionTools.fetchImpl ?? fetch,
+    ...(actionTools.fetchImpl === undefined ? {} : { fetchImpl: actionTools.fetchImpl }),
     ...(actionTools.timeoutMs === undefined ? {} : { timeoutMs: actionTools.timeoutMs }),
+    cancellations: calendarCancellations,
   });
   const workspaceDeletion =
     workspaceDeletionOption ??
@@ -480,17 +519,21 @@ export async function createApp({
         await indexSampleKnowledge();
         return;
       }
-      const tools = await toolSource.toolsFor(workspaceId);
-      for (const kind of connectedIndexKinds(tools)) {
-        try {
-          await indexWorkspaceSource({ workspaceId, kind, tools, postgresUrl: requirePostgresUrl() });
-        } catch (error) {
-          console.error(
-            `kaki indexer: scheduled reindex of ${kind} for workspace ${workspaceId} failed`,
-            error,
-          );
+      // Hold the workspace gate for the whole refresh: a deletion waits for it, and a refresh that
+      // starts after the deletion is refused instead of recreating the deleted workspace's chunks.
+      await workspaceFence.run(workspaceId, async () => {
+        const tools = await toolSource.toolsFor(workspaceId);
+        for (const kind of connectedIndexKinds(tools)) {
+          try {
+            await indexWorkspaceSource({ workspaceId, kind, tools, postgresUrl: requirePostgresUrl() });
+          } catch (error) {
+            console.error(
+              `kaki indexer: scheduled reindex of ${kind} for workspace ${workspaceId} failed`,
+              error,
+            );
+          }
         }
-      }
+      });
     },
   });
   const serverRoutes = buildServerRouteTable({ auth });
@@ -532,7 +575,10 @@ export async function createApp({
     row: MeetingRow,
     rowPersistence: MeetingPersistence | undefined,
   ): Promise<MeetingInstance> {
-    const built = meetingModules === undefined ? createMeetingModules(row, scenario, toolSource) : meetingModules(row);
+    const built =
+      meetingModules === undefined
+        ? createMeetingModules(row, scenario, toolSource, { calendarEvents: taskCalendar })
+        : meetingModules(row);
     const owner =
       auth !== undefined && row.ownerUserId !== null
         ? await auth.store.findUserById(row.ownerUserId).catch(() => undefined)
@@ -598,7 +644,7 @@ export async function createApp({
     // A practice is memory-only: it has no meetings row and is gone after a restart, so the next
     // POST /api/practice simply creates a fresh one. Every practice gets its own modules and clock;
     // falling back to the app's shared set would let two visitors' meetings change each other.
-    const built = practiceModules?.() ?? createPracticeModules(scenario);
+    const built = practiceModules?.() ?? createPracticeModules(scenario, { calendarEvents: taskCalendar });
     return createMeetingInstance({
       id,
       workspaceId: SAMPLE_WORKSPACE_ID,
@@ -668,6 +714,7 @@ export async function createApp({
     onWorkspaceOpened: (workspaceId) => workspaceIndexScheduler.opened(workspaceId),
     onWorkspaceClosed: (workspaceId) => workspaceIndexScheduler.closed(workspaceId),
     calendarEvents: meetingCalendar,
+    fence: workspaceFence,
   });
 
   // Signing out everywhere, or deleting the account, revokes by account identity. That reaches a
@@ -697,9 +744,16 @@ export async function createApp({
     workspaceDeletion:
       workspaceDeletion === undefined
         ? undefined
-        : (workspaceId: string, userId: string) =>
-            workspaceDeletion.deleteWorkspace({ workspaceId, actorUserId: userId }),
+        : (workspaceId: string, userId: string, beforeDelete?: () => Promise<void>) =>
+            workspaceDeletion.deleteWorkspace({
+              workspaceId,
+              actorUserId: userId,
+              ...(beforeDelete === undefined ? {} : { beforeDelete: () => beforeDelete() }),
+            }),
     meetingCalendar,
+    calendarCancellations: calendarCancellationService,
+    taskCalendar,
+    workspaceFence,
     guestJoinAttempts,
     tellKakiAttempts,
     agendaFromCalendarAttempts,

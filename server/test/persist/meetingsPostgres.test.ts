@@ -24,10 +24,24 @@ describe.skipIf(connectionString === undefined)('postgres meeting store agenda',
     await postgres?.dispose();
   });
 
+  async function newWorkspace(): Promise<string> {
+    if (postgres === undefined) throw new Error('POSTGRES_URL is missing');
+    const id = `workspace-${randomUUID()}`;
+    await postgres.pool.query(
+      "insert into workspaces (id, name, kind) values ($1, 'Test team', 'team')",
+      [id],
+    );
+    await postgres.pool.query(
+      "insert into workspace_members (workspace_id, user_id, role) values ($1, 'owner-1', 'admin')",
+      [id],
+    );
+    return id;
+  }
+
   it('stores the agenda, owners and pace, and reads them back on get and list', async () => {
     if (postgres === undefined) throw new Error('POSTGRES_URL is missing');
     const store = createPostgresMeetingStore(postgres.pool);
-    const workspaceId = `workspace-${randomUUID()}`;
+    const workspaceId = await newWorkspace();
     const agenda = [
       { title: 'Budget', minutes: 15, ownerUserId: 'owner-1' },
       { title: 'Hiring' },
@@ -52,7 +66,7 @@ describe.skipIf(connectionString === undefined)('postgres meeting store agenda',
   it('updates a meeting in place', async () => {
     if (postgres === undefined) throw new Error('POSTGRES_URL is missing');
     const store = createPostgresMeetingStore(postgres.pool);
-    const workspaceId = `workspace-${randomUUID()}`;
+    const workspaceId = await newWorkspace();
     const meeting = await store.create({
       workspaceId,
       ownerUserId: 'owner-1',
@@ -80,7 +94,7 @@ describe.skipIf(connectionString === undefined)('postgres meeting store agenda',
   it('deletes the row, saved state, seat claims and meeting knowledge chunk together', async () => {
     if (postgres === undefined) throw new Error('POSTGRES_URL is missing');
     const store = createPostgresMeetingStore(postgres.pool);
-    const workspaceId = `workspace-${randomUUID()}`;
+    const workspaceId = await newWorkspace();
     const meeting = await store.create({
       workspaceId,
       ownerUserId: 'owner-1',
@@ -128,7 +142,7 @@ describe.skipIf(connectionString === undefined)('postgres meeting store agenda',
     if (postgres === undefined) throw new Error('POSTGRES_URL is missing');
     const store = createPostgresMeetingStore(postgres.pool);
     const meeting = await store.create({
-      workspaceId: `workspace-${randomUUID()}`,
+      workspaceId: await newWorkspace(),
       ownerUserId: 'owner-1',
       title: 'Starting early',
       status: 'scheduled',
@@ -146,7 +160,7 @@ describe.skipIf(connectionString === undefined)('postgres meeting store agenda',
     if (postgres === undefined) throw new Error('POSTGRES_URL is missing');
     const store = createPostgresMeetingStore(postgres.pool);
     const meeting = await store.create({
-      workspaceId: `workspace-${randomUUID()}`,
+      workspaceId: await newWorkspace(),
       ownerUserId: 'owner-1',
       title: 'Starting early',
       status: 'scheduled',
@@ -162,7 +176,7 @@ describe.skipIf(connectionString === undefined)('postgres meeting store agenda',
   it('keeps one calendar event state per meeting and deletes it with the meeting or workspace', async () => {
     if (postgres === undefined) throw new Error('POSTGRES_URL is missing');
     const store = createPostgresMeetingStore(postgres.pool);
-    const workspaceId = `workspace-${randomUUID()}`;
+    const workspaceId = await newWorkspace();
     const meeting = await store.create({
       workspaceId,
       ownerUserId: 'owner-1',
@@ -208,7 +222,7 @@ describe.skipIf(connectionString === undefined)('postgres meeting store agenda',
   it('stores a meeting with no agenda as an empty list', async () => {
     if (postgres === undefined) throw new Error('POSTGRES_URL is missing');
     const store = createPostgresMeetingStore(postgres.pool);
-    const workspaceId = `workspace-${randomUUID()}`;
+    const workspaceId = await newWorkspace();
 
     const meeting = await store.create({
       workspaceId,

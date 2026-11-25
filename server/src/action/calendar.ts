@@ -14,6 +14,7 @@ import { draftString, parseDraftObject } from './draft';
 import { acceptedDecisionBlock, memorySourceBlock } from './draftGrounding';
 import { DEFAULT_PROBE_TIMEOUT_MS, probeFailed, probeFetch, probeOk, responseProblem, type ToolProbeResult } from './probe';
 import { ActionError, createActionModule } from './runner';
+import type { TaskCalendarLifecycle } from '../meeting/taskCalendarEvents';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 const CONNECTION_MESSAGE = 'The calendar is not connected for this workspace.';
@@ -41,6 +42,10 @@ export interface CalendarModuleOptions {
   timeoutMs?: number;
   /** Today as YYYY-MM-DD; tests fix it. */
   today?: () => string;
+  /** The durable per-event lifecycle used by the running app for approved follow-ups. */
+  events?: TaskCalendarLifecycle;
+  /** The workspace this module's meeting belongs to, so a follow-up is found by its deletion. */
+  workspaceId?: string;
 }
 
 /** An event as the draft carries it: floating local time, no time zone. */
@@ -163,6 +168,83 @@ export async function fetchCalendarIcs(
   return response.text();
 }
 
+/** XML-unescape the text inside a calendar-data element, where a server escapes the iCalendar. */
+function xmlUnescape(text: string): string {
+  return text
+    .replace(/&#x([0-9a-f]+);/gi, (_m, hex: string) => String.fromCodePoint(Number.parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_m, dec: string) => String.fromCodePoint(Number(dec)))
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, '&');
+}
+
+/** A safe resource file id for a selected event whose listing did not expose its own href. */
+export function calendarFileIdForUid(uid: string): string {
+  const clean = uid
+    .replace(/[^A-Za-z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return clean === '' ? 'kaki-imported-event' : clean;
+}
+
+/** The resource file a CalDAV href names, without its `.ics` suffix. */
+function fileIdFromHref(href: string): string | undefined {
+  const trimmed = href.trim().replace(/\/+$/, '');
+  const name = trimmed.slice(trimmed.lastIndexOf('/') + 1);
+  if (name === '') return undefined;
+  const decoded = decodeURIComponent(name);
+  return decoded.endsWith('.ics') ? decoded.slice(0, -4) : decoded;
+}
+
+/**
+ * Read the calendar's events together with the resource file each one lives in. A CalDAV REPORT
+ * gives both; a plain collection GET is kept as the fallback for servers (and test fakes) that do
+ * not implement REPORT, and those events simply carry no resource id.
+ */
+export async function fetchCalendarEvents(
+  settings: CalendarSettings,
+  fetchImpl: typeof fetch = fetch,
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+): Promise<CalendarEvent[]> {
+  const query = [
+    '<?xml version="1.0" encoding="utf-8" ?>',
+    '<c:calendar-query xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">',
+    '  <d:prop><d:getetag/><c:calendar-data/></d:prop>',
+    '</c:calendar-query>',
+  ].join('');
+  try {
+    const response = await fetchImpl(calendarCollectionUrl(settings), {
+      method: 'REPORT',
+      headers: {
+        ...calendarRequestHeaders(settings),
+        depth: '1',
+        'content-type': 'application/xml; charset=utf-8',
+      },
+      body: query,
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (response.ok) {
+      const xml = await response.text();
+      const resources: CalendarEvent[] = [];
+      const blocks = xml.match(/<(?:(?:\w+):)?response\b[\s\S]*?<\/(?:(?:\w+):)?response>/gi) ?? [];
+      for (const block of blocks) {
+        const href = /<(?:(?:\w+):)?href[^>]*>([\s\S]*?)<\/(?:(?:\w+):)?href>/i.exec(block)?.[1];
+        const data = /<(?:(?:\w+):)?calendar-data[^>]*>([\s\S]*?)<\/(?:(?:\w+):)?calendar-data>/i.exec(block)?.[1];
+        if (href === undefined || data === undefined) continue;
+        const fileId = fileIdFromHref(xmlUnescape(href));
+        for (const event of parseEvents(xmlUnescape(data))) {
+          resources.push(fileId === undefined ? event : { ...event, fileId });
+        }
+      }
+      if (resources.length > 0) return resources;
+    }
+  } catch {
+    // Fall through to the collection GET: the calendar is still readable the old way.
+  }
+  return parseEvents(await fetchCalendarIcs(settings, fetchImpl, timeoutMs));
+}
+
 /** Checks the CalDAV collection can be read and looks like a calendar. */
 export async function probeCalendar(
   settings: CalendarSettings,
@@ -231,19 +313,35 @@ function escapeText(text: string): string {
   return text.replace(/\\/g, '\\\\').replace(/;/g, '\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
 }
 
+/** What a follow-up event should look like when it is written or cancelled. */
+export interface FollowUpIcsOptions {
+  sequence?: number;
+  cancelled?: boolean;
+}
+
 /** A minimal iCalendar event. Times are floating (no zone), so every viewer shows the clock time as written. */
-export function buildIcs(uid: string, title: string, times: EventTimes, notes: string, now: Date): string {
+export function buildIcs(
+  uid: string,
+  title: string,
+  times: EventTimes,
+  notes: string,
+  now: Date,
+  options: FollowUpIcsOptions = {},
+): string {
   const start = parseStart(times.start);
   const end = new Date(start.getTime() + times.durationMinutes * 60_000);
   return [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
     'PRODID:-//Kaki//NONSGML v1.0//EN',
+    // CalDAV calendar-object resources must not carry METHOD; STATUS and SEQUENCE say what this is.
     'BEGIN:VEVENT',
     `UID:${uid}`,
     `DTSTAMP:${icsStamp(now)}Z`,
     `DTSTART:${icsStamp(start)}`,
     `DTEND:${icsStamp(end)}`,
+    `SEQUENCE:${options.sequence ?? 0}`,
+    `STATUS:${options.cancelled === true ? 'CANCELLED' : 'CONFIRMED'}`,
     `SUMMARY:${escapeText(title)}`,
     ...(notes === '' ? [] : [`DESCRIPTION:${escapeText(notes)}`]),
     'END:VEVENT',
@@ -252,20 +350,97 @@ export function buildIcs(uid: string, title: string, times: EventTimes, notes: s
   ].join('\r\n');
 }
 
-/** One event as the calendar page shows it. */
-interface CalendarEvent {
+/** One event as the calendar page and the meeting picker show it. */
+export interface CalendarEvent {
   uid: string;
   title: string;
-  date: string; // YYYY-MM-DD
-  time: string; // HH:MM
+  date: string; // YYYY-MM-DD, in the event's own time zone
+  time: string; // HH:MM, in the event's own time zone
   endTime?: string;
+  /** The real instant when the event carries Z or TZID; absent for a floating clock time. */
+  start?: string;
+  /** The event's own zone name (UTC or an IANA TZID), when it has one. */
+  timeZone?: string;
+  status?: string;
   description: string;
   people: string[];
+  /** The CalDAV resource file this event lives in, when the calendar listing exposes it. */
+  fileId?: string;
 }
 
-function readTime(value: string | undefined): { date: string; time: string } | undefined {
-  const m = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})/.exec(value ?? '');
-  return m === null ? undefined : { date: `${m[1]}-${m[2]}-${m[3]}`, time: `${m[4]}:${m[5]}` };
+interface ParsedTime {
+  date: string;
+  time: string;
+  start?: string;
+  timeZone?: string;
+}
+
+function zoneOffsetMs(instant: number, timeZone: string): number {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hourCycle: 'h23',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  }).formatToParts(new Date(instant));
+  const values = new Map(parts.map((part) => [part.type, part.value]));
+  const year = Number(values.get('year'));
+  const month = Number(values.get('month'));
+  const day = Number(values.get('day'));
+  const hour = Number(values.get('hour')) % 24;
+  const minute = Number(values.get('minute'));
+  const second = Number(values.get('second'));
+  return Date.UTC(year, month - 1, day, hour, minute, second) - instant;
+}
+
+/** Turn a wall-clock time in an IANA zone into the real instant, using that zone's own offset. */
+function zonedTimeToUtc(
+  year: number,
+  month: number,
+  day: number,
+  hour: number,
+  minute: number,
+  second: number,
+  timeZone: string,
+): Date | undefined {
+  const wall = Date.UTC(year, month - 1, day, hour, minute, second);
+  try {
+    let instant = wall - zoneOffsetMs(wall, timeZone);
+    const corrected = wall - zoneOffsetMs(instant, timeZone);
+    if (corrected !== instant) instant = corrected;
+    return new Date(instant);
+  } catch {
+    return undefined;
+  }
+}
+
+function readTime(value: string | undefined, head = ''): ParsedTime | undefined {
+  const m = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})?(Z)?$/.exec((value ?? '').trim());
+  if (m === null) return undefined;
+  const year = Number(m[1]);
+  const month = Number(m[2]);
+  const day = Number(m[3]);
+  const hour = Number(m[4]);
+  const minute = Number(m[5]);
+  const second = Number(m[6] ?? '0');
+  const utc = m[7] === 'Z';
+  const tzid = /TZID="?([^";:]+)"?/i.exec(head)?.[1];
+  const date = `${m[1]}-${m[2]}-${m[3]}`;
+  const time = `${m[4]}:${m[5]}`;
+  if (utc) {
+    const instant = new Date(Date.UTC(year, month - 1, day, hour, minute, second));
+    return { date, time, start: instant.toISOString(), timeZone: 'UTC' };
+  }
+  if (tzid !== undefined) {
+    const instant = zonedTimeToUtc(year, month, day, hour, minute, second, tzid);
+    if (instant !== undefined) {
+      return { date, time, start: instant.toISOString(), timeZone: tzid };
+    }
+  }
+  return { date, time };
 }
 
 /** Every event in an iCalendar text (one event file, or a whole calendar). Events without a start time are skipped. */
@@ -273,6 +448,7 @@ export function parseEvents(ics: string): CalendarEvent[] {
   const events: CalendarEvent[] = [];
   for (const body of eventBodies(unfoldIcalLines(ics))) {
     const fields = new Map<string, string>();
+    const heads = new Map<string, string>();
     const people: string[] = [];
     for (const { name, head, value } of eventProperties(body)) {
       if (name === 'ATTENDEE' || name === 'ORGANIZER') {
@@ -281,17 +457,23 @@ export function parseEvents(ics: string): CalendarEvent[] {
         if (!people.includes(person)) people.push(person);
       } else if (!fields.has(name)) {
         fields.set(name, value);
+        heads.set(name, head);
       }
     }
-    const start = readTime(fields.get('DTSTART'));
+    const start = readTime(fields.get('DTSTART'), heads.get('DTSTART'));
     if (start === undefined) continue;
-    const end = readTime(fields.get('DTEND'));
+    const end = readTime(fields.get('DTEND'), heads.get('DTEND'));
     events.push({
       uid: fields.get('UID') ?? '',
       title: unescapeIcalText(fields.get('SUMMARY') ?? 'Untitled event'),
       date: start.date,
       time: start.time,
       ...(end === undefined || end.date !== start.date ? {} : { endTime: end.time }),
+      ...(start.start === undefined ? {} : { start: start.start }),
+      ...(start.timeZone === undefined ? {} : { timeZone: start.timeZone }),
+      ...(fields.get('STATUS') === undefined
+        ? {}
+        : { status: fields.get('STATUS')!.trim().toUpperCase() }),
       description: unescapeIcalText(fields.get('DESCRIPTION') ?? ''),
       people,
     });
@@ -460,6 +642,8 @@ export function createCalendarModule({
   fetchImpl = fetch,
   timeoutMs = DEFAULT_TIMEOUT_MS,
   today = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Singapore' }),
+  events,
+  workspaceId,
 }: CalendarModuleOptions = {}): KakiModule {
   function settingsFrom(tools: WorkspaceTools | undefined): CalendarSettings | undefined {
     return calendar ?? tools?.calendar;
@@ -512,6 +696,26 @@ export function createCalendarModule({
       if (draft === undefined) throw new ActionError('The task has no draft to save');
 
       const { times, notes } = parseBody(draft.body);
+      if (events !== undefined && workspaceId !== undefined) {
+        try {
+          const saved = await events.run({
+            taskId: task.id,
+            meetingId,
+            workspaceId,
+            title: draft.subject,
+            notes,
+            start: times.start,
+            durationMinutes: times.durationMinutes,
+            settings,
+          });
+          return `${settings.viewBaseUrl.replace(/\/+$/, '')}${calendarEventApiPath(
+            meetingId,
+            saved.fileId,
+          )}`;
+        } catch (error) {
+          throw new ActionError(errorMessage(error));
+        }
+      }
       const ics = buildIcs(`kaki-${task.id}@kaki.local`, draft.subject, times, notes, new Date());
 
       // The file name is the task id, so a retry overwrites the same event instead of adding a second one.

@@ -144,7 +144,7 @@ describe('meeting calendar events', () => {
     const body = String(lastPut?.[1]?.body);
     expect(body).toContain('STATUS:CANCELLED');
     expect(body).toContain('SEQUENCE:1');
-    expect(body).toContain('METHOD:CANCEL');
+    expect(body).not.toContain('METHOD:');
   });
 
   it('never writes when the workspace has no connected calendar', async () => {

@@ -142,6 +142,37 @@ function fullLink(link: string): string {
   }
 }
 
+function two(value: number): string {
+  return String(value).padStart(2, '0');
+}
+
+/** The viewer's local date and clock for one real instant. */
+function localClock(iso: string): { date: string; time: string } {
+  const when = new Date(iso);
+  return {
+    date: `${when.getFullYear()}-${two(when.getMonth() + 1)}-${two(when.getDate())}`,
+    time: `${two(when.getHours())}:${two(when.getMinutes())}`,
+  };
+}
+
+/** The viewer's own zone name, shown beside a time converted from another zone. */
+function localTimeZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'your local time';
+  } catch {
+    return 'your local time';
+  }
+}
+
+/** A picker row's time: the event's own clock, or the viewer's clock when it carries an instant. */
+function calendarEventWhen(event: WorkspaceCalendarEvent): string {
+  if (event.start === undefined) {
+    return `${event.date}, ${event.time}${event.endTime === undefined ? '' : `–${event.endTime}`}`;
+  }
+  const local = localClock(event.start);
+  return `${local.date}, ${local.time} (${localTimeZone()})`;
+}
+
 /** New meeting: only the title is required; the agenda is optional and can come three ways. */
 export function NewMeetingPage() {
   const navigate = useNavigate();
@@ -168,6 +199,11 @@ export function NewMeetingPage() {
   const [calendarLoading, setCalendarLoading] = useState(false);
   const [calendarError, setCalendarError] = useState<string | null>(null);
   const [calendarReload, setCalendarReload] = useState(0);
+  const [selectedEvent, setSelectedEvent] = useState<{
+    uid: string;
+    fileId?: string;
+    start?: string;
+  } | null>(null);
   const [date, setDate] = useState('');
   const [time, setTime] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -337,8 +373,16 @@ export function NewMeetingPage() {
 
   function chooseCalendarEvent(event: WorkspaceCalendarEvent): void {
     setTitle(event.title);
-    setDate(event.date);
-    setTime(event.time);
+    // Keep the event's own instant. The date and time inputs show that instant in the viewer's
+    // local zone; scheduling sends the instant itself, so the server never sees a shifted clock.
+    const local = event.start === undefined ? undefined : localClock(event.start);
+    setDate(local?.date ?? event.date);
+    setTime(local?.time ?? event.time);
+    setSelectedEvent({
+      uid: event.uid,
+      ...(event.fileId === undefined ? {} : { fileId: event.fileId }),
+      ...(event.start === undefined ? {} : { start: event.start }),
+    });
     // The event's notes become the agenda: one plain item per line, with list markers removed.
     const lines = event.description
       .split(/\r?\n/)
@@ -349,7 +393,14 @@ export function NewMeetingPage() {
       setAgenda(lines.map((line) => ({ id: makeAgendaId(), title: line, minutes: '' })));
     }
     setMethod(null);
-    setNote('Loaded from the workspace calendar. Check the title, time and agenda before scheduling.');
+    const zone = localTimeZone();
+    setNote(
+      event.start === undefined
+        ? 'Loaded from the workspace calendar. Check the title, time and agenda before scheduling.'
+        : `Loaded from the workspace calendar. Times are shown in your time zone (${zone})${
+            event.timeZone === undefined ? '.' : `; the event is in ${event.timeZone}.`
+          }`,
+    );
   }
 
   async function retryCalendar(meeting: MeetingCreated): Promise<void> {
@@ -445,7 +496,10 @@ export function NewMeetingPage() {
         setError('Choose a date and time for the meeting.');
         return;
       }
-      const when = new Date(`${date}T${time}`);
+      const when =
+        selectedEvent?.start === undefined
+          ? new Date(`${date}T${time}`)
+          : new Date(selectedEvent.start);
       if (Number.isNaN(when.getTime())) {
         setError('Enter a valid date and time.');
         return;
@@ -468,6 +522,14 @@ export function NewMeetingPage() {
         ...(items.length === 0 ? {} : { agenda: items }),
         pace: { quietCheckAfter: quietSeconds, comingUpBefore: comingUpSeconds },
         ...(scheduledFor === undefined ? {} : { scheduledFor }),
+        ...(scheduled && selectedEvent !== null
+          ? {
+              calendarEvent: {
+                uid: selectedEvent.uid,
+                ...(selectedEvent.fileId === undefined ? {} : { fileId: selectedEvent.fileId }),
+              },
+            }
+          : {}),
       });
       clearDraft();
       // The meeting exists now: stop the draft writer so a late people load cannot recreate the draft.
@@ -507,6 +569,7 @@ export function NewMeetingPage() {
     setCalendarEvents(null);
     setCalendarConnected(null);
     setCalendarError(null);
+    setSelectedEvent(null);
     setDate('');
     setTime('');
     setNote(null);
@@ -788,8 +851,7 @@ export function NewMeetingPage() {
                               >
                                 <span className="product-row-title">{event.title}</span>
                                 <span className="product-hint">
-                                  {event.date}, {event.time}
-                                  {event.endTime === undefined ? '' : `–${event.endTime}`}
+                                  {calendarEventWhen(event)}
                                 </span>
                               </button>
                             </li>
@@ -948,7 +1010,12 @@ export function NewMeetingPage() {
                         className="product-input"
                         type="date"
                         value={date}
-                        onChange={(event) => setDate(event.target.value)}
+                        onChange={(event) => {
+                          setDate(event.target.value);
+                          setSelectedEvent((current) =>
+                            current === null ? current : { ...current, start: undefined },
+                          );
+                        }}
                       />
                     </label>
                     <label className="product-field">
@@ -957,7 +1024,12 @@ export function NewMeetingPage() {
                         className="product-input"
                         type="time"
                         value={time}
-                        onChange={(event) => setTime(event.target.value)}
+                        onChange={(event) => {
+                          setTime(event.target.value);
+                          setSelectedEvent((current) =>
+                            current === null ? current : { ...current, start: undefined },
+                          );
+                        }}
                       />
                     </label>
                   </div>

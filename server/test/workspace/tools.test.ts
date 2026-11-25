@@ -1,6 +1,7 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ensureAuthSchema } from '../../src/auth/schema';
+import { createPostgresAuthStore } from '../../src/auth/postgres';
 import { SAMPLE_WORKSPACE_ID } from '../../src/workspace/constants';
 import { encryptSecret, keyIdOf } from '../../src/workspace/secrets';
 import {
@@ -153,20 +154,38 @@ describe('workspace tool source', () => {
 describe.skipIf(connectionString === undefined)('postgres workspace tool store parity', () => {
   let postgres: PostgresTestSchema | undefined;
   let store: WorkspaceToolStore;
+  let ownerUserId: string;
 
   beforeAll(async () => {
     if (connectionString === undefined) throw new Error('POSTGRES_URL is missing');
     postgres = await createPostgresTestSchema(connectionString);
     await ensureAuthSchema(postgres.pool);
     store = createPostgresWorkspaceToolStore(postgres.pool);
+    const auth = createPostgresAuthStore(postgres.pool);
+    const owner = await auth.createGoogleUser({
+      googleSub: `google-${randomUUID()}`,
+      name: 'Owner',
+      email: `owner-${randomUUID()}@example.test`,
+    });
+    ownerUserId = owner.id;
   });
+
+  async function realWorkspace(): Promise<string> {
+    if (postgres === undefined) throw new Error('POSTGRES_URL is missing');
+    const auth = createPostgresAuthStore(postgres.pool);
+    const team = await auth.createWorkspace({
+      name: `Tools ${randomUUID()}`,
+      createdBy: ownerUserId,
+    });
+    return team.workspace.id;
+  }
 
   afterAll(async () => {
     await postgres?.dispose();
   });
 
   it('keeps the same save/list/get/delete behaviour as memory', async () => {
-    const workspaceId = `workspace-${randomUUID()}`;
+    const workspaceId = await realWorkspace();
     const saved = record(workspaceId, 'secret-token');
     await store.save(saved);
 
@@ -182,7 +201,7 @@ describe.skipIf(connectionString === undefined)('postgres workspace tool store p
   });
 
   it('deletes the tool row and its workspace knowledge chunks together', async () => {
-    const workspaceId = `workspace-${randomUUID()}`;
+    const workspaceId = await realWorkspace();
     const client = postgres?.pool;
     if (client === undefined) throw new Error('Postgres test pool is missing');
     await client.query(`

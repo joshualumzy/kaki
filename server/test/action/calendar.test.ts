@@ -6,6 +6,7 @@ import { createFakeLlm } from '../../src/services/llm';
 import { createTaskStore, type TaskStore } from '../../src/meeting/tasks';
 import { testScenario } from '../fixtures/scenario';
 import { waitFor } from '../helpers';
+import { createMemoryTaskCalendarEventStore, createTaskCalendarLifecycle } from '../../src/meeting/taskCalendarEvents';
 
 const settings: CalendarSettings = { caldavUrl: 'http://cal.test', viewBaseUrl: 'http://kaki.test' };
 const reply = JSON.stringify({ title: 'Follow-up with Zack', start: '2026-11-13 10:00', durationMinutes: 30, description: 'Confirm the re-taste time.' });
@@ -198,4 +199,85 @@ describe('calendar action module', () => {
     const missing = vi.fn<typeof fetch>(async () => new Response('', { status: 404 }));
     expect((await viewEvent(settings, 'abc', {}, missing)).status).toBe(404);
   });
+
+  it('preserves a UTC instant and a TZID instant instead of shifting the clock', () => {
+    const ics = [
+      'BEGIN:VCALENDAR',
+      'VERSION:2.0',
+      'BEGIN:VEVENT',
+      'UID:utc@test',
+      'DTSTART:29991113T100000Z',
+      'DTEND:29991113T110000Z',
+      'SUMMARY:UTC event',
+      'END:VEVENT',
+      'BEGIN:VEVENT',
+      'UID:singapore@test',
+      'DTSTART;TZID=Asia/Singapore:29991113T100000',
+      'DTEND;TZID=Asia/Singapore:29991113T110000',
+      'SUMMARY:Singapore event',
+      'END:VEVENT',
+      'END:VCALENDAR',
+      '',
+    ].join('\r\n');
+    const events = parseEvents(ics);
+    expect(events[0]).toMatchObject({
+      start: '2999-11-13T10:00:00.000Z',
+      timeZone: 'UTC',
+      date: '2999-11-13',
+      time: '10:00',
+    });
+    // 10:00 in Singapore is 02:00 UTC, never 10:00 UTC.
+    expect(events[1]).toMatchObject({
+      start: '2999-11-13T02:00:00.000Z',
+      timeZone: 'Asia/Singapore',
+      date: '2999-11-13',
+      time: '10:00',
+    });
+  });
+
+  it('reads STATUS so a cancelled event can be excluded from the picker', () => {
+    const ics = [
+      'BEGIN:VCALENDAR',
+      'VERSION:2.0',
+      'BEGIN:VEVENT',
+      'UID:cancelled@test',
+      'DTSTART:29991113T100000Z',
+      'SUMMARY:Cancelled',
+      'STATUS:CANCELLED',
+      'END:VEVENT',
+      'END:VCALENDAR',
+      '',
+    ].join('\r\n');
+    expect(parseEvents(ics)[0]).toMatchObject({ uid: 'cancelled@test', status: 'CANCELLED' });
+  });
+
+
+  it('saves an approved follow-up through the shared durable lifecycle', async () => {
+    const followUps = createMemoryTaskCalendarEventStore();
+    const fetchImpl = calFetch();
+    const events = createTaskCalendarLifecycle({ store: followUps, fetchImpl });
+    const tasks = setup({
+      llm: createFakeLlm(() => reply),
+      calendar: settings,
+      fetchImpl,
+      events,
+      workspaceId: 'workspace-1',
+    });
+    const task = startTask(tasks, 'calendar_event');
+    tasks.transition(task.id, 'CLAIMED', { mode: 'ACTION_AGENT' });
+    const ready = await waitForStatus(tasks, task.id, 'DRAFT_READY');
+    tasks.transition(ready.id, 'RUNNING');
+    const done = await waitForStatus(tasks, ready.id, 'COMPLETED');
+    expect(done.artifactUrl).toBe(`http://kaki.test/api/meetings/meeting/calendar/${task.id}`);
+    expect(await followUps.get(task.id)).toMatchObject({
+      workspaceId: 'workspace-1',
+      meetingId: 'meeting',
+      state: 'synced',
+      sequence: 0,
+    });
+    const put = fetchImpl.mock.calls.find(([, init]) => init?.method === 'PUT');
+    expect(String(put?.[0])).toBe(`http://cal.test/user/calendar/${task.id}.ics`);
+    expect(String(put?.[1]?.body)).toContain('SEQUENCE:0');
+  });
+
 });

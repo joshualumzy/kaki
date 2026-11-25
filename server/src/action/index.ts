@@ -8,6 +8,7 @@ import { createGiteaModule } from './gitea';
 import { createMattermostModule } from './mattermost';
 import { missingActionEnv } from './tools';
 import { createWikiModule } from './wiki';
+import type { TaskCalendarLifecycle } from '../meeting/taskCalendarEvents';
 
 export { calendarFromEnv, missingActionEnv } from './tools';
 
@@ -27,7 +28,9 @@ export function logMissingActionConfig(env: NodeJS.ProcessEnv = process.env): vo
  * workspace tools through `ctx.tools()`, so two meetings never share a connection and no module
  * reads the environment itself.
  */
-export function createActionModules(): KakiModule[] {
+export function createActionModules(
+  deps: { calendarEvents?: TaskCalendarLifecycle; workspaceId?: string } = {},
+): KakiModule[] {
   const llm = llmFromEnv();
   return [
     createFitModule({ llm }),
@@ -35,6 +38,10 @@ export function createActionModules(): KakiModule[] {
     createMattermostModule({ llm }),
     createEmailModule({ llm }),
     createWikiModule({ llm }),
-    createCalendarModule({ llm }),
+    createCalendarModule({
+      llm,
+      ...(deps.calendarEvents === undefined ? {} : { events: deps.calendarEvents }),
+      ...(deps.workspaceId === undefined ? {} : { workspaceId: deps.workspaceId }),
+    }),
   ];
 }

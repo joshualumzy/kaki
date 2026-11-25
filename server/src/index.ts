@@ -3,7 +3,6 @@ import './env';
 import { calendarFromEnv, logMissingActionConfig } from './action';
 import { createApp } from './app';
 import { createAuthFromEnv } from './auth/module';
-import { createPracticeModules } from './modules';
 import { loadScenario } from './core/loadScenario';
 import { createMeetingPersistenceFromEnv } from './persist/persistence';
 import { Pool } from 'pg';
@@ -14,6 +13,8 @@ import { logMissingSecretKey } from './workspace/secrets';
 import { createPostgresWorkspaceToolStore, type WorkspaceToolStore } from './workspace/tools';
 import { createPostgresAccountDataDeletion } from './account/deleteAccountData';
 import { createPostgresWorkspaceDataDeletion } from './workspace/deleteWorkspaceData';
+import { createPostgresCalendarCancellationStore } from './meeting/calendarCancellations';
+import { createPostgresTaskCalendarEventStore } from './meeting/taskCalendarEvents';
 
 logMissingActionConfig();
 logMissingSecretKey();
@@ -32,12 +33,16 @@ let findSavedIdByCode: ((code: string) => Promise<string | undefined>) | undefin
 let persistenceFor: ((id: string) => Promise<MeetingPersistence | undefined>) | undefined;
 let meetingsPool: Pool | undefined;
 let workspaceTools: WorkspaceToolStore | undefined;
+let calendarCancellations: ReturnType<typeof createPostgresCalendarCancellationStore> | undefined;
+let taskCalendarEvents: ReturnType<typeof createPostgresTaskCalendarEventStore> | undefined;
 if (postgresUrl !== undefined && postgresUrl !== '') {
   meetingsPool = new Pool({ connectionString: postgresUrl });
   meetingsPool.on('error', (error) => console.error('kaki meetings: database error', error));
   await ensureMeetingsSchema(meetingsPool);
   await ensureWorkspaceToolsSchema(meetingsPool);
   workspaceTools = createPostgresWorkspaceToolStore(meetingsPool);
+  calendarCancellations = createPostgresCalendarCancellationStore(meetingsPool);
+  taskCalendarEvents = createPostgresTaskCalendarEventStore(meetingsPool);
   const store = createPostgresMeetingStore(meetingsPool);
   meetings = {
     ...store,
@@ -55,8 +60,6 @@ if (postgresUrl !== undefined && postgresUrl !== '') {
     return result.rows[0]?.id;
   };
 }
-/** Every practice meeting gets its own clock and modules; sharing one set would share their state. */
-const practiceModules = () => createPracticeModules(scenario);
 const authEnabled = process.env.KAKI_AUTH === '1';
 const auth = authEnabled ? await createAuthFromEnv() : undefined;
 const accountDeletion =
@@ -90,13 +93,14 @@ try {
     port,
     host: bindHost,
     scenario,
-    practiceModules,
     devRoutes: process.env.KAKI_DEV_ROUTES === '1',
     auth,
     calendar: calendarFromEnv(),
     draftOnly: process.env.KAKI_DRAFT_ONLY === '1',
     ...(meetings === undefined ? {} : { meetings }),
     ...(workspaceTools === undefined ? {} : { workspaceTools }),
+    ...(calendarCancellations === undefined ? {} : { calendarCancellations }),
+    ...(taskCalendarEvents === undefined ? {} : { taskCalendarEvents }),
     ...(accountDeletion === undefined ? {} : { accountDeletion }),
     ...(workspaceDeletion === undefined ? {} : { workspaceDeletion }),
     ...(persistenceFor === undefined ? {} : { persistenceFor }),

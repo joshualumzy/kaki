@@ -10,6 +10,7 @@ import {
   type WorkspaceRole,
 } from '../../auth/store';
 import { SAMPLE_WORKSPACE } from '../../workspace/sample';
+import { WorkspaceFencedError } from '../../workspace/fence';
 import { meetingStatusNow } from '../../meeting/types';
 import { SAMPLE_WORKSPACE_ID } from '../../workspace/constants';
 import { connectorFor, ConnectorError } from '../../workspace/connector';
@@ -379,27 +380,40 @@ export async function handleWorkspaces(call: RouteCall): Promise<void> {
         return;
       }
       try {
-        // The store rechecks the actor's admin role inside its locked transaction, so a request
-        // held across the actor's demotion cannot change anyone (including themselves).
-        const updated = await store.setWorkspaceMemberRole({
-          workspaceId: memberWorkspaceId,
-          userId: memberId,
-          role,
-          actorUserId: userId,
-        });
-        if (updated === undefined) {
-          sendJson(response, 404, { error: 'That person is not in this workspace.' });
+        const change = async (): Promise<void> => {
+          // The store rechecks the actor's admin role inside its locked transaction, so a request
+          // held across the actor's demotion cannot change anyone (including themselves).
+          const updated = await store.setWorkspaceMemberRole({
+            workspaceId: memberWorkspaceId,
+            userId: memberId,
+            role,
+            actorUserId: userId,
+          });
+          if (updated === undefined) {
+            sendJson(response, 404, { error: 'That person is not in this workspace.' });
+            return;
+          }
+          if (targetRole === 'admin' && role === 'member') {
+            // A demoted admin keeps host authority only for meetings they still own; every other
+            // screen, lifecycle and seat socket they opened in this workspace closes now.
+            await context.registry?.endWorkspaceMember?.(memberWorkspaceId, memberId, {
+              keepOwner: true,
+            });
+          }
+          sendJson(response, 200, { role: updated });
+        };
+        // A demotion and a deletion take turns: whichever enters first finishes, and the other
+        // rechecks the membership it can still see.
+        if (context.workspaceFence !== undefined) {
+          await context.workspaceFence.run(memberWorkspaceId, change);
+        } else {
+          await change();
+        }
+      } catch (error) {
+        if (error instanceof WorkspaceFencedError) {
+          sendJson(response, 404, { error: 'Workspace not found' });
           return;
         }
-        if (targetRole === 'admin' && role === 'member') {
-          // A demoted admin keeps host authority only for meetings they still own; every other
-          // screen, lifecycle and seat socket they opened in this workspace closes now.
-          await context.registry?.endWorkspaceMember?.(memberWorkspaceId, memberId, {
-            keepOwner: true,
-          });
-        }
-        sendJson(response, 200, { role: updated });
-      } catch (error) {
         if (error instanceof WorkspaceMemberError && sendMemberRefusal(response, error, 'patch')) {
           return;
         }
@@ -684,61 +698,94 @@ export async function handleWorkspaces(call: RouteCall): Promise<void> {
         }
         throw error;
       }
-      const result = await testTool(kind, test.settings, test.token);
-      if (!result.ok) {
-        sendJson(response, 400, { error: result.message });
-        return;
-      }
-      let encrypted: ReturnType<typeof encryptToolToken>;
-      try {
-        encrypted = encryptToolToken(test.token, process.env);
-      } catch (error) {
-        if (error instanceof SecretKeyError) {
-          sendSecretProblem(response, error);
+      const commit = async (): Promise<void> => {
+        const result = await testTool(kind, test.settings, test.token);
+        if (!result.ok) {
+          sendJson(response, 400, { error: result.message });
           return;
         }
-        throw error;
-      }
-      const now = new Date();
-      await toolStore.save({
-        workspaceId: toolWorkspaceId,
-        kind,
-        settings: test.settings,
-        ...encrypted,
-        connectedBy: userId,
-        connectedAt: now,
-        lastOkAt: now,
-      });
-      // Index the new connection in the background; the saved answer never waits for embeddings.
-      try {
-        const tools = await context.toolSource?.toolsFor(toolWorkspaceId);
-        if (tools !== undefined && context.indexWorkspaceTool !== undefined) {
-          void context.indexWorkspaceTool({ workspaceId: toolWorkspaceId, kind, tools }).catch(
-            (error: unknown) =>
+        let encrypted: ReturnType<typeof encryptToolToken>;
+        try {
+          encrypted = encryptToolToken(test.token, process.env);
+        } catch (error) {
+          if (error instanceof SecretKeyError) {
+            sendSecretProblem(response, error);
+            return;
+          }
+          throw error;
+        }
+        const now = new Date();
+        await toolStore.save({
+          workspaceId: toolWorkspaceId,
+          kind,
+          settings: test.settings,
+          ...encrypted,
+          connectedBy: userId,
+          connectedAt: now,
+          lastOkAt: now,
+        });
+        // Index the new connection in the background; the saved answer never waits for embeddings,
+        // but the workspace gate stays held until it settles so a deletion drains it.
+        try {
+          const tools = await context.toolSource?.toolsFor(toolWorkspaceId);
+          if (tools !== undefined && context.indexWorkspaceTool !== undefined) {
+            const index = () =>
+              context.indexWorkspaceTool!({ workspaceId: toolWorkspaceId, kind, tools });
+            const pending =
+              context.workspaceFence === undefined
+                ? index()
+                : context.workspaceFence.track(toolWorkspaceId, index);
+            void pending.catch((error: unknown) =>
               console.error(
                 `kaki indexer: indexing ${kind} for workspace ${toolWorkspaceId} after connect failed`,
                 error,
               ),
+            );
+          }
+        } catch (error) {
+          console.error(
+            `kaki indexer: could not read ${kind} for workspace ${toolWorkspaceId} after connect`,
+            error,
           );
         }
+        sendJson(response, 200, {
+          kind,
+          connected: true,
+          hasSecret: test.token.trim() !== '',
+          settings: test.settings,
+          lastOkAt: now,
+        });
+      };
+      try {
+        if (context.workspaceFence === undefined) {
+          await commit();
+        } else {
+          await context.workspaceFence.run(toolWorkspaceId, commit);
+        }
       } catch (error) {
-        console.error(
-          `kaki indexer: could not read ${kind} for workspace ${toolWorkspaceId} after connect`,
-          error,
-        );
+        if (error instanceof WorkspaceFencedError) {
+          sendJson(response, 404, { error: 'Workspace not found' });
+          return;
+        }
+        throw error;
       }
-      sendJson(response, 200, {
-        kind,
-        connected: true,
-        hasSecret: test.token.trim() !== '',
-        settings: test.settings,
-        lastOkAt: now,
-      });
       return;
     }
 
     if (method === 'DELETE' && !isTest) {
-      await toolStore.delete(toolWorkspaceId, kind);
+      try {
+        await (context.workspaceFence === undefined
+          ? toolStore.delete(toolWorkspaceId, kind)
+          : context.workspaceFence.run(toolWorkspaceId, () =>
+              toolStore.delete(toolWorkspaceId, kind),
+            ));
+      } catch (error) {
+        if (error instanceof WorkspaceFencedError) {
+          sendJson(response, 404, { error: 'Workspace not found' });
+          return;
+        }
+        throw error;
+      }
       sendJson(response, 200, { ok: true });
       return;
     }
@@ -828,35 +875,63 @@ export async function handleWorkspaces(call: RouteCall): Promise<void> {
       sendJson(response, 500, { error: 'Workspace deletion is unavailable.' });
       return;
     }
-    // Take every upcoming meeting off the workspace calendar first. A calendar that cannot be
-    // reached never blocks the deletion; its plain warning travels back to the admin.
     const calendarWarnings: string[] = [];
-    for (const row of (await context.meetings?.list(workspaceId)) ?? []) {
-      if (row.status === 'ended') continue;
-      try {
-        const outcome = await context.meetingCalendar?.cancelMeeting(row);
-        if (outcome?.warning !== null && outcome?.warning !== undefined) {
-          calendarWarnings.push(`${row.title}: ${outcome.warning}`);
-        }
-      } catch (error) {
-        calendarWarnings.push(
-          `${row.title}: the calendar event could not be cancelled: ${
-            error instanceof Error ? error.message : 'the calendar could not be reached'
-          }`,
-        );
-      }
-    }
+    // Block new meeting loads, creates, tool writes and indexing now. Work already inside the gate
+    // finishes first, so the snapshot below sees every calendar event and room it must handle.
+    const release =
+      context.workspaceFence === undefined
+        ? undefined
+        : await context.workspaceFence.beginDeletion(workspaceId);
     try {
-      await context.registry?.unloadWorkspace(workspaceId);
-    } catch (error) {
-      console.error(`kaki workspaces: could not close the rooms of ${workspaceId}`, error);
+      const deleted = await deletion(workspaceId, userId, async () => {
+        // This runs after the workspace lock and the transactional admin recheck, so a demoted
+        // admin's request can no longer cancel events or disconnect anyone.
+        for (const row of (await context.meetings?.list(workspaceId)) ?? []) {
+          if (row.status === 'ended') continue;
+          try {
+            const outcome = await context.meetingCalendar?.cancelMeeting(row, {
+              workspaceName: workspace.name,
+              requestedBy: userId,
+            });
+            if (outcome?.warning !== null && outcome?.warning !== undefined) {
+              calendarWarnings.push(`${row.title}: ${outcome.warning}`);
+            }
+          } catch (error) {
+            calendarWarnings.push(
+              `${row.title}: the calendar event could not be cancelled: ${
+                error instanceof Error ? error.message : 'the calendar could not be reached'
+              }`,
+            );
+          }
+        }
+        try {
+          calendarWarnings.push(
+            ...((await context.taskCalendar?.cancelForWorkspace(workspaceId, {
+              workspaceName: workspace.name,
+              requestedBy: userId,
+            })) ?? []),
+          );
+        } catch (error) {
+          calendarWarnings.push(
+            `Approved follow-up events could not be cancelled: ${
+              error instanceof Error ? error.message : 'the calendar could not be reached'
+            }`,
+          );
+        }
+        try {
+          await context.registry?.unloadWorkspace(workspaceId);
+        } catch (error) {
+          console.error(`kaki workspaces: could not close the rooms of ${workspaceId}`, error);
+        }
+      });
+      if (!deleted) {
+        sendJson(response, 404, { error: 'Workspace not found' });
+        return;
+      }
+      sendJson(response, 200, { ok: true, calendarWarnings });
+    } finally {
+      release?.();
     }
-    const deleted = await deletion(workspaceId, userId);
-    if (!deleted) {
-      sendJson(response, 404, { error: 'Workspace not found' });
-      return;
-    }
-    sendJson(response, 200, { ok: true, calendarWarnings });
     return;
   }
 

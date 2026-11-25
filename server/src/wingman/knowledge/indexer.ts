@@ -7,6 +7,7 @@ import type { GiteaSettings } from '../../action/gitea';
 import type { MattermostSettings } from '../../action/mattermost';
 import type { WikiSettings } from '../../action/wiki';
 import { SAMPLE_WORKSPACE_ID } from '../../workspace/constants';
+import { assertWorkspaceWritable, lockWorkspaceForWrite } from '../../workspace/gate';
 import {
   createMemoryWorkspaceToolStore,
   createWorkspaceToolSource,
@@ -633,13 +634,17 @@ export async function pruneWorkspaceSource(
  * The upsert and the delete both name the workspace, so one workspace's reindex can never touch
  * another's rows.
  */
-export async function writeWorkspaceChunks(
+async function writeWorkspaceChunksIn(
   db: Queryable,
   workspaceId: string,
   chunks: KnowledgeChunk[],
   embeddings: number[][],
-  options: { prune?: boolean } = {},
+  options: { prune?: boolean },
 ): Promise<void> {
+  // An indexer that wakes after a workspace deletion must not recreate its private chunks. The
+  // shared gate makes it wait for an in-flight deletion, then the tombstone refuses the write.
+  await lockWorkspaceForWrite(db, workspaceId);
+  await assertWorkspaceWritable(db, workspaceId, SAMPLE_WORKSPACE_ID);
   await ensureKnowledgeSchema(db);
   for (const [index, chunk] of chunks.entries()) {
     const embedding = embeddings[index];
@@ -674,6 +679,32 @@ export async function writeWorkspaceChunks(
   for (const [source, refs] of bySource) {
     await pruneWorkspaceSource(db, workspaceId, source, refs);
   }
+}
+
+export async function writeWorkspaceChunks(
+  db: Queryable,
+  workspaceId: string,
+  chunks: KnowledgeChunk[],
+  embeddings: number[][],
+  options: { prune?: boolean } = {},
+): Promise<void> {
+  // A pool has no transaction of its own, so give this write one: the shared gate and the
+  // tombstone check then hold until the rows are committed, and a deletion cannot slip between.
+  if ('totalCount' in db) {
+    const client = await (db as Pool).connect();
+    try {
+      await client.query('begin');
+      await writeWorkspaceChunksIn(client, workspaceId, chunks, embeddings, options);
+      await client.query('commit');
+    } catch (error) {
+      await client.query('rollback').catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+    return;
+  }
+  await writeWorkspaceChunksIn(db, workspaceId, chunks, embeddings, options);
 }
 
 /** Replace one workspace's source chunks in one transaction. */

@@ -2,7 +2,7 @@ import { accountUserId, clientAddress } from '../access';
 import type { AttemptLimiter } from '../attemptLimiter';
 import { sendJson } from '../http';
 import type { RouteCall } from '../routeCall';
-import { CalendarFetchError, fetchCalendarIcs, parseEvents } from '../../action/calendar';
+import { CalendarFetchError, fetchCalendarEvents } from '../../action/calendar';
 import {
   buildMeetingIcs,
   meetingCalendarUid,
@@ -12,6 +12,7 @@ import {
 import { meetingStatusNow } from '../../meeting/types';
 import { meetingForManagement } from './meetings';
 import { SAMPLE_WORKSPACE_ID } from '../../workspace/constants';
+import { pendingCancellationView } from '../../meeting/calendarCancellations';
 
 const MAX_CALENDAR_EVENTS = 50;
 
@@ -92,9 +93,9 @@ export async function handleWorkspaceCalendarEvents(call: RouteCall): Promise<vo
     return;
   }
 
-  let ics: string;
+  let listed;
   try {
-    ics = await fetchCalendarIcs(
+    listed = await fetchCalendarEvents(
       tools.calendar,
       context.actionTools.fetchImpl ?? fetch,
       context.actionTools.timeoutMs,
@@ -111,9 +112,10 @@ export async function handleWorkspaceCalendarEvents(call: RouteCall): Promise<vo
   }
 
   const today = new Date().toISOString().slice(0, 10);
-  const events = parseEvents(ics)
+  const events = listed
+    .filter((event) => event.status !== 'CANCELLED')
     .filter((event) => event.date >= today)
-    .sort((a, b) => `${a.date} ${a.time}`.localeCompare(`${b.date} ${b.time}`))
+    .sort((a, b) => (a.start ?? `${a.date} ${a.time}`).localeCompare(b.start ?? `${b.date} ${b.time}`))
     .slice(0, MAX_CALENDAR_EVENTS)
     .map((event) => ({
       uid: event.uid,
@@ -121,6 +123,9 @@ export async function handleWorkspaceCalendarEvents(call: RouteCall): Promise<vo
       date: event.date,
       time: event.time,
       ...(event.endTime === undefined ? {} : { endTime: event.endTime }),
+      ...(event.start === undefined ? {} : { start: event.start }),
+      ...(event.timeZone === undefined ? {} : { timeZone: event.timeZone }),
+      ...(event.fileId === undefined ? {} : { fileId: event.fileId }),
       description: event.description,
       people: event.people,
     }));
@@ -222,13 +227,17 @@ export async function handleMeetingCalendarSync(call: RouteCall): Promise<void> 
     sendJson(response, 409, { error: 'Only a scheduled meeting can be on the workspace calendar.' });
     return;
   }
-  const calendar = context.meetingCalendar;
-  if (calendar === undefined) {
+  const registry = context.registry;
+  if (registry?.retryCalendar === undefined) {
     sendJson(response, 500, { error: 'Calendar sync is unavailable.' });
     return;
   }
   try {
-    const outcome = await calendar.syncMeeting(row);
+    const outcome = await registry.retryCalendar(id);
+    if (outcome === undefined) {
+      sendJson(response, 409, { error: 'Only a scheduled meeting can be on the workspace calendar.' });
+      return;
+    }
     sendJson(response, 200, { calendar: outcome.state, warning: outcome.warning });
   } catch (error) {
     sendJson(response, 502, {
@@ -237,3 +246,99 @@ export async function handleMeetingCalendarSync(call: RouteCall): Promise<void> 
   }
 }
 
+
+
+/** List and retry calendar cancellations that could not be written, for the admins who own them. */
+export async function handleCalendarCancellations(call: RouteCall): Promise<void> {
+  const { response, context, path, method, principal } = call;
+  const service = context.calendarCancellations;
+  const store = context.authStore;
+  if (service === undefined || store === undefined) {
+    sendJson(response, 500, { error: 'Calendar cancellation storage is unavailable.' });
+    return;
+  }
+  const userId = accountUserId(principal);
+  if (userId === undefined) {
+    sendJson(response, 403, { error: 'Sign in to see calendar cancellations.' });
+    return;
+  }
+  const workspaceList = /^\/api\/workspaces\/([^/]+)\/calendar-cancellations$/.exec(path);
+  const workspaceRetry = /^\/api\/workspaces\/([^/]+)\/calendar-cancellations\/([^/]+)\/retry$/.exec(
+    path,
+  );
+  const globalList = /^\/api\/calendar-cancellations$/.exec(path);
+  const globalRetry = /^\/api\/calendar-cancellations\/([^/]+)\/retry$/.exec(path);
+
+  if (workspaceList !== null || workspaceRetry !== null) {
+    const workspaceId = decodeURIComponent((workspaceList ?? workspaceRetry)![1] ?? '');
+    if (workspaceId === SAMPLE_WORKSPACE_ID) {
+      sendJson(response, 403, { error: "The sample workspace has no calendar cancellations." });
+      return;
+    }
+    const membership = await store.getMembership({ workspaceId, userId });
+    if (membership === undefined) {
+      sendJson(response, 404, { error: 'Workspace not found' });
+      return;
+    }
+    if (membership !== 'admin') {
+      sendJson(response, 403, { error: 'Only a workspace admin can retry calendar cancellations.' });
+      return;
+    }
+    if (workspaceList !== null) {
+      if (method !== 'GET') {
+        sendJson(response, 404, { error: 'Not found' });
+        return;
+      }
+      const pending = await service.listForWorkspace(workspaceId);
+      sendJson(response, 200, pending.map(pendingCancellationView));
+      return;
+    }
+    if (method !== 'POST') {
+      sendJson(response, 404, { error: 'Not found' });
+      return;
+    }
+    const id = decodeURIComponent(workspaceRetry![2] ?? '');
+    const pending = await service.listForWorkspace(workspaceId);
+    if (!pending.some((record) => record.id === id)) {
+      sendJson(response, 404, { error: 'That cancellation is no longer waiting.' });
+      return;
+    }
+    const outcome = await service.retry(id);
+    if (outcome.ok) {
+      sendJson(response, 200, { ok: true });
+    } else {
+      sendJson(response, 502, { error: outcome.error });
+    }
+    return;
+  }
+
+  if (globalList !== null) {
+    if (method !== 'GET') {
+      sendJson(response, 404, { error: 'Not found' });
+      return;
+    }
+    const pending = await service.listForUser(userId);
+    sendJson(response, 200, pending.map(pendingCancellationView));
+    return;
+  }
+  if (globalRetry !== null) {
+    if (method !== 'POST') {
+      sendJson(response, 404, { error: 'Not found' });
+      return;
+    }
+    const id = decodeURIComponent(globalRetry[1] ?? '');
+    const pending = await service.listForUser(userId);
+    if (!pending.some((record) => record.id === id)) {
+      sendJson(response, 404, { error: 'That cancellation is no longer waiting.' });
+      return;
+    }
+    const outcome = await service.retry(id);
+    if (outcome.ok) {
+      sendJson(response, 200, { ok: true });
+    } else {
+      sendJson(response, 502, { error: outcome.error });
+    }
+    return;
+  }
+  sendJson(response, 404, { error: 'Not found' });
+}

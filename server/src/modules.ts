@@ -5,7 +5,14 @@ import { createHostModules, type MeetingPauseControl } from './host';
 import type { MeetingRow } from './meeting/types';
 import { realBaseScenario } from './meeting/realMeeting';
 import type { WorkspaceToolSource, WorkspaceTools } from './workspace/tools';
+import { SAMPLE_WORKSPACE_ID } from './workspace/constants';
 import { createWingmanModules } from './wingman';
+import type { TaskCalendarLifecycle } from './meeting/taskCalendarEvents';
+
+/** Long-lived action dependencies the app wires once and every meeting's modules share. */
+export interface ActionModuleDeps {
+  calendarEvents?: TaskCalendarLifecycle;
+}
 
 /** The modules one meeting runs, with the agenda clock the app server reads to stamp and pause it. */
 export interface MeetingModules {
@@ -29,11 +36,16 @@ export function createMeetingModules(
   meeting: MeetingRow,
   _scenario: Scenario,
   toolSource: WorkspaceToolSource,
+  deps: ActionModuleDeps = {},
 ): MeetingModules {
   // A real meeting's clock and notetaker follow its own title and agenda, never the demo pack.
   const host = createHostModules(realBaseScenario(meeting));
   return {
-    modules: [...host.modules, ...createWingmanModules(), ...createActionModules()],
+    modules: [
+      ...host.modules,
+      ...createWingmanModules(),
+      ...createActionModules({ ...deps, workspaceId: meeting.workspaceId }),
+    ],
     tools: () => toolSource.toolsFor(meeting.workspaceId),
     meetingElapsedSeconds: host.meetingElapsedSeconds,
     meetingAgendaIndex: host.meetingAgendaIndex,
@@ -49,10 +61,18 @@ export function createMeetingModules(
  *
  * A practice meeting runs the sample workspace, so its tools come from the instance, not here.
  */
-export function createPracticeModules(scenario: Scenario): MeetingModules {
+export function createPracticeModules(
+  scenario: Scenario,
+  deps: ActionModuleDeps = {},
+): MeetingModules {
   const host = createHostModules(scenario);
   return {
-    modules: [...host.modules, ...createWingmanModules(), ...createActionModules()],
+    modules: [
+      ...host.modules,
+      ...createWingmanModules(),
+      // A practice meeting always belongs to the built-in sample workspace.
+      ...createActionModules({ ...deps, workspaceId: SAMPLE_WORKSPACE_ID }),
+    ],
     meetingElapsedSeconds: host.meetingElapsedSeconds,
     meetingAgendaIndex: host.meetingAgendaIndex,
     meetingPaused: host.meetingPaused,

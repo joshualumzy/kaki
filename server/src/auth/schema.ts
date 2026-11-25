@@ -146,6 +146,14 @@ export async function ensureAuthSchema(pool: Pool): Promise<void> {
     end $$;
   `);
 
+  // A deletion leaves a durable marker, so a writer that wakes up after it cannot recreate rows.
+  await pool.query(`
+    create table if not exists workspace_deletions (
+      workspace_id text primary key,
+      deleted_at timestamptz not null default now()
+    )
+  `);
+
   await ensureWorkspaceToolsSchema(pool);
 
   await ensureMeetingsSchema(pool);
@@ -167,6 +175,22 @@ export async function ensureWorkspaceToolsSchema(pool: Pool): Promise<void> {
       last_ok_at timestamptz,
       primary key (workspace_id, kind)
     )
+  `);
+  // A saved tool row cannot outlive its workspace. NOT VALID keeps an old deployment's orphaned
+  // rows (if any) from blocking startup while every new write is still checked by the database.
+  await pool.query(`
+    do $$
+    begin
+      if not exists (
+        select 1 from pg_constraint
+         where conrelid = 'workspace_tools'::regclass
+           and conname = 'workspace_tools_workspace_id_fkey'
+      ) then
+        alter table workspace_tools
+          add constraint workspace_tools_workspace_id_fkey
+          foreign key (workspace_id) references workspaces(id) on delete cascade not valid;
+      end if;
+    end $$;
   `);
 }
 
@@ -234,10 +258,80 @@ async function migrateMeetingsSchema(pool: Pool): Promise<void> {
         meeting_id text primary key references meetings(id) on delete cascade,
         uid text not null,
         sequence integer not null default 0,
+        file_id text,
         state text not null default 'not_connected'
           check (state in ('not_connected', 'synced', 'error')),
         error text,
         synced_at timestamptz
+      )
+    `);
+    await client.query('alter table meeting_calendar_events add column if not exists file_id text');
+    // The calendar destination itself, with its password encrypted, so a cancellation has a
+    // durable place to retry even when the workspace connection is gone.
+    await client.query(`
+      create table if not exists meeting_calendar_bindings (
+        meeting_id text primary key references meetings(id) on delete cascade,
+        calendar jsonb not null,
+        secret bytea,
+        iv bytea,
+        tag bytea,
+        key_id text,
+        updated_at timestamptz not null default now()
+      )
+    `);
+    // A cancellation that failed keeps everything a retry needs, even after its meeting or
+    // workspace row is gone. The password is held encrypted, never in the JSON binding.
+    await client.query(`
+      create table if not exists calendar_cancellations (
+        id text primary key,
+        workspace_id text not null,
+        workspace_name text,
+        meeting_id text,
+        source text not null check (source in ('meeting', 'followup')),
+        uid text not null,
+        sequence integer not null,
+        file_id text not null,
+        title text not null,
+        description text not null default '',
+        start_text text not null,
+        duration_minutes integer not null,
+        calendar jsonb not null,
+        secret bytea,
+        iv bytea,
+        tag bytea,
+        key_id text,
+        error text not null,
+        attempts integer not null default 0,
+        requested_by text,
+        created_at timestamptz not null default now(),
+        last_attempt_at timestamptz
+      )
+    `);
+    // Follow-up events approved from a meeting's action cards live in the same durable lifecycle:
+    // a stable UID, a stored SEQUENCE and the workspace that must cancel them when it is deleted.
+    await client.query(`
+      create table if not exists task_calendar_events (
+        task_id text primary key,
+        meeting_id text,
+        workspace_id text not null,
+        uid text not null,
+        sequence integer not null default 0,
+        file_id text not null,
+        state text not null default 'not_connected'
+          check (state in ('not_connected', 'synced', 'error')),
+        error text,
+        synced_at timestamptz,
+        title text not null,
+        description text not null default '',
+        start_text text not null,
+        duration_minutes integer not null,
+        calendar jsonb not null,
+        secret bytea,
+        iv bytea,
+        tag bytea,
+        key_id text,
+        created_at timestamptz not null default now(),
+        updated_at timestamptz not null default now()
       )
     `);
     // Step-2 rows had no status; an open meeting is the truthful default for them.

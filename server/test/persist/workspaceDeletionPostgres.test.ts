@@ -5,6 +5,8 @@ import { createPostgresAuthStore } from '../../src/auth/postgres';
 import { createPostgresMeetingStore } from '../../src/meeting/registry';
 import { createPostgresWorkspaceToolStore } from '../../src/workspace/tools';
 import { createPostgresWorkspaceDataDeletion } from '../../src/workspace/deleteWorkspaceData';
+import { assertWorkspaceWritable, workspaceIsDeleted } from '../../src/workspace/gate';
+import { SAMPLE_WORKSPACE_ID } from '../../src/workspace/constants';
 import { createPostgresTestSchema, type PostgresTestSchema } from '../postgresTestSchema';
 
 const connectionString = process.env.POSTGRES_URL;
@@ -86,14 +88,31 @@ describe.skipIf(connectionString === undefined)('postgres workspace deletion', (
       [team.workspace.id],
     );
 
+    let preparedForUnauthorized = false;
     expect(
-      await deletion.deleteWorkspace({ workspaceId: team.workspace.id, actorUserId: member.id }),
+      await deletion.deleteWorkspace({
+        workspaceId: team.workspace.id,
+        actorUserId: member.id,
+        beforeDelete: async () => {
+          preparedForUnauthorized = true;
+        },
+      }),
     ).toBe(false);
+    // Side effects run only after the locked admin recheck, so a demoted actor reaches none of them.
+    expect(preparedForUnauthorized).toBe(false);
     expect(await auth.getWorkspace(team.workspace.id)).toBeDefined();
 
+    let preparedFor = '';
     expect(
-      await deletion.deleteWorkspace({ workspaceId: team.workspace.id, actorUserId: owner.id }),
+      await deletion.deleteWorkspace({
+        workspaceId: team.workspace.id,
+        actorUserId: owner.id,
+        beforeDelete: async (workspace) => {
+          preparedFor = workspace.name;
+        },
+      }),
     ).toBe(true);
+    expect(preparedFor).toBe('Kitchen');
     expect(await auth.getWorkspace(team.workspace.id)).toBeUndefined();
     expect(await auth.getWorkspaceInvite(team.workspace.id)).toBeUndefined();
     expect(await meetings.list(team.workspace.id)).toEqual([]);
@@ -104,5 +123,32 @@ describe.skipIf(connectionString === undefined)('postgres workspace deletion', (
       [team.workspace.id],
     );
     expect(chunks.rows[0]?.count).toBe('0');
+
+    // A writer that wakes up after the commit cannot recreate the deleted workspace's data.
+    expect(await workspaceIsDeleted(postgres.pool, team.workspace.id)).toBe(true);
+    await expect(
+      assertWorkspaceWritable(postgres.pool, team.workspace.id, SAMPLE_WORKSPACE_ID),
+    ).rejects.toThrow(/deleted/);
+    await expect(
+      tools.save({
+        workspaceId: team.workspace.id,
+        kind: 'calendar',
+        settings: { caldavUrl: 'http://calendar.test' },
+        secret: randomBytes(16),
+        iv: randomBytes(12),
+        tag: randomBytes(16),
+        keyId: `key-${randomUUID()}`,
+        connectedBy: owner.id,
+        connectedAt: new Date(),
+        lastOkAt: null,
+      }),
+    ).rejects.toThrow(/foreign key/);
+    await expect(
+      meetings.create({
+        workspaceId: team.workspace.id,
+        ownerUserId: owner.id,
+        title: 'Resurrected',
+      }),
+    ).rejects.toThrow(/no longer exists/);
   });
 });

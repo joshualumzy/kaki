@@ -96,6 +96,8 @@ export interface CreateMeetingInput {
   agenda?: AgendaPayload[];
   pace?: MeetingPace;
   scheduledFor?: string;
+  /** An existing workspace event this meeting updates instead of creating a second one. */
+  calendarEvent?: { uid: string; fileId?: string };
 }
 
 export interface UpdateMeetingInput {
@@ -606,6 +608,12 @@ export interface WorkspaceCalendarEvent {
   date: string;
   time: string;
   endTime?: string;
+  /** The real instant, when the event carries a time zone; use this when scheduling. */
+  start?: string;
+  /** The event's own zone name, so the UI can label the time it converts. */
+  timeZone?: string;
+  /** The CalDAV resource file, so a meeting can update that event instead of adding one. */
+  fileId?: string;
   description: string;
   people: string[];
 }
@@ -626,6 +634,9 @@ function workspaceCalendarEventFrom(value: unknown): WorkspaceCalendarEvent | un
     date: record.date,
     time: record.time,
     ...(typeof record.endTime === 'string' ? { endTime: record.endTime } : {}),
+    ...(typeof record.start === 'string' ? { start: record.start } : {}),
+    ...(typeof record.timeZone === 'string' ? { timeZone: record.timeZone } : {}),
+    ...(typeof record.fileId === 'string' ? { fileId: record.fileId } : {}),
     description: typeof record.description === 'string' ? record.description : '',
     people: Array.isArray(record.people)
       ? record.people.filter((person): person is string => typeof person === 'string')

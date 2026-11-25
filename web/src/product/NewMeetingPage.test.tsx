@@ -332,4 +332,45 @@ describe('NewMeetingPage', () => {
       screen.getByText('The sample workspace can hold this meeting; practice is one click away.'),
     ).toBeTruthy();
   });
+
+  it('keeps a picked event’s instant and binding, and labels the local time zone', async () => {
+    const fetchMock = installFetch(
+      baseRoutes({
+        'GET /api/workspaces/ws-1/calendar/events': () =>
+          reply({
+            connected: true,
+            events: [
+              {
+                uid: 'planning@example.test',
+                title: 'Quarterly planning',
+                date: '2999-11-13',
+                time: '10:00',
+                endTime: '11:00',
+                start: '2999-11-13T10:00:00.000Z',
+                timeZone: 'UTC',
+                fileId: 'planning',
+                description: '- Budget',
+                people: [],
+              },
+            ],
+          }),
+        'POST /api/meetings': () => reply({ id: 'mtg-9', link: '/m/mtg-9' }),
+      }),
+    );
+    renderPage();
+
+    await screen.findByLabelText('Meeting title');
+    fireEvent.click(screen.getByRole('button', { name: 'From calendar' }));
+    fireEvent.click(await screen.findByRole('button', { name: /Quarterly planning/ }));
+
+    expect(await screen.findByText(/Times are shown in your time zone/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Schedule for later' }));
+
+    await waitFor(() => expect(meetingBodies(fetchMock)).toHaveLength(1));
+    expect(meetingBodies(fetchMock)[0]).toMatchObject({
+      scheduledFor: '2999-11-13T10:00:00.000Z',
+      calendarEvent: { uid: 'planning@example.test', fileId: 'planning' },
+    });
+  });
+
 });
