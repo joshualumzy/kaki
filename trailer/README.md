@@ -63,4 +63,4 @@ npm run check
 
 ## Credits
 
-Voices by ElevenLabs (narrator, sighs) and Azure Speech; music: funk-joyful-rhythm-walk.
+Voices by ElevenLabs (narrator, sighs) and Azure Speech; music: "Joyful Rhythm Walk (Funk)" by lightbeatsmusic.
