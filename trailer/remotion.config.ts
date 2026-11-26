@@ -1,0 +1,12 @@
+import {Config} from '@remotion/cli/config';
+import {mkdirSync} from 'node:fs';
+import {resolve} from 'node:path';
+const renderTemp=resolve('.cache/render-tmp');
+mkdirSync(renderTemp,{recursive:true});
+process.env.TMPDIR=renderTemp;
+Config.setEntryPoint('./src/index.ts');
+Config.setShouldOpenBrowser(false);
+Config.setCodec('h264');
+Config.setPixelFormat('yuv420p');
+Config.setCrf(18);
+Config.setConcurrency(4);

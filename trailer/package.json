@@ -1,0 +1,25 @@
+{
+  "name": "kaki-trailer",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "studio": "remotion studio",
+    "typecheck": "tsc --noEmit",
+    "build": "node src/film/build-timeline.mjs",
+    "render": "remotion render src/index.ts FilmV10 out/kaki-trailer.mp4 --browser-executable=\"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome\"",
+    "check": "python3 tools/check-glitch.py out/kaki-trailer.mp4"
+  },
+  "dependencies": {
+    "remotion": "4.0.547",
+    "@remotion/cli": "4.0.547",
+    "@remotion/fonts": "4.0.547",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "geist": "1.9.2"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3"
+  }
+}

@@ -1,0 +1,12 @@
+[
+ {"id":"vo-open","voice":"tony","ssml":"<mstts:express-as style=\"excited\"><prosody rate=\"+6%\"> Monday. <break time=\"400ms\"/>Again. <break time=\"350ms\"/>Thirty minutes to sort out the whole week.</prosody></mstts:express-as>"},
+ {"id":"mei-later","voice":"xiaoke","ssml":"<lang xml:lang=\"en-US\"><prosody rate=\"-10%\">Okay. <break time=\"300ms\"/>We'll come back to it.</prosody></lang>"},
+ {"id":"vo-weeks","voice":"tony","ssml":"<mstts:express-as style=\"excited\"><prosody rate=\"+6%\"> Week after week, it slides... <break time=\"400ms\"/>until the contract renews itself. <break time=\"300ms\"/><emphasis level=\"strong\">At the new prices.</emphasis></prosody></mstts:express-as>"},
+ {"id":"vo-bridge","voice":"tony","ssml":"<mstts:express-as style=\"excited\"><prosody rate=\"+6%\"> We kept seeing this. <break time=\"350ms\"/>So we built <emphasis level=\"moderate\">Kaki</emphasis>: <break time=\"150ms\"/>it sits in your meeting, helps everyone keep up, and actually gets the work done.</prosody></mstts:express-as>"},
+ {"id":"vo-answer","voice":"tony","ssml":"<mstts:express-as style=\"excited\"><prosody rate=\"+6%\"> This time, Raj doesn't have to check. <break time=\"250ms\"/>Kaki's already found it, and only Raj can see it.</prosody></mstts:express-as>"},
+ {"id":"vo-whywait","voice":"tony","ssml":"<mstts:express-as style=\"excited\"><prosody rate=\"+6%\"> This week? <break time=\"200ms\"/>Why wait.</prosody></mstts:express-as>"},
+ {"id":"vo-sent","voice":"tony","ssml":"<mstts:express-as style=\"excited\"><prosody rate=\"+6%\"> Sent. <break time=\"250ms\"/>Before the call's even over.</prosody></mstts:express-as>"},
+ {"id":"vo-nudge","voice":"tony","ssml":"<mstts:express-as style=\"excited\"><prosody rate=\"+6%\"> And if someone's gone quiet, Kaki gives them a little nudge.</prosody></mstts:express-as>"},
+ {"id":"vo-minutes","voice":"tony","ssml":"<mstts:express-as style=\"excited\"><prosody rate=\"+6%\"> When the call ends, the minutes are already written. <break time=\"250ms\"/>Mei gives them a once-over, and they're on the wiki with all the others.</prosody></mstts:express-as>"},
+ {"id":"vo-next","voice":"tony","ssml":"<mstts:express-as style=\"excited\"><prosody rate=\"+6%\"> So next Monday starts where this one left off.</prosody></mstts:express-as>"}
+]

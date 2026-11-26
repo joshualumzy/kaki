@@ -2,12 +2,18 @@
 
 A meeting assistant that gives every seat a private wingman.
 
-[Try Kaki](https://green-sky-0c9a41800.4.azurestaticapps.net) · [Screenshots](#screenshots) · [Architecture](#architecture) · [Setup automation](#setup-automation) · [Contents](#contents) · [Poster](docs/poster/kaki-a1-poster.pdf)
+[Try Kaki](https://green-sky-0c9a41800.4.azurestaticapps.net) · [Demo video](#demo-video) · [Screenshots](#screenshots) · [Architecture](#architecture) · [Setup automation](#setup-automation) · [Contents](#contents) · [Poster](docs/poster/kaki-a1-poster.pdf)
 
 ![Kaki meeting room](docs/images/meeting-room.png)
 *A team meeting in progress: the owner and a guest, with Kaki's agenda, live transcript and a follow-up card in the side panel.*
 
 Kaki (Singlish for "buddy" or "one of us") helps a small team run a meeting and finish the work it creates. Each person holds their own seat with a private wingman, while a neutral host keeps the clock and the notes. Follow-ups become to-do cards that a person can hand to Kaki to draft, and the minutes and to-dos stay in the workspace after the meeting ends. A practice meeting, where AI colleagues fill the other seats, is one click away at `/practice` with no sign-in.
+
+## Demo video
+
+DRAG-THE-TRAILER-VIDEO-HERE
+
+*A small team's Monday meeting, before and after Kaki: the wingman privately hands Raj the answer, catches Aisha up, and turns the meeting's follow-ups into approved messages, an issue, a calendar event and wiki minutes. The film is made in code; its project is in [`trailer/`](trailer/README.md). Voices by ElevenLabs and Azure Speech.*
 
 ## Highlights
 
@@ -454,6 +460,7 @@ We wrote Kaki with AI coding assistants (Claude Code and others) and reviewed an
 | --- | --- |
 | OpenAI-compatible LLM gateway | Notetaker, verifier, action drafts, the Director and the company-search answer |
 | `bge-m3` embeddings through the same gateway | 1024-dimension vectors for company records |
+| ElevenLabs | Narrator and character voices in the demo trailer (`trailer/`) |
 | Azure Speech | Speech recognition for meetings and multi-voice speech for the AI colleagues |
 | LiveKit | WebRTC audio room for the meeting and the NPC runner |
 | Wiki.js, Gitea, Mattermost, Mailpit, Radicale | Self-hosted company systems used as search sources and action targets |
@@ -548,6 +555,7 @@ The plan ran in phases: the core stack and protocol, then the three agents, then
 ├── deploy/idle/            # Idle check that switches the cloud VM off when nobody uses it
 ├── deploy/journald/        # 30-day cap on the cloud VM's journald logs
 ├── deploy/systemd/         # The cloud VM's server and AI-colleague services, in production mode
+├── trailer/                # The demo trailer as a Remotion project: scenes, voices, music and render steps
 └── docs/                   # Practice meeting guide, testing guide, diagrams, screenshots and the poster for STePS (School of Computing Term Project Showcase)
 ```
 
