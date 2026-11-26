@@ -11,7 +11,7 @@ Kaki (Singlish for "buddy" or "one of us") helps a small team run a meeting and 
 
 ## Demo video
 
-DRAG-THE-TRAILER-VIDEO-HERE
+https://github.com/user-attachments/assets/6a727e9f-396f-4da2-aadc-c5a6068e127c
 
 *A small team's Monday meeting, before and after Kaki: the wingman privately hands Raj the answer, catches Aisha up, and turns the meeting's follow-ups into approved messages, an issue, a calendar event and wiki minutes. The film is made in code; its project is in [`trailer/`](trailer/README.md). Voices by ElevenLabs and Azure Speech.*
 
